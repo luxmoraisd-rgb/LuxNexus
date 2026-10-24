@@ -1,0 +1,208 @@
+.goals-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.create-goal-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background-color: #202226;
+  border: 1px solid #383a42;
+  color: #f3f4f6;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.create-goal-btn:hover {
+  background-color: #282a30;
+  border-color: #4b4e57;
+  color: #ffffff;
+}
+
+.create-goal-icon {
+  stroke-width: 2;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background-color: #142d54;
+  border: 1px solid #1f457d;
+  color: #70a6ff;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.filter-icon {
+  color: #70a6ff;
+}
+
+.filter-text {
+  line-height: 1;
+}
+
+.filter-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #70a6ff;
+  padding: 2px;
+  border-radius: 3px;
+  transition: background-color 0.15s ease;
+}
+
+.filter-clear-btn:hover {
+  background-color: rgba(112, 166, 255, 0.2);
+  color: #ffffff;
+}
+
+.dropdown-wrapper {
+  position: relative;
+}
+
+.toolbar-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #9ca3af;
+  background: transparent;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.toolbar-action-btn:hover,
+.toolbar-action-btn.active {
+  color: #f3f4f6;
+  background-color: #25272c;
+}
+
+.action-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 190px;
+  background-color: #202226;
+  border: 1px solid #383a42;
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dropdown-header {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #6b7280;
+  padding: 6px 10px 4px;
+  letter-spacing: 0.05em;
+}
+
+.dropdown-item {
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: #d1d5db;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.dropdown-item:hover {
+  background-color: #2b2e35;
+  color: #ffffff;
+}
+
+.dropdown-item.selected {
+  color: #60a5fa;
+  font-weight: 500;
+}
+
+[data-theme="light"] .create-goal-btn {
+  background-color: var(--brand-primary, #6366f1);
+  border-color: var(--brand-primary, #6366f1);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.25);
+}
+
+[data-theme="light"] .create-goal-btn:hover {
+  background-color: #4f46e5;
+  border-color: #4338ca;
+  color: #ffffff;
+}
+
+[data-theme="light"] .filter-pill {
+  background-color: #eff6ff;
+  border-color: #bfdbfe;
+  color: #2563eb;
+}
+
+[data-theme="light"] .filter-icon,
+[data-theme="light"] .filter-clear-btn {
+  color: #2563eb;
+}
+
+[data-theme="light"] .toolbar-action-btn {
+  color: #64748b;
+}
+
+[data-theme="light"] .toolbar-action-btn:hover,
+[data-theme="light"] .toolbar-action-btn.active {
+  color: #0f172a;
+  background-color: #f1f5f9;
+}
+
+[data-theme="light"] .action-dropdown-menu {
+  background-color: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+}
+
+[data-theme="light"] .dropdown-header {
+  color: #94a3b8;
+}
+
+[data-theme="light"] .dropdown-item {
+  color: #334155;
+}
+
+[data-theme="light"] .dropdown-item:hover {
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+[data-theme="light"] .dropdown-item.selected {
+  color: #2563eb;
+}
+

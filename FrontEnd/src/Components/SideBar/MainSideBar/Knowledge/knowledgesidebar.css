@@ -1,0 +1,487 @@
+/* ================================
+   KNOWLEDGE SIDEBAR
+================================ */
+
+.knowledge-sidebar {
+  width: 255px;
+  height: 100%;
+
+  display: flex;
+  flex-direction: column;
+
+  box-sizing: border-box;
+
+  background: var(--app-surface, #18191e);
+  color: var(--app-text, #edf0ff);
+  border-right: 1px solid var(--app-border, rgba(255, 255, 255, 0.08));
+
+  padding: 10px 0;
+
+  overflow: hidden;
+
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+
+/* ================================
+   HEADER
+================================ */
+
+.knowledge-header {
+  height: 36px;
+
+  display: flex;
+  align-items: center;
+
+  padding: 0 15px;
+
+  box-sizing: border-box;
+}
+
+.knowledge-header span {
+  color: var(--app-muted, #c7cef8);
+
+  font-size: calc(15px * var(--font-scale));
+  font-weight: 600;
+
+  line-height: 20px;
+}
+
+
+/* ================================
+   NAVIGATION
+================================ */
+
+.knowledge-navigation {
+  display: flex;
+  flex-direction: column;
+
+  gap: 2px;
+
+  padding: 5px 0;
+}
+
+
+/* ================================
+   NAV ITEM
+================================ */
+
+.knowledge-nav-item {
+  width: calc(100% - 8px);
+  height: 48px;
+
+  margin: 0 4px;
+  padding: 0 11px;
+
+  display: flex;
+  align-items: center;
+
+  gap: 13px;
+
+  border: none;
+  border-radius: 10px;
+
+  background: transparent;
+  color: var(--app-text, #edf0ff);
+
+  cursor: pointer;
+
+  text-align: left;
+
+  font-size: calc(14px * var(--font-scale));
+
+  font-family: inherit;
+
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.knowledge-nav-item:hover {
+  background: var(--app-surface-raised, #232a4c);
+}
+
+.knowledge-nav-item-active {
+  background: var(--app-surface-raised, #2d3872);
+}
+
+.knowledge-nav-item-active:hover {
+  background: var(--app-surface-raised, #2d3872);
+}
+
+
+/* ================================
+   ICON
+================================ */
+
+.knowledge-nav-icon {
+  width: 25px;
+  height: 25px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  flex-shrink: 0;
+
+  color: var(--app-muted, #c7cef8);
+}
+
+.knowledge-nav-item-active .knowledge-nav-icon {
+  color: var(--app-text, #edf0ff);
+}
+
+
+/* ================================
+   LABEL
+================================ */
+
+.knowledge-nav-label {
+  font-size: calc(14px * var(--font-scale));
+  font-weight: 400;
+
+  line-height: 24px;
+
+  white-space: nowrap;
+}
+
+
+/* ================================
+   RECENT SECTION
+================================ */
+
+.recent-section {
+  width: 100%;
+
+  margin-top: 11px;
+}
+
+
+/* ================================
+   RECENT HEADER
+================================ */
+
+.recent-header {
+  width: 100%;
+  height: 38px;
+
+  padding: 0 15px;
+
+  display: flex;
+  align-items: center;
+
+  gap: 8px;
+
+  border: none;
+  background: transparent;
+
+  color: var(--app-muted, #c7cef8);
+
+  cursor: pointer;
+
+  font-family: inherit;
+
+  text-align: left;
+}
+
+.recent-header:hover {
+  color: var(--app-text, #edf0ff);
+}
+
+
+/* ================================
+   CHEVRON
+================================ */
+
+.recent-chevron {
+  width: 18px;
+  height: 18px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  flex-shrink: 0;
+}
+
+.chevron-icon {
+  color: var(--app-muted, #c7cef8);
+
+  transition: transform 0.2s ease;
+}
+
+.chevron-icon.expanded {
+  transform: rotate(0deg);
+}
+
+
+/* ================================
+   RECENT TITLE
+================================ */
+
+.recent-title {
+  font-size: calc(12px * var(--font-scale));
+  font-weight: 600;
+
+  line-height: 20px;
+}
+
+
+/* ================================
+   RECENT CONTENT
+================================ */
+
+.recent-content {
+  overflow: hidden;
+
+  max-height: 0;
+
+  opacity: 0;
+
+  transition:
+    max-height 0.25s ease,
+    opacity 0.2s ease;
+}
+
+.recent-content-open {
+  max-height: 500px;
+  opacity: 1;
+}
+
+.knowledge-scrollable-body {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+/* ================================
+   MEETING COUNT BADGE
+================================ */
+
+.meeting-count-badge {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+  line-height: 1.3;
+}
+
+.meeting-count-badge.upcoming {
+  background: rgba(99, 102, 241, 0.2);
+  color: #818cf8;
+}
+
+.meeting-count-badge.recent {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+/* ================================
+   MEETING SIDEBAR ITEM
+================================ */
+
+.recent-item {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  margin: 0 4px 2px;
+  border-radius: 8px;
+  box-sizing: border-box;
+  color: var(--app-text, #edf0ff);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.recent-item:hover {
+  background: var(--app-surface-raised, rgba(255, 255, 255, 0.05));
+}
+
+.sidebar-meet-icon-wrap {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sidebar-meet-icon-wrap.upcoming {
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+}
+
+.sidebar-meet-icon-wrap.recent {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+}
+
+.sidebar-meet-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.recent-item-text {
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--app-text, #f8fafc);
+}
+
+.sidebar-meet-sub {
+  font-size: calc(11px * var(--font-scale));
+  color: var(--app-muted, #94a3b8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-empty-hint {
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--app-muted, #94a3b8);
+  font-style: italic;
+}
+
+/* ================================
+   FOOTER / BOTTOM SPACE
+================================ */
+
+.knowledge-sidebar-footer {
+  margin-top: auto;
+  height: 1px;
+  margin-left: 8px;
+  margin-right: 8px;
+  background: var(--app-border, rgba(255, 255, 255, 0.08));
+}
+
+/* ================================
+   RESPONSIVE
+================================ */
+
+/* Tablet */
+
+@media (max-width: 768px) {
+  .knowledge-sidebar {
+    width: 230px;
+  }
+
+  .knowledge-nav-label {
+    font-size: calc(14px * var(--font-scale));
+  }
+
+  .knowledge-header span {
+    font-size: calc(15px * var(--font-scale));
+  }
+}
+
+/* Mobile */
+
+@media (max-width: 480px) {
+  .knowledge-sidebar {
+    width: 100%;
+    max-width: 255px;
+  }
+
+  .knowledge-nav-item {
+    height: 46px;
+  }
+
+  .knowledge-nav-label {
+    font-size: calc(14px * var(--font-scale));
+  }
+}
+
+/* Small mobile */
+
+@media (max-width: 320px) {
+  .knowledge-sidebar {
+    width: 100%;
+  }
+
+  .knowledge-nav-label {
+    font-size: calc(14px * var(--font-scale));
+  }
+
+  .knowledge-header {
+    padding-left: 12px;
+  }
+
+  .knowledge-nav-item {
+    padding-left: 9px;
+  }
+}
+
+/* Light Theme Overrides */
+[data-theme="light"] .knowledge-sidebar {
+  background: var(--app-surface, #ffffff);
+  color: var(--app-text, #0f172a);
+  border-right-color: var(--app-border, #e2e8f0);
+}
+
+[data-theme="light"] .knowledge-header span {
+  color: #64748b;
+}
+
+[data-theme="light"] .knowledge-nav-item {
+  color: #475569;
+}
+
+[data-theme="light"] .knowledge-nav-item:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+[data-theme="light"] .knowledge-nav-item-active,
+[data-theme="light"] .knowledge-nav-item-active:hover {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--brand-primary, #6366f1);
+}
+
+[data-theme="light"] .recent-header {
+  color: #475569;
+}
+
+[data-theme="light"] .recent-header:hover {
+  color: #0f172a;
+}
+
+[data-theme="light"] .chevron-icon {
+  color: #64748b;
+}
+
+[data-theme="light"] .recent-item:hover {
+  background: #f1f5f9;
+}
+
+[data-theme="light"] .recent-item-text {
+  color: #0f172a;
+}
+
+[data-theme="light"] .sidebar-meet-sub {
+  color: #64748b;
+}
+
+[data-theme="light"] .meeting-count-badge.upcoming {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+
+[data-theme="light"] .meeting-count-badge.recent {
+  background: #dcfce7;
+  color: #15803d;
+}
+

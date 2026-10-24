@@ -1,0 +1,270 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --font-scale: 1;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-family-sans, 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif);
+  background: var(--app-bg);
+  color: var(--app-text);
+}
+
+button,
+input {
+  font-family: inherit;
+}
+
+button {
+  border: none;
+  outline: none;
+  cursor: pointer;
+}
+
+.app {
+  --font-scale: 1;
+  width: 100%;
+  min-height: 100vh;
+  background: var(--app-bg);
+  color: var(--app-text);
+}
+
+#root {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  text-align: left;
+  border: 0;
+}
+
+.app-body {
+  height: calc(100vh - 54px);
+  min-height: 0;
+  display: flex;
+  background: var(--app-bg);
+  overflow: hidden;
+}
+
+.sidebar-wrapper {
+  width: 78px;
+  flex-shrink: 0;
+  transition: width 0.25s ease;
+  overflow: hidden;
+  background: var(--app-surface);
+}
+
+.sidebar-wrapper.closed {
+  width: 0;
+}
+
+.sub-wrapper {
+  width: 240px;
+  flex-shrink: 0;
+  overflow: hidden;
+  transition: width 0.25s ease;
+  background: var(--app-surface);
+}
+
+.sub-wrapper.closed {
+  width: 0;
+}
+
+.main-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: var(--app-surface, #18191e);
+}
+
+.app[data-theme="light"] .top-navbar,
+.app[data-theme="light"] .main-sidebar,
+.app[data-theme="light"] .sub-sidebar {
+  background: var(--app-surface);
+  border-color: var(--app-border);
+}
+
+.app[data-theme="light"] .menu-btn,
+.app[data-theme="light"] .nav-icon-btn,
+.app[data-theme="light"] .sub-title,
+.app[data-theme="light"] .sub-menu-item,
+.app[data-theme="light"] .project-item,
+.app[data-theme="light"] .workspace-title,
+.app[data-theme="light"] .add-project-btn {
+  color: var(--app-text);
+}
+
+.app[data-theme="light"] .search-box {
+  background: #f7f8fc;
+  border-color: var(--app-border);
+  color: var(--app-muted);
+}
+
+.app[data-theme="light"] .search-box input {
+  color: var(--app-text);
+}
+
+.app[data-theme="light"] .search-box input::placeholder {
+  color: var(--app-muted);
+}
+
+.app[data-theme="light"] .main-sidebar .sidebar-item {
+  color: var(--app-muted);
+}
+
+.app[data-theme="light"] .main-sidebar .sidebar-item.active,
+.app[data-theme="light"] .sub-menu-item.selected {
+  background: #dce5f7;
+  color: #24345a;
+}
+
+.app[data-theme="light"] .sub-menu-item:hover,
+.app[data-theme="light"] .main-sidebar .sidebar-item:hover {
+  background: #f0f3f9;
+  color: var(--app-text);
+}
+
+.app[data-theme="light"] .sub-sidebar-bottom,
+.app[data-theme="light"] .sub-title {
+  border-color: var(--app-border);
+}
+
+.app[data-theme="light"] .top-navbar {
+  background: var(--app-surface);
+  color: var(--app-text);
+}
+
+.app[data-theme="light"] .menu-btn,
+.app[data-theme="light"] .nav-icon-btn,
+.app[data-theme="light"] .week-button,
+.app[data-theme="light"] .header-actions,
+.app[data-theme="light"] .more-button,
+.app[data-theme="light"] .create-task-button,
+.app[data-theme="light"] .toolbar-control,
+.app[data-theme="light"] .toolbar-more {
+  color: var(--app-muted);
+}
+
+.app[data-theme="light"] .create-btn {
+  background: var(--brand-gradient, linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%));
+  color: #ffffff;
+}
+
+.app[data-theme="light"] .search-box {
+  background: #f7f8fc;
+  color: var(--app-muted);
+}
+
+.app[data-theme="light"] .search-box input,
+.app[data-theme="light"] .dashboard,
+.app[data-theme="light"] .inbox-app {
+  color: var(--app-text);
+}
+
+.app[data-theme="light"] .search-box input::placeholder {
+  color: var(--app-muted);
+}
+
+.app[data-theme="light"] .dashboard .date-label,
+.app[data-theme="light"] .dashboard .header-row h1,
+.app[data-theme="light"] .dashboard .card-title h2,
+.app[data-theme="light"] .dashboard .project-title h2,
+.app[data-theme="light"] .dashboard .task-title,
+.app[data-theme="light"] .inbox-title h1,
+.app[data-theme="light"] .notification-heading,
+.app[data-theme="light"] .message-heading {
+  color: var(--app-text);
+}
+
+.app[data-theme="light"] .dashboard-card {
+  background: var(--app-surface);
+  border-color: var(--app-border);
+}
+
+.app[data-theme="light"] .task-tabs,
+.app[data-theme="light"] .task-list,
+.app[data-theme="light"] .task-row,
+.app[data-theme="light"] .inbox-header,
+.app[data-theme="light"] .inbox-tabs,
+.app[data-theme="light"] .inbox-toolbar,
+.app[data-theme="light"] .notification-section {
+  border-color: var(--app-border);
+}
+
+.app[data-theme="light"] .task-tab,
+.app[data-theme="light"] .task-title.completed,
+.app[data-theme="light"] .inbox-tab,
+.app[data-theme="light"] .new-tab-button {
+  color: var(--app-muted);
+}
+
+.app[data-theme="light"] .task-tab.active,
+.app[data-theme="light"] .inbox-tab.active {
+  background: #dce5f7;
+  color: #24345a;
+}
+
+.app[data-theme="light"] .task-assignee,
+.app[data-theme="light"] .week-dropdown,
+.app[data-theme="light"] .project-filter-menu,
+.app[data-theme="light"] .widget-options-menu,
+.app[data-theme="light"] .summary-card,
+.app[data-theme="light"] .task-notification {
+  background: var(--app-surface-raised);
+  border-color: var(--app-border);
+  color: var(--app-text);
+}
+
+.app[data-theme="light"] .week-dropdown button,
+.app[data-theme="light"] .summary-heading,
+.app[data-theme="light"] .summary-card p,
+.app[data-theme="light"] .timeframe,
+.app[data-theme="light"] .section-label,
+.app[data-theme="light"] .notification-task-title,
+.app[data-theme="light"] .message-text {
+  color: var(--app-muted);
+}
+
+.app[data-theme="light"] .manage-button,
+.app[data-theme="light"] .view-summary {
+  border-color: var(--app-border);
+  color: var(--app-text);
+}
+
+.app[data-theme="light"] .manage-button:hover,
+.app[data-theme="light"] .view-summary:hover,
+.app[data-theme="light"] .week-dropdown button:hover {
+  background: #e9edf5;
+}
+
+@media (max-width: 650px) {
+  .app-body {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .sub-wrapper {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: min(255px, calc(100vw - 78px));
+    z-index: 12;
+    box-shadow: 10px 0 18px rgba(0, 0, 0, 0.22);
+  }
+
+  .sub-wrapper.closed {
+    width: 0;
+  }
+}

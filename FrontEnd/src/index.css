@@ -1,0 +1,215 @@
+:root {
+ 
+  --font-family-display: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-family-sans: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-family-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-scale: 1;
+
+ 
+  --brand-primary: #6366f1;
+  --brand-primary-hover: #4f46e5;
+  --brand-primary-glow: rgba(99, 102, 241, 0.35);
+  --brand-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+  --brand-gradient-subtle: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(139, 92, 246, 0.1) 100%);
+
+
+  --color-status-ready: #3b82f6;
+  --color-status-progress: #f59e0b;
+  --color-status-review: #8b5cf6;
+  --color-status-done: #10b981;
+  --color-status-danger: #f43f5e;
+
+  
+  --app-bg: #f8fafc;
+  --app-surface: #ffffff;
+  --app-surface-hover: #f1f5f9;
+  --app-surface-raised: #f8fafc;
+  --app-surface-card: #ffffff;
+  --app-border: #e2e8f0;
+  --app-border-hover: #cbd5e1;
+  --app-border-focus: rgba(99, 102, 241, 0.6);
+  --app-text: #0f172a;
+  --app-text-secondary: #334155;
+  --app-muted: #64748b;
+  --app-subtle: #94a3b8;
+  --app-input: #ffffff;
+  --app-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06);
+  --app-shadow-md: 0 4px 14px rgba(15, 23, 42, 0.08);
+  --app-shadow-lg: 0 10px 25px -3px rgba(15, 23, 42, 0.1), 0 4px 10px -2px rgba(15, 23, 42, 0.05);
+  --app-glow: 0 0 15px rgba(99, 102, 241, 0.15);
+
+  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-smooth: 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+
+  --radius-sm: 6px;
+  --radius-md: 9px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 9999px;
+}
+
+
+:root[data-theme="light"],
+html[data-theme="light"],
+body[data-theme="light"],
+.app[data-theme="light"],
+[data-theme="light"] {
+  --app-bg: #f8fafc;
+  --app-surface: #ffffff;
+  --app-surface-hover: #f1f5f9;
+  --app-surface-raised: #f8fafc;
+  --app-surface-card: #ffffff;
+  --app-border: #e2e8f0;
+  --app-border-hover: #cbd5e1;
+  --app-border-focus: rgba(99, 102, 241, 0.6);
+  --app-text: #0f172a;
+  --app-text-secondary: #334155;
+  --app-muted: #64748b;
+  --app-subtle: #94a3b8;
+  --app-input: #ffffff;
+  --app-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06);
+  --app-shadow-md: 0 4px 14px rgba(15, 23, 42, 0.08);
+  --app-shadow-lg: 0 10px 25px -3px rgba(15, 23, 42, 0.1), 0 4px 10px -2px rgba(15, 23, 42, 0.05);
+  --app-glow: 0 0 15px rgba(99, 102, 241, 0.15);
+}
+
+
+:root[data-theme="dark"],
+html[data-theme="dark"],
+body[data-theme="dark"],
+.app[data-theme="dark"],
+[data-theme="dark"] {
+  --app-bg: #121316;
+  --app-surface: #18191e;
+  --app-surface-hover: #22242a;
+  --app-surface-raised: #1d1e24;
+  --app-surface-card: #1a1b20;
+  --app-border: rgba(255, 255, 255, 0.08);
+  --app-border-hover: rgba(255, 255, 255, 0.16);
+  --app-border-focus: rgba(99, 102, 241, 0.65);
+  --app-text: #f8fafc;
+  --app-text-secondary: #cbd5e1;
+  --app-muted: #94a3b8;
+  --app-subtle: #64748b;
+  --app-input: #141519;
+  --app-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --app-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.4);
+  --app-shadow-lg: 0 10px 28px -3px rgba(0, 0, 0, 0.5), 0 4px 12px -2px rgba(0, 0, 0, 0.3);
+  --app-glow: 0 0 16px rgba(99, 102, 241, 0.2);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: var(--app-bg);
+  color: var(--app-text);
+  font-family: var(--font-family-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--app-bg);
+}
+
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-family-display);
+  font-weight: 600;
+  color: var(--app-text);
+  letter-spacing: -0.02em;
+}
+
+button, input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+  outline: none;
+}
+
+
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--app-border-hover, rgba(255, 255, 255, 0.16));
+  border-radius: 9999px;
+  transition: background var(--transition-fast);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.38);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--app-border-hover, rgba(255, 255, 255, 0.16)) transparent;
+}
+
+[data-theme="light"] * {
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+
+::selection {
+  background: rgba(99, 102, 241, 0.35);
+  color: #ffffff;
+}
+
+/* Global White Calendar Indicator Icon for Date Inputs */
+input[type="date"] {
+  color-scheme: dark;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: brightness(0) invert(1);
+  opacity: 1;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 3px;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 0.85;
+  transform: scale(1.1);
+}

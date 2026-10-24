@@ -1,0 +1,406 @@
+/* =========================================================
+   ROOT
+========================================================= */
+
+.language-region {
+  min-height: 300px;
+
+  width: 100%;
+
+  padding: 25px 17px 40px;
+
+  background: transparent;
+
+  color: var(--app-text, #dedfea);
+
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+
+  box-sizing: border-box;
+}
+
+
+/* =========================================================
+   HEADER
+========================================================= */
+
+.language-region__header {
+  margin-bottom: 10px;
+}
+
+.language-region__header h1 {
+  margin: 0;
+
+  color: var(--app-text, #eeeeF5);
+
+  font-size: calc(36px * var(--font-scale));
+
+  line-height: 1.2;
+
+  font-weight: 600;
+
+  letter-spacing: -1px;
+}
+
+
+/* =========================================================
+   SECTION
+========================================================= */
+
+.language-region__section {
+  width: 100%;
+
+  max-width: 363px;
+
+  margin-bottom: 29px;
+}
+
+.language-region__section h2 {
+  margin: 0 0 12px;
+
+  color: var(--app-text, #dfe0ea);
+
+  font-size: calc(20px * var(--font-scale));
+
+  line-height: 1.35;
+
+  font-weight: 400;
+}
+
+
+/* =========================================================
+   SELECT
+========================================================= */
+
+.language-region__select-wrapper {
+  position: relative;
+
+  width: 100%;
+}
+
+.language-region__select {
+  appearance: none;
+
+  -webkit-appearance: none;
+
+  width: 100%;
+
+  height: 48px;
+
+  padding: 0 45px 0 21px;
+
+  border: 1px solid var(--app-border, #72758f);
+
+  border-radius: 5px;
+
+  outline: none;
+
+  background: var(--app-surface-raised, #30334f);
+
+  color: var(--app-text, #e0e1ea);
+
+  font-size: calc(17px * var(--font-scale));
+
+  cursor: pointer;
+
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.language-region__select:hover {
+  border-color: #8b8ea8;
+}
+
+.language-region__select:focus {
+  border-color: #1684ff;
+
+  box-shadow:
+    0 0 0 2px rgba(22, 132, 255, 0.15);
+}
+
+.language-region__select option {
+  background: var(--app-surface-raised, #30334f);
+
+  color: var(--app-text, #ffffff);
+}
+
+.language-region__select-arrow {
+  position: absolute;
+
+  right: 15px;
+
+  top: 50%;
+
+  transform: translateY(-50%);
+
+  pointer-events: none;
+
+  color: #d5d6df;
+
+  display: flex;
+
+  align-items: center;
+}
+
+
+/* =========================================================
+   RADIO GROUP
+========================================================= */
+
+.language-region__radio-group {
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 12px;
+}
+
+
+/* =========================================================
+   RADIO OPTION
+========================================================= */
+
+.language-region__radio-option {
+  position: relative;
+
+  display: flex;
+
+  align-items: center;
+
+  min-height: 25px;
+
+  cursor: pointer;
+
+  user-select: none;
+}
+
+.language-region__radio-option input {
+  position: absolute;
+
+  opacity: 0;
+
+  pointer-events: none;
+}
+
+
+/* =========================================================
+   CUSTOM RADIO
+========================================================= */
+
+.custom-radio {
+  width: 18px;
+
+  height: 18px;
+
+  flex-shrink: 0;
+
+  margin-left: 4px;
+
+  margin-right: 14px;
+
+  border: 1px solid #898b9e;
+
+  border-radius: 50%;
+
+  position: relative;
+
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+
+/* Selected radio */
+
+.language-region__radio-option
+  input:checked
+  + .custom-radio {
+  border: 5px solid #1684ff;
+}
+
+
+/* Hover */
+
+.language-region__radio-option:hover
+  .custom-radio {
+  border-color: #1684ff;
+}
+
+
+/* =========================================================
+   LABEL
+========================================================= */
+
+.radio-label {
+  color: var(--app-text, #dcdde6);
+
+  font-size: calc(18px * var(--font-scale));
+
+  line-height: 1.4;
+}
+
+
+/* =========================================================
+   PREVIEW
+========================================================= */
+
+.radio-preview {
+  margin-left: 6px;
+
+  color: var(--app-muted, #9698ab);
+
+  font-size: calc(17px * var(--font-scale));
+
+  line-height: 1.4;
+}
+
+.language-region__preview {
+  margin-top: 10px;
+  color: var(--app-muted, #9698ab);
+  font-size: calc(14px * var(--font-scale));
+}
+
+
+/* =========================================================
+   RESPONSIVE - TABLET
+========================================================= */
+
+@media (max-width: 768px) {
+
+  .language-region {
+    padding: 24px;
+  }
+
+  .language-region__header h1 {
+    font-size: calc(32px * var(--font-scale));
+  }
+
+  .language-region__section {
+    max-width: 100%;
+  }
+}
+
+
+/* =========================================================
+   RESPONSIVE - MOBILE
+========================================================= */
+
+@media (max-width: 480px) {
+
+  .language-region {
+    padding: 20px 16px 35px;
+  }
+
+  .language-region__header {
+    margin-bottom: 22px;
+  }
+
+  .language-region__header h1 {
+    font-size: calc(29px * var(--font-scale));
+
+    letter-spacing: -0.5px;
+  }
+
+  .language-region__section {
+    margin-bottom: 27px;
+  }
+
+  .language-region__section h2 {
+    font-size: calc(18px * var(--font-scale));
+
+    margin-bottom: 10px;
+  }
+
+  .language-region__select {
+    height: 46px;
+
+    font-size: calc(16px * var(--font-scale));
+
+    padding-left: 16px;
+  }
+
+  .radio-label {
+    font-size: calc(16px * var(--font-scale));
+  }
+
+  .radio-preview {
+    font-size: calc(15px * var(--font-scale));
+  }
+
+  .custom-radio {
+    margin-right: 12px;
+  }
+}
+
+
+/* =========================================================
+   VERY SMALL MOBILE
+========================================================= */
+
+@media (max-width: 350px) {
+
+  .language-region__header h1 {
+    font-size: calc(26px * var(--font-scale));
+  }
+
+  .radio-label {
+    font-size: calc(15px * var(--font-scale));
+  }
+
+  .radio-preview {
+    font-size: calc(14px * var(--font-scale));
+  }
+}
+
+/* =========================================================
+   LIGHT THEME OVERRIDES
+========================================================= */
+
+[data-theme="light"] .language-region {
+  color: var(--app-text, #0f172a);
+}
+
+[data-theme="light"] .language-region__header h1 {
+  color: var(--app-text, #0f172a);
+}
+
+[data-theme="light"] .language-region__section h2 {
+  color: var(--app-text-secondary, #334155);
+}
+
+[data-theme="light"] .language-region__select {
+  background: var(--app-surface, #ffffff);
+  border-color: var(--app-border, #cbd5e1);
+  color: var(--app-text, #0f172a);
+}
+
+[data-theme="light"] .language-region__select:hover {
+  border-color: #94a3b8;
+}
+
+[data-theme="light"] .language-region__select option {
+  background: #ffffff;
+  color: #0f172a;
+}
+
+[data-theme="light"] .language-region__select-arrow {
+  color: #64748b;
+}
+
+[data-theme="light"] .custom-radio {
+  border-color: #94a3b8;
+}
+
+[data-theme="light"] .radio-label {
+  color: var(--app-text, #0f172a);
+}
+
+[data-theme="light"] .radio-preview,
+[data-theme="light"] .language-region__preview {
+  color: var(--app-muted, #64748b);
+}

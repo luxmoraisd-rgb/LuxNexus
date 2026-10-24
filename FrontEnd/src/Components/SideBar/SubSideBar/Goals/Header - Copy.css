@@ -1,0 +1,135 @@
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: relative;
+}
+
+.header-title h1 {
+  margin: 0;
+  color: var(--text-primary, #f9fafb);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.dropdown-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.dropdown-arrow {
+  color: var(--text-secondary, #9ca3af);
+  font-size: 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  padding: 4px;
+  border-radius: 4px;
+  background: transparent;
+  border: none;
+}
+
+.dropdown-arrow:hover {
+  color: var(--text-primary, #ffffff);
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  background-color: var(--bg-card, #202226);
+  border: 1px solid var(--border-color, #383a42);
+  border-radius: 8px;
+  padding: 6px;
+  min-width: 180px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  z-index: 50;
+}
+
+.dropdown-menu button {
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-primary, #e5e7eb);
+  border-radius: 4px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.dropdown-menu button:hover {
+  background-color: var(--bg-hover, #2b2e35);
+  color: var(--text-primary, #ffffff);
+}
+
+.help-button {
+  padding: 6px 12px;
+  border: 1px solid var(--border-color, #383a42);
+  border-radius: 6px;
+  color: #818cf8;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.help-button:hover {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--brand-primary, #6366f1);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+[data-theme="light"] .header-title h1 {
+  color: #0f172a;
+}
+
+[data-theme="light"] .dropdown-arrow {
+  color: #64748b;
+}
+
+[data-theme="light"] .dropdown-arrow:hover {
+  color: #0f172a;
+  background-color: #f1f5f9;
+}
+
+[data-theme="light"] .dropdown-menu {
+  background-color: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+}
+
+[data-theme="light"] .dropdown-menu button {
+  color: #334155;
+}
+
+[data-theme="light"] .dropdown-menu button:hover {
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+[data-theme="light"] .help-button {
+  border-color: #e2e8f0;
+  color: #6366f1;
+}
+
+[data-theme="light"] .help-button:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+

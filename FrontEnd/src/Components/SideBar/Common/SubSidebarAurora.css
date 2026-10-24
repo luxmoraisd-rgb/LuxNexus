@@ -1,0 +1,355 @@
+/* ========================================================
+   FLOATING 3D NEXUS HOLOGRAM
+   Three floating isometric diamond layers (matching Nexus logo)
+   levitating with glowing neon edges, vertical light pulses,
+   interactive 3D perspective parallax & soft aurora glow.
+======================================================== */
+
+.sub-hologram-container {
+  flex: 1 1 auto;
+  min-height: 180px;
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  user-select: none;
+  cursor: pointer;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ========================================================
+   BACKGROUND SOFT AURORA NEBULA
+======================================================== */
+
+.holo-aurora-glow {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.holo-glow-indigo {
+  width: 180px;
+  height: 180px;
+  top: 15%;
+  left: -20px;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.4) 0%, rgba(99, 102, 241, 0) 70%);
+  filter: blur(45px);
+  animation: hGlow1 16s ease-in-out infinite alternate;
+}
+
+.holo-glow-cyan {
+  width: 170px;
+  height: 170px;
+  bottom: 10%;
+  right: -20px;
+  background: radial-gradient(circle, rgba(6, 182, 212, 0.38) 0%, rgba(6, 182, 212, 0) 70%);
+  filter: blur(42px);
+  animation: hGlow2 20s ease-in-out infinite alternate;
+}
+
+.holo-glow-purple {
+  width: 150px;
+  height: 150px;
+  top: 45%;
+  right: 10px;
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.32) 0%, rgba(168, 85, 247, 0) 70%);
+  filter: blur(40px);
+  animation: hGlow3 18s ease-in-out infinite alternate;
+}
+
+.holo-glow-pink {
+  width: 130px;
+  height: 130px;
+  bottom: 25%;
+  left: 10px;
+  background: radial-gradient(circle, rgba(236, 72, 153, 0.28) 0%, rgba(236, 72, 153, 0) 70%);
+  filter: blur(38px);
+  animation: hGlow4 15s ease-in-out infinite alternate;
+}
+
+@keyframes hGlow1 {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(25px, 20px) scale(1.15); }
+  100% { transform: translate(-20px, 35px) scale(0.92); }
+}
+
+@keyframes hGlow2 {
+  0% { transform: translate(0, 0) scale(0.95); }
+  50% { transform: translate(-30px, -25px) scale(1.18); }
+  100% { transform: translate(20px, -20px) scale(1.02); }
+}
+
+@keyframes hGlow3 {
+  0% { transform: translate(0, 0) scale(1.05); }
+  50% { transform: translate(-25px, 30px) scale(0.9); }
+  100% { transform: translate(25px, -20px) scale(1.12); }
+}
+
+@keyframes hGlow4 {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(20px, -20px) scale(1.1); }
+  100% { transform: translate(-15px, 25px) scale(0.95); }
+}
+
+/* ========================================================
+   3D HOLOGRAM STAGE & SVG
+======================================================== */
+
+.holo-3d-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform-style: preserve-3d;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
+}
+
+.holo-svg {
+  width: 100%;
+  max-width: 216px;
+  height: 100%;
+  max-height: 260px;
+  overflow: visible;
+}
+
+/* ========================================================
+   ISOMETRIC LAYERS FLOATING LEVITATION
+======================================================== */
+
+.holo-layer {
+  will-change: transform;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Layer 1: Top Cyan Diamond */
+.layer-1 {
+  animation: floatLayerTop 4.2s ease-in-out infinite alternate;
+  filter: drop-shadow(0 0 6px rgba(6, 182, 212, 0.45));
+}
+
+/* Layer 2: Middle Indigo Diamond */
+.layer-2 {
+  animation: floatLayerMid 4.8s ease-in-out infinite alternate 0.6s;
+  filter: drop-shadow(0 0 6px rgba(99, 102, 241, 0.45));
+}
+
+/* Layer 3: Bottom Purple/Pink Diamond */
+.layer-3 {
+  animation: floatLayerBot 5.4s ease-in-out infinite alternate 1.2s;
+  filter: drop-shadow(0 0 6px rgba(168, 85, 247, 0.45));
+}
+
+@keyframes floatLayerTop {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-7px); }
+  100% { transform: translateY(3px); }
+}
+
+@keyframes floatLayerMid {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-4px); }
+  100% { transform: translateY(6px); }
+}
+
+@keyframes floatLayerBot {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-5px); }
+  100% { transform: translateY(4px); }
+}
+
+/* Interactive Hover: Layers Expand Apart */
+.sub-hologram-container:hover .layer-1 {
+  transform: translateY(-14px);
+}
+
+.sub-hologram-container:hover .layer-2 {
+  transform: translateY(0px);
+}
+
+.sub-hologram-container:hover .layer-3 {
+  transform: translateY(14px);
+}
+
+.layer-face {
+  transition: stroke-width 0.25s ease, fill-opacity 0.25s ease;
+}
+
+.sub-hologram-container:hover .layer-face {
+  stroke-width: 2.2px;
+}
+
+.layer-node-core {
+  filter: drop-shadow(0 0 4px currentColor);
+}
+
+/* ========================================================
+   CENTRAL HOLOGRAPHIC LIGHT BEAM & ENERGY PULSE
+======================================================== */
+
+.holo-center-beam {
+  filter: drop-shadow(0 0 4px rgba(6, 182, 212, 0.8));
+  opacity: 0.75;
+  transition: opacity 0.3s ease;
+}
+
+.sub-hologram-container:hover .holo-center-beam {
+  opacity: 1;
+}
+
+.traveling-pulse-group {
+  animation: pulseThroughLayers 3.4s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes pulseThroughLayers {
+  0% {
+    transform: translateY(-90px);
+    opacity: 0.2;
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(90px);
+    opacity: 0.15;
+  }
+}
+
+.beam-pulse-glow {
+  filter: drop-shadow(0 0 8px #38bdf8) drop-shadow(0 0 16px #06b6d4);
+}
+
+.beam-pulse-core {
+  filter: drop-shadow(0 0 3px #ffffff);
+}
+
+/* ========================================================
+   HOLOGRAPHIC GROUND RIPPLE RINGS
+======================================================== */
+
+.ground-ring {
+  fill: none;
+  stroke: rgba(99, 102, 241, 0.35);
+  stroke-width: 1px;
+  stroke-dasharray: 4 3;
+  animation: groundRotate 20s linear infinite;
+}
+
+.ring-1 {
+  stroke: rgba(99, 102, 241, 0.35);
+  animation-duration: 24s;
+}
+
+.ring-2 {
+  stroke: rgba(6, 182, 212, 0.45);
+  animation-duration: 16s;
+  animation-direction: reverse;
+}
+
+.ring-3 {
+  stroke: rgba(168, 85, 247, 0.5);
+  animation-duration: 12s;
+}
+
+@keyframes groundRotate {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: 60; }
+}
+
+/* Corner Beacons */
+.corner-dot {
+  filter: drop-shadow(0 0 4px currentColor);
+  animation: beaconPulse 2.8s infinite ease-in-out;
+}
+
+.cd-top { animation-delay: 0s; }
+.cd-right { animation-delay: 0.7s; }
+.cd-left { animation-delay: 1.4s; }
+.cd-bot { animation-delay: 2.1s; }
+
+@keyframes beaconPulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.3); }
+}
+
+/* ========================================================
+   FLOATING AMBIENT STARDUST
+======================================================== */
+
+.holo-stardust {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.h-dot {
+  position: absolute;
+  width: 2.2px;
+  height: 2.2px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 6px 1px #a5b4fc;
+}
+
+.hd-1 { top: 18%; left: 32%; animation: hDotTwinkle 3.2s infinite ease-in-out; }
+.hd-2 { top: 35%; right: 26%; animation: hDotTwinkle 4.2s infinite ease-in-out 0.8s; }
+.hd-3 { top: 62%; left: 22%; animation: hDotTwinkle 3.6s infinite ease-in-out 1.5s; }
+.hd-4 { top: 78%; right: 30%; animation: hDotTwinkle 4.6s infinite ease-in-out 2.2s; }
+.hd-5 { top: 48%; left: 74%; animation: hDotTwinkle 3.8s infinite ease-in-out 1.1s; }
+
+@keyframes hDotTwinkle {
+  0%, 100% { opacity: 0.15; transform: scale(0.7); }
+  50% { opacity: 0.95; transform: scale(1.35); }
+}
+
+/* ========================================================
+   SEAMLESS VIGNETTE BLEND
+======================================================== */
+
+.holo-vignette {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    var(--app-surface, #18191e) 0%,
+    transparent 15%,
+    transparent 85%,
+    var(--app-surface, #18191e) 100%
+  );
+  pointer-events: none;
+}
+
+/* ========================================================
+   LIGHT THEME ADAPTATIONS
+======================================================== */
+
+[data-theme="light"] .layer-1 {
+  filter: drop-shadow(0 0 4px rgba(6, 182, 212, 0.3));
+}
+
+[data-theme="light"] .layer-2 {
+  filter: drop-shadow(0 0 4px rgba(99, 102, 241, 0.3));
+}
+
+[data-theme="light"] .layer-3 {
+  filter: drop-shadow(0 0 4px rgba(168, 85, 247, 0.3));
+}
+
+[data-theme="light"] .holo-vignette {
+  background: linear-gradient(
+    180deg,
+    var(--app-surface, #ffffff) 0%,
+    transparent 15%,
+    transparent 85%,
+    var(--app-surface, #ffffff) 100%
+  );
+}

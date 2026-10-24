@@ -1,0 +1,401 @@
+/* =========================================
+   Main Sidebar
+========================================= */
+
+.tracker-sidebar {
+  width: 255px;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 10px 0;
+  background: var(--app-surface, #18191e);
+  color: var(--app-text, #eeeeee);
+  border-right: 1px solid var(--app-border, rgba(255, 255, 255, 0.08));
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+
+/* =========================================
+   Header
+========================================= */
+
+.tracker-header {
+  padding: 0 10px 12px;
+
+  font-size: calc(14px * var(--font-scale));
+  font-weight: 600;
+
+  color: var(--app-muted, #9e9e9e);
+}
+
+
+/* =========================================
+   Navigation
+========================================= */
+
+.tracker-navigation {
+  display: flex;
+  flex-direction: column;
+
+  gap: 2px;
+}
+
+
+/* =========================================
+   Navigation Item
+========================================= */
+
+.tracker-nav-item {
+  width: calc(100% - 0px);
+  height: 48px;
+
+  border: none;
+  outline: none;
+
+  padding: 0 12px;
+
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  background: transparent;
+
+  color: var(--app-text, #eeeeee);
+
+  border-radius: 12px;
+
+  cursor: pointer;
+
+  font-family: inherit;
+  font-size: calc(14px * var(--font-scale));
+
+  text-align: left;
+
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.tracker-nav-item svg {
+  color: #a9a9a9;
+
+  flex-shrink: 0;
+}
+
+.tracker-nav-item:hover {
+  background: var(--app-surface-hover, #f1f5f9);
+  color: var(--app-text, #0f172a);
+}
+
+.tracker-nav-item.active {
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--brand-primary, #6366f1);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.25);
+}
+
+.tracker-nav-item.active svg {
+  color: var(--brand-primary, #6366f1);
+}
+
+.tracker-nav-item span {
+  white-space: nowrap;
+}
+
+
+/* =========================================
+   Recent Section
+========================================= */
+
+.tracker-recent-section {
+  margin-top: 25px;
+}
+
+
+/* =========================================
+   Recent Header
+========================================= */
+
+.tracker-recent-header {
+  height: 40px;
+
+  padding: 0 12px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+
+/* =========================================
+   Recent Title
+========================================= */
+
+.tracker-recent-title-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  padding: 0;
+
+  border: none;
+  background: transparent;
+
+  color: var(--app-muted, #999999);
+
+  font-family: inherit;
+
+  font-size: calc(14px * var(--font-scale));
+  font-weight: 600;
+
+  cursor: pointer;
+}
+
+.tracker-recent-title-button:hover {
+  color: #bbbbbb;
+}
+
+
+/* =========================================
+   Arrow
+========================================= */
+
+.tracker-recent-arrow {
+  transition: transform 0.2s ease;
+}
+
+.tracker-recent-arrow.collapsed {
+  transform: rotate(-90deg);
+}
+
+
+/* =========================================
+   Add Button
+========================================= */
+
+.tracker-recent-add-button {
+  width: 28px;
+  height: 28px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 0;
+
+  border: none;
+  background: transparent;
+
+  color: var(--app-muted, #999999);
+
+  border-radius: 6px;
+
+  cursor: pointer;
+
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.tracker-recent-add-button:hover {
+  background: var(--app-surface-raised, #3a3a3a);
+  color: var(--app-text, #eeeeee);
+}
+
+
+/* =========================================
+   Recent Items
+========================================= */
+
+.tracker-recent-items {
+  display: flex;
+  flex-direction: column;
+
+  gap: 4px;
+
+  margin-top: 3px;
+}
+
+
+/* =========================================
+   Recent Item
+========================================= */
+
+.tracker-recent-item {
+  width: 100%;
+  height: 44px;
+
+  padding: 0 10px;
+
+  display: flex;
+  align-items: center;
+  gap: 11px;
+
+  border: none;
+  outline: none;
+
+  background: transparent;
+
+  color: var(--app-text, #eeeeee);
+
+  border-radius: 8px;
+
+  font-family: inherit;
+  font-size: calc(14px * var(--font-scale));
+
+  cursor: pointer;
+
+  text-align: left;
+
+  transition:
+    background 0.18s ease,
+    transform 0.15s ease;
+}
+
+.tracker-recent-item:hover {
+  background: var(--app-surface-raised, #333333);
+}
+
+.tracker-recent-item.active {
+  background: var(--app-surface-raised, #404040);
+}
+
+.tracker-recent-item:active {
+  transform: scale(0.98);
+}
+
+
+/* =========================================
+   Recent Icon
+========================================= */
+
+.tracker-recent-icon {
+  width: 27px;
+  height: 27px;
+
+  flex-shrink: 0;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border-radius: 7px;
+}
+
+
+/* Purple Dashboard */
+
+.tracker-recent-icon.purple {
+  background: #32216e;
+  color: #a88aff;
+}
+
+
+/* Blue Dashboard */
+
+.tracker-recent-icon.blue {
+  background: #063c87;
+  color: #36a5ff;
+}
+
+
+/* Pink Dashboard */
+
+.tracker-recent-icon.pink {
+  background: #67103c;
+  color: #ff3b9d;
+}
+
+
+/* =========================================
+   Recent Label
+========================================= */
+
+.tracker-recent-label {
+  overflow: hidden;
+
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+/* =========================================
+   Responsive
+========================================= */
+
+@media (max-width: 768px) {
+  .tracker-sidebar {
+    width: 230px;
+  }
+
+  .tracker-nav-item,
+  .tracker-recent-item {
+    font-size: calc(17px * var(--font-scale));
+  }
+
+  .tracker-header {
+    font-size: calc(15px * var(--font-scale));
+  }
+}
+
+
+/* =========================================
+   Small Mobile
+========================================= */
+
+@media (max-width: 480px) {
+  .tracker-sidebar {
+    width: 100%;
+    max-width: 280px;
+  }
+}
+
+/* Light Theme Overrides */
+[data-theme="light"] .tracker-sidebar {
+  background: var(--app-surface, #ffffff);
+  color: var(--app-text, #0f172a);
+  border-right-color: var(--app-border, #e2e8f0);
+}
+
+[data-theme="light"] .tracker-header {
+  color: #64748b;
+}
+
+[data-theme="light"] .tracker-nav-item {
+  color: #475569;
+}
+
+[data-theme="light"] .tracker-nav-item:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+[data-theme="light"] .tracker-nav-item svg {
+  color: #64748b;
+}
+
+[data-theme="light"] .tracker-nav-item.active {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--brand-primary, #6366f1);
+}
+
+[data-theme="light"] .tracker-nav-item.active svg {
+  color: var(--brand-primary, #6366f1);
+}
+
+[data-theme="light"] .tracker-recent-header {
+  color: #64748b;
+}
+
+[data-theme="light"] .tracker-recent-item {
+  color: #475569;
+}
+
+[data-theme="light"] .tracker-recent-item:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}

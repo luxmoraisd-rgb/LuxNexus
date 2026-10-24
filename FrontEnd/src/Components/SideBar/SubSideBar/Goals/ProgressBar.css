@@ -1,0 +1,47 @@
+
+.progress-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.progress-track {
+  flex: 1;
+  min-width: 30px;
+  max-width: 130px;
+  height: 8px;
+  background-color: var(--app-surface-hover, #27282d);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.progress-percentage {
+  min-width: 38px;
+  flex-shrink: 0;
+  color: var(--app-text, #d1d5db);
+  font-size: 13px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.cell-progress {
+  vertical-align: middle;
+  padding: 0 12px;
+}
+
+[data-theme="light"] .progress-track {
+  background-color: #e2e8f0;
+}
+
+[data-theme="light"] .progress-percentage {
+  color: #334155;
+}

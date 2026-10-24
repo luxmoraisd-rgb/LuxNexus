@@ -1,0 +1,18 @@
+{
+  "name": "nexusapp",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "npm --prefix FrontEnd run dev -- --host 127.0.0.1",
+    "frontend": "npm --prefix FrontEnd run dev -- --host 127.0.0.1",
+    "backend": "Backend\\.venv\\Scripts\\python.exe Backend\\manage.py runserver 127.0.0.1:8000",
+    "server": "npm run backend",
+    "backend:install": "\"%LOCALAPPDATA%\\Programs\\Python\\Launcher\\py.exe\" -3.13 -m venv Backend\\.venv && Backend\\.venv\\Scripts\\python.exe -m pip install -r Backend\\requirements.txt",
+    "build:frontend": "npm --prefix FrontEnd run build"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.5",
+    "lucide-react": "^1.48.0",
+    "mongoose": "^9.10.4",
+    "react-router-dom": "^7.18.4"
+  }
+}
