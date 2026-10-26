@@ -14,7 +14,7 @@ export const TYPE_CONFIG = {
 };
 
 export const TEAM_MEMBERS = [
-  { id: 'sivakumar', name: 'Sivakumar', username: 'sivakumar', email: 'sivakumarluxmorchn@gmail.com', avatarBg: '#137333', initial: 'S', role: 'Frontend Lead' },
+  { id: 'sivakumar', name: 'Sivakumar', username: 'sivakumar', email: 'sivakumarluxmorchn@gmail.com', avatarBg: '#137333', initial: 'S', role: 'Frontend' },
   { id: 'luxmor', name: 'Luxmor', username: 'luxmor', email: 'luxmorchn@gmail.com', avatarBg: '#7c3aed', initial: 'L', role: 'Project Admin' },
   { id: 'franklin', name: 'Franklin', username: 'franklin', email: 'franklin@gmail.com', avatarBg: '#059669', initial: 'F', role: 'Backend Engineer' },
   { id: 'jeeva', name: 'Jeeva', username: 'jeeva', email: 'jeeva@gmail.com', avatarBg: '#d97706', initial: 'J', role: 'QA Engineer' },
