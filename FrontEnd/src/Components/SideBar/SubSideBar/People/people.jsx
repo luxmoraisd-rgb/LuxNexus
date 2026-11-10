@@ -379,7 +379,7 @@ export const PeoplePage = ({
               onClick={() => setShowInviteModal(true)}
             >
               <UserPlus size={16} />
-              <span>Invite Person</span>
+              <span>Invite Member</span>
             </button>
           )}
         </div>
