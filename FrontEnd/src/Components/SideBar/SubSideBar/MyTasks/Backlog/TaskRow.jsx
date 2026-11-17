@@ -27,6 +27,7 @@ const TaskRow = memo(({
   onDeleteTask,
   showToast,
   teamMembers = TEAM_MEMBERS,
+  customColumns = [],
 }) => {
   const membersList = Array.isArray(teamMembers) && teamMembers.length > 0 ? teamMembers : TEAM_MEMBERS;
   const ownerObj =
@@ -255,6 +256,11 @@ const TaskRow = memo(({
           </button>
         </div>
       </td>
+      {customColumns.map((column) => (
+        <td className="td-custom-column" key={column} style={{ minWidth: 120 }}>
+          {task.customFields?.[column] ?? task[column] ?? ''}
+        </td>
+      ))}
     </tr>
   );
 });

@@ -5,6 +5,7 @@ const InlineTaskInput = memo(({
   isSprint1,
   availableTypes = ['Frontend', 'Backend', 'Feature', 'Bug', 'Quality'],
   defaultType = 'Frontend',
+  colSpan = 9,
 }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [inputVal, setInputVal] = useState('');
@@ -32,7 +33,7 @@ const InlineTaskInput = memo(({
       <td className="td-checkbox">
         <div className="backlog-checkbox-placeholder" />
       </td>
-      <td className="td-task" colSpan={9}>
+      <td className="td-task" colSpan={colSpan}>
         {!isAdding ? (
           <button
             type="button"

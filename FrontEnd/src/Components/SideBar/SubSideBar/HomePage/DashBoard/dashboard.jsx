@@ -7,7 +7,6 @@ import {
   Check,
   ChevronDown,
   Lock,
-  ArrowUpRight,
   FolderKanban,
   Zap,
   AlertCircle,
@@ -16,14 +15,16 @@ import {
   Minimize2,
   ListTodo,
 } from "lucide-react";
-import { TEAM_MEMBERS, isTaskAssignedToUser } from "../../MyTasks/Backlog/TaskRowUtils";
+import { TEAM_MEMBERS } from "../../MyTasks/Backlog/TaskRowUtils";
 import {
   getStoredProjectKey,
   getStoredSprints,
   getStoredTasks,
   saveToStorage,
+  sprintApi,
   STORAGE_KEYS,
 } from "../../MyTasks/Backlog/backlogApi";
+import { isSprintUpcoming } from "./sprintDateStatus";
 import "./dashboard.css";
 
 function getLocalDateValue(date = new Date()) {
@@ -86,6 +87,8 @@ function DashboardHeader({
   profileName,
   timeframe,
   onTimeframeChange,
+  isFullWidth,
+  onToggleLayout,
 }) {
   const [timeframeOpen, setTimeframeOpen] = useState(false);
   const dropdownRef = useRef(null);
@@ -123,39 +126,52 @@ function DashboardHeader({
           <span>{todayLabel}</span>
         </div>
 
-        {/* Timeframe Pill Dropdown */}
-        <div className="timeframe-wrapper" ref={dropdownRef}>
+        <div className="header-top-actions">
           <button
             type="button"
-            className="timeframe-pill-btn"
-            onClick={() => setTimeframeOpen((prev) => !prev)}
-            aria-expanded={timeframeOpen}
-            aria-haspopup="listbox"
+            className={`dashboard-layout-toggle-btn ${isFullWidth ? "active" : ""}`}
+            onClick={onToggleLayout}
+            title={isFullWidth ? "Switch to side-by-side split view" : "Expand cards to full width"}
+            aria-label="Toggle layout view"
           >
-            <span>{timeframe}</span>
-            <ChevronDown size={15} className={`chevron-icon ${timeframeOpen ? "open" : ""}`} />
+            {isFullWidth ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+            <span>{isFullWidth ? "Split view" : "Expand view"}</span>
           </button>
 
-          {timeframeOpen && (
-            <div className="timeframe-dropdown" role="listbox">
-              {timeframeOptions.map((opt) => (
-                <button
-                  key={opt}
-                  type="button"
-                  role="option"
-                  aria-selected={timeframe === opt}
-                  className={`timeframe-option ${timeframe === opt ? "active" : ""}`}
-                  onClick={() => {
-                    onTimeframeChange(opt);
-                    setTimeframeOpen(false);
-                  }}
-                >
-                  <span>{opt}</span>
-                  {timeframe === opt && <Check size={14} className="timeframe-check" />}
-                </button>
-              ))}
-            </div>
-          )}
+          {/* Timeframe Pill Dropdown */}
+          <div className="timeframe-wrapper" ref={dropdownRef}>
+            <button
+              type="button"
+              className="timeframe-pill-btn"
+              onClick={() => setTimeframeOpen((prev) => !prev)}
+              aria-expanded={timeframeOpen}
+              aria-haspopup="listbox"
+            >
+              <span>{timeframe}</span>
+              <ChevronDown size={15} className={`chevron-icon ${timeframeOpen ? "open" : ""}`} />
+            </button>
+
+            {timeframeOpen && (
+              <div className="timeframe-dropdown" role="listbox">
+                {timeframeOptions.map((opt) => (
+                  <button
+                    key={opt}
+                    type="button"
+                    role="option"
+                    aria-selected={timeframe === opt}
+                    className={`timeframe-option ${timeframe === opt ? "active" : ""}`}
+                    onClick={() => {
+                      onTimeframeChange(opt);
+                      setTimeframeOpen(false);
+                    }}
+                  >
+                    <span>{opt}</span>
+                    {timeframe === opt && <Check size={14} className="timeframe-check" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -218,23 +234,12 @@ function DashboardHeader({
 function TasksCard({
   tasks,
   profileName,
-  size,
-  onSizeChange,
   onToggleStatus,
 }) {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("Upcoming");
 
-  const handleOpenMyTasks = () => {
-    navigate("/work/tasks?filter=my-tasks", {
-      state: { myTasksOnly: true },
-    });
-  };
-
   const filteredTasks = useMemo(() => {
-    if (activeTab === "All") {
-      return tasks;
-    }
     if (activeTab === "Completed") {
       return tasks.filter((task) => task.completed);
     }
@@ -249,7 +254,7 @@ function TasksCard({
   const completedCount = tasks.filter((task) => task.completed).length;
 
   return (
-    <section className={`dashboard-card tasks-card ${size === "full" ? "full-size" : ""}`}>
+    <section className="dashboard-card tasks-card">
       {/* Card Header */}
       <div className="card-header">
         <div className="card-title-group">
@@ -259,9 +264,9 @@ function TasksCard({
           <div>
             <div className="card-heading-row">
               <h2
-                onClick={handleOpenMyTasks}
+                onClick={() => navigate("/work/tasks")}
                 className="clickable-title"
-                title="Open My Tasks (Login Person's Tasks Only)"
+                title="Open My Tasks"
               >
                 My tasks
               </h2>
@@ -275,40 +280,10 @@ function TasksCard({
             </span>
           </div>
         </div>
-
-        <div className="card-header-actions">
-          <button
-            type="button"
-            className="card-quick-link"
-            onClick={handleOpenMyTasks}
-            title="View all your tasks in My Tasks"
-          >
-            <span>View all</span>
-            <ArrowUpRight size={14} />
-          </button>
-          <button
-            type="button"
-            className="card-size-btn"
-            onClick={() => onSizeChange(size === "full" ? "half" : "full")}
-            title={size === "full" ? "Collapse to half width" : "Expand to full width"}
-            aria-label="Toggle card width"
-          >
-            {size === "full" ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-          </button>
-        </div>
       </div>
 
       {/* Segmented Filter Tabs */}
       <div className="task-tabs-strip">
-        <button
-          type="button"
-          className={`task-tab-btn ${activeTab === "All" ? "active" : ""}`}
-          onClick={() => setActiveTab("All")}
-        >
-          <span>All</span>
-          <span className="tab-count-pill">{tasks.length}</span>
-        </button>
-
         <button
           type="button"
           className={`task-tab-btn ${activeTab === "Upcoming" ? "active" : ""}`}
@@ -363,7 +338,7 @@ function TasksCard({
                 <div
                   className={`task-item-row ${task.completed ? "task-completed" : ""}`}
                   key={task.id}
-                  onClick={handleOpenMyTasks}
+                  onClick={() => navigate("/work/tasks")}
                   title="Click to view details in My Tasks"
                 >
                   <button
@@ -417,13 +392,10 @@ function ProjectsCard({
   projectKey,
   sprints,
   tasks,
-  size,
-  onSizeChange,
 }) {
   const navigate = useNavigate();
   const activeSprint = sprints.find((sprint) => sprint.isStarted && !sprint.isCompleted);
-  const upcomingSprints = sprints.filter((sprint) => !sprint.isStarted && !sprint.isCompleted);
-  const upcomingSprint = upcomingSprints[0];
+  const upcomingSprints = sprints.filter((sprint) => isSprintUpcoming(sprint));
 
   const getSprintTaskCounts = (sprintId) => {
     const sprintTasks = tasks.filter((task) => task.sprintId === sprintId);
@@ -438,7 +410,7 @@ function ProjectsCard({
   };
 
   return (
-    <section className={`dashboard-card projects-card ${size === "full" ? "full-size" : ""}`}>
+    <section className="dashboard-card projects-card">
       {/* Header */}
       <div className="card-header">
         <div className="card-title-group">
@@ -459,27 +431,6 @@ function ProjectsCard({
               {sprints.length} sprint{sprints.length === 1 ? "" : "s"} tracked
             </span>
           </div>
-        </div>
-
-        <div className="card-header-actions">
-          <button
-            type="button"
-            className="card-quick-link"
-            onClick={() => navigate("/work/all-sprints")}
-            title="Open All Sprints view"
-          >
-            <span>All sprints</span>
-            <ArrowUpRight size={14} />
-          </button>
-          <button
-            type="button"
-            className="card-size-btn"
-            onClick={() => onSizeChange(size === "full" ? "half" : "full")}
-            title={size === "full" ? "Collapse to half width" : "Expand to full width"}
-            aria-label="Toggle card width"
-          >
-            {size === "full" ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-          </button>
         </div>
       </div>
 
@@ -517,12 +468,15 @@ function ProjectsCard({
             <span className="section-label">Upcoming Sprint</span>
           </div>
 
-          {upcomingSprint ? (
-            <UpcomingSprintCard
-              sprint={upcomingSprint}
-              counts={getSprintTaskCounts(upcomingSprint.id)}
-              onNavigate={() => navigate("/work/all-sprints")}
-            />
+          {upcomingSprints.length ? (
+            upcomingSprints.map((sprint) => (
+              <UpcomingSprintCard
+                key={sprint.id}
+                sprint={sprint}
+                counts={getSprintTaskCounts(sprint.id)}
+                onNavigate={() => navigate("/work/all-sprints")}
+              />
+            ))
           ) : (
             <div className="empty-sprint-banner">
               <span>No upcoming sprint scheduled yet.</span>
@@ -549,22 +503,33 @@ function ProjectsCard({
                 const counts = getSprintTaskCounts(sprint.id);
                 const isCurrent = sprint.isStarted && !sprint.isCompleted;
                 const isDone = sprint.isCompleted;
+                const isUpcoming = !isCurrent && !isDone && isSprintUpcoming(sprint);
 
                 return (
                   <div
                     key={sprint.id}
                     className="mini-sprint-item"
+                    role="link"
+                    tabIndex={0}
                     onClick={() => navigate("/work/all-sprints")}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        navigate("/work/all-sprints");
+                      }
+                    }}
                   >
                     <div className="mini-sprint-main">
                       <strong className="mini-sprint-name">{sprint.name}</strong>
-                      <span
-                        className={`mini-status-pill ${
-                          isDone ? "done" : isCurrent ? "active" : "upcoming"
-                        }`}
-                      >
-                        {isDone ? "Completed" : isCurrent ? "Current" : "Upcoming"}
-                      </span>
+                      {(isDone || isCurrent || isUpcoming) && (
+                        <span
+                          className={`mini-status-pill ${
+                            isDone ? "done" : isCurrent ? "active" : "upcoming"
+                          }`}
+                        >
+                          {isDone ? "Completed" : isCurrent ? "Current" : "Upcoming"}
+                        </span>
+                      )}
                     </div>
 
                     <div className="mini-sprint-footer">
@@ -592,7 +557,18 @@ function ProjectsCard({
 
 function ActiveSprintHero({ sprint, counts, onNavigate }) {
   return (
-    <article className="active-sprint-hero-card" onClick={onNavigate}>
+    <article
+      className="active-sprint-hero-card"
+      role="link"
+      tabIndex={0}
+      onClick={onNavigate}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          onNavigate();
+        }
+      }}
+    >
       <div className="hero-top-row">
         <div>
           <h4 className="hero-sprint-name">{sprint.name}</h4>
@@ -635,7 +611,18 @@ function ActiveSprintHero({ sprint, counts, onNavigate }) {
 
 function UpcomingSprintCard({ sprint, counts, onNavigate }) {
   return (
-    <article className="upcoming-sprint-card" onClick={onNavigate}>
+    <article
+      className="upcoming-sprint-card"
+      role="link"
+      tabIndex={0}
+      onClick={onNavigate}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          onNavigate();
+        }
+      }}
+    >
       <div className="upcoming-top-row">
         <strong className="upcoming-sprint-name">{sprint.name}</strong>
         <span className="upcoming-status-tag">Upcoming</span>
@@ -667,10 +654,14 @@ function Dashboard({ profileName, currentUser }) {
   const [projectKey, setProjectKey] = useState(() => getStoredProjectKey());
 
   const [timeframe, setTimeframe] = useState("This week");
-  const [tasksWidgetSize, setTasksWidgetSize] = useState("half");
-  const [projectsWidgetSize, setProjectsWidgetSize] = useState("half");
+  const [isFullWidth, setIsFullWidth] = useState(false);
+
+  const handleToggleLayout = () => {
+    setIsFullWidth((prev) => !prev);
+  };
 
   useEffect(() => {
+    let isMounted = true;
     const syncTasks = (event) => {
       setAllTasks(Array.isArray(event?.detail) ? event.detail : getStoredTasks());
     };
@@ -686,11 +677,22 @@ function Dashboard({ profileName, currentUser }) {
       if (event.key === STORAGE_KEYS.PROJECT_KEY) syncProjectKey();
     };
 
+    sprintApi.getAll()
+      .then((latestSprints) => {
+        if (isMounted && Array.isArray(latestSprints)) {
+          setSprints(latestSprints);
+        }
+      })
+      .catch((error) => {
+        console.warn("[Dashboard] Failed to load latest sprints:", error);
+      });
+
     window.addEventListener("nexus:backlog-tasks-changed", syncTasks);
     window.addEventListener("nexus:backlog-sprints-changed", syncSprints);
     window.addEventListener("nexus:project-key-changed", syncProjectKey);
     window.addEventListener("storage", syncStorage);
     return () => {
+      isMounted = false;
       window.removeEventListener("nexus:backlog-tasks-changed", syncTasks);
       window.removeEventListener("nexus:backlog-sprints-changed", syncSprints);
       window.removeEventListener("nexus:project-key-changed", syncProjectKey);
@@ -698,10 +700,12 @@ function Dashboard({ profileName, currentUser }) {
     };
   }, []);
 
+  const ownerId = getCurrentOwnerId(currentUser, profileName);
+
   const tasks = useMemo(() => {
     const today = getLocalDateValue();
     return allTasks
-      .filter((task) => isTaskAssignedToUser(task, currentUser, profileName))
+      .filter((task) => task.owner === ownerId)
       .map((task) => {
         const completed = task.status === "Done" || task.status === "Completed";
         const dueDate = getTaskDueDate(task);
@@ -714,7 +718,7 @@ function Dashboard({ profileName, currentUser }) {
           assignee,
         };
       });
-  }, [allTasks, currentUser, profileName]);
+  }, [allTasks, ownerId]);
 
   const completedTasks = tasks.filter((task) => task.completed).length;
   const pendingTasks = tasks.filter((task) => !task.completed).length;
@@ -744,15 +748,15 @@ function Dashboard({ profileName, currentUser }) {
         profileName={profileName}
         timeframe={timeframe}
         onTimeframeChange={setTimeframe}
+        isFullWidth={isFullWidth}
+        onToggleLayout={handleToggleLayout}
       />
 
       {/* Modern Dashboard Grid */}
-      <div className="dashboard-grid">
+      <div className={`dashboard-grid ${isFullWidth ? "full-width-view" : ""}`}>
         <TasksCard
           tasks={tasks}
           profileName={profileName}
-          size={tasksWidgetSize}
-          onSizeChange={setTasksWidgetSize}
           onToggleStatus={handleToggleTaskStatus}
         />
 
@@ -760,8 +764,6 @@ function Dashboard({ profileName, currentUser }) {
           projectKey={projectKey}
           sprints={sprints}
           tasks={allTasks}
-          size={projectsWidgetSize}
-          onSizeChange={setProjectsWidgetSize}
         />
       </div>
     </main>

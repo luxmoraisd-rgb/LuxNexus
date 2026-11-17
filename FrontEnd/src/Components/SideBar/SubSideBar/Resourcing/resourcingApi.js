@@ -4,6 +4,45 @@ import { API_BASE_URL } from "../MyTasks/Backlog/backlogApi";
 export const RESOURCING_CHARTS_KEY = "nexus_resourcing_charts";
 export const RESOURCING_PROJECTS_KEY = "nexus_resourcing_projects";
 
+export const getTodayDate = () => {
+  const today = new Date();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${today.getFullYear()}-${month}-${day}`;
+};
+
+const isValidDate = (value) => {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  if (Number(value.slice(0, 4)) < 1) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+};
+
+export const validateProjectDates = (startDate, endDate, required = true) => {
+  const errors = {};
+  const today = getTodayDate();
+  const validStartDate = isValidDate(startDate);
+  const validEndDate = isValidDate(endDate);
+
+  if (!startDate) {
+    if (required) errors.start_date = "Start date is required.";
+  } else if (!validStartDate) {
+    errors.start_date = "Enter a valid start date.";
+  } else if (startDate < today) {
+    errors.start_date = "Start date cannot be earlier than today.";
+  }
+
+  if (!endDate) {
+    if (required) errors.end_date = "End date is required.";
+  } else if (!validEndDate) {
+    errors.end_date = "Enter a valid end date.";
+  } else if (validStartDate && endDate < startDate) {
+    errors.end_date = "End date must be on or after the start date.";
+  }
+
+  return errors;
+};
+
 export const resourcingClient = axios.create({
   baseURL: API_BASE_URL,
   headers: {
@@ -195,6 +234,12 @@ export const resourcingApi = {
       start_date: projectData.start_date || projectData.startDate,
       end_date: projectData.end_date || projectData.endDate,
     };
+    const dateErrors = validateProjectDates(payload.start_date, payload.end_date);
+    if (Object.keys(dateErrors).length > 0) {
+      const error = new Error("Please correct the project dates.");
+      error.fieldErrors = dateErrors;
+      throw error;
+    }
 
     try {
       const response = await resourcingClient.post("/resourcing/projects/", payload);
@@ -203,6 +248,18 @@ export const resourcingApi = {
       saveStoredProjects([created, ...current.filter((p) => p.id !== created.id)]);
       return created;
     } catch (error) {
+      if (error.response?.status >= 400 && error.response.status < 500) {
+        console.warn("[resourcingApi] Backend rejected project creation:", error.message);
+        const responseErrors = error.response.data || {};
+        const fieldErrors = {};
+        ["start_date", "end_date"].forEach((field) => {
+          const message = responseErrors[field];
+          if (Array.isArray(message)) fieldErrors[field] = message.join(" ");
+          else if (typeof message === "string") fieldErrors[field] = message;
+        });
+        error.fieldErrors = fieldErrors;
+        throw error;
+      }
       console.warn("[resourcingApi] Backend POST /resourcing/projects/ error, saving locally:", error.message);
       const fallback = normalizeProject({
         ...payload,

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Globe2, Clock, Calendar, Check, Languages, Sparkles } from "lucide-react";
 import "./languageregion.css";
 
 /*
@@ -24,7 +25,15 @@ const LanguageRegion = ({ children }) => {
 LanguageRegion.Header = ({ title }) => {
   return (
     <header className="language-region__header">
-      <h1>{title}</h1>
+      <div className="language-region__header-icon-wrap">
+        <Languages size={22} className="language-region__header-icon" />
+      </div>
+      <div className="language-region__header-text">
+        <h1>{title}</h1>
+        <p className="language-region__header-sub">
+          Customize your display language, timezone, and calendar formats
+        </p>
+      </div>
     </header>
   );
 };
@@ -35,9 +44,9 @@ LanguageRegion.Header = ({ title }) => {
 |--------------------------------------------------------------------------
 */
 
-LanguageRegion.Section = ({ title, children }) => {
+LanguageRegion.Section = ({ title, children, className = "" }) => {
   return (
-    <section className="language-region__section">
+    <section className={`language-region__section ${className}`.trim()}>
       <h2>{title}</h2>
       {children}
     </section>
@@ -106,34 +115,41 @@ LanguageRegion.RadioGroup = ({
 }) => {
   return (
     <div className="language-region__radio-group">
-      {options.map((option) => (
-        <label
-          className="language-region__radio-option"
-          key={option.value}
-        >
-          <input
-            type="radio"
-            name={name}
-            value={option.value}
-            checked={value === option.value}
-            onChange={(event) =>
-              onChange(event.target.value)
-            }
-          />
+      {options.map((option) => {
+        const isSelected = value === option.value;
+        return (
+          <label
+            className={`language-region__radio-option ${isSelected ? "is-selected" : ""}`}
+            key={option.value}
+          >
+            <input
+              type="radio"
+              name={name}
+              value={option.value}
+              checked={isSelected}
+              onChange={(event) =>
+                onChange(event.target.value)
+              }
+            />
 
-          <span className="custom-radio" />
-
-          <span className="radio-label">
-            {option.label}
-          </span>
-
-          {option.preview && (
-            <span className="radio-preview">
-              {option.preview}
+            <span className="custom-radio">
+              {isSelected && <span className="custom-radio-dot" />}
             </span>
-          )}
-        </label>
-      ))}
+
+            <span className="radio-label">
+              {option.label}
+            </span>
+
+            {option.preview && (
+              <span className="radio-preview">
+                {option.preview}
+              </span>
+            )}
+
+            {isSelected && <span className="radio-selected-pip" />}
+          </label>
+        );
+      })}
     </div>
   );
 };
@@ -257,8 +273,16 @@ const LanguageRegionPage = () => {
     }
   });
 
+  const [saveIndicator, setSaveIndicator] = useState(false);
+
+  const triggerSaveFeedback = () => {
+    setSaveIndicator(true);
+    setTimeout(() => setSaveIndicator(false), 2200);
+  };
+
   const handleTimezoneChange = (val) => {
     setTimezone(val);
+    triggerSaveFeedback();
     try {
       localStorage.setItem("nexus_timezone", val);
       sessionStorage.setItem("nexus_timezone", val);
@@ -269,6 +293,7 @@ const LanguageRegionPage = () => {
 
   const handleLanguageChange = (val) => {
     setLanguage(val);
+    triggerSaveFeedback();
     try {
       localStorage.setItem("nexus_language", val);
     } catch {
@@ -278,6 +303,7 @@ const LanguageRegionPage = () => {
 
   const handleTimeFormatChange = (val) => {
     setTimeFormat(val);
+    triggerSaveFeedback();
     try {
       localStorage.setItem("nexus_time_format", val);
     } catch {
@@ -287,6 +313,7 @@ const LanguageRegionPage = () => {
 
   const handleDateFormatChange = (val) => {
     setDateFormat(val);
+    triggerSaveFeedback();
     try {
       localStorage.setItem("nexus_date_format", val);
     } catch {
@@ -296,6 +323,7 @@ const LanguageRegionPage = () => {
 
   const handleFirstDayChange = (val) => {
     setFirstDay(val);
+    triggerSaveFeedback();
     try {
       localStorage.setItem("nexus_first_day", val);
     } catch {
@@ -419,71 +447,110 @@ const LanguageRegionPage = () => {
     },
   ];
 
+  const currentTzLabel =
+    timezoneOptions.find((t) => t.value === timezone)?.label || timezone;
+
   return (
     <LanguageRegion>
+      <LanguageRegion.Header title="Language & Region" />
 
-      <LanguageRegion.Header
-        title="Language & region"
-      />
+      {/* Interactive Live Region & Locale Preview Card */}
+      <div className="language-region__live-preview-card">
+        <div className="live-preview-header">
+          <div className="live-preview-icon-wrap">
+            <Globe2 size={18} className="live-preview-globe" />
+          </div>
+          <div className="live-preview-heading">
+            <span className="live-preview-title">Live Locale Preview</span>
+            <span className="live-preview-subtitle">{currentTzLabel}</span>
+          </div>
+          {saveIndicator ? (
+            <div className="live-preview-saved-badge is-active">
+              <Check size={13} />
+              <span>Preferences Saved</span>
+            </div>
+          ) : (
+            <div className="live-preview-sync-badge">
+              <Sparkles size={13} className="sparkle-icon" />
+              <span>Active Preferences</span>
+            </div>
+          )}
+        </div>
 
-      {/* Language */}
+        <div className="live-preview-metrics">
+          <div className="live-preview-metric">
+            <Clock size={16} />
+            <div>
+              <span className="metric-label">Local Time ({timeFormat}-hr)</span>
+              <strong className="metric-value">{timePreview}</strong>
+            </div>
+          </div>
+          <div className="live-preview-divider" />
+          <div className="live-preview-metric">
+            <Calendar size={16} />
+            <div>
+              <span className="metric-label">Date Format</span>
+              <strong className="metric-value">{datePreview}</strong>
+            </div>
+          </div>
+        </div>
+      </div>
 
-      <LanguageRegion.Section title="Language">
-        <LanguageRegion.Select
-          value={language}
-          onChange={handleLanguageChange}
-          options={languageOptions}
-          ariaLabel="Language"
-        />
-      </LanguageRegion.Section>
+      <div className="language-region__sections-grid">
+        {/* Language */}
+        <LanguageRegion.Section title="Language" className="lang-sec-1">
+          <LanguageRegion.Select
+            value={language}
+            onChange={handleLanguageChange}
+            options={languageOptions}
+            ariaLabel="Language"
+          />
+        </LanguageRegion.Section>
 
-      {/* Timezone */}
+        {/* Timezone */}
+        <LanguageRegion.Section title="Timezone" className="lang-sec-2">
+          <LanguageRegion.Select
+            value={timezone}
+            onChange={handleTimezoneChange}
+            options={timezoneOptions}
+            ariaLabel="Timezone"
+          />
+        </LanguageRegion.Section>
 
-      <LanguageRegion.Section title="Timezone">
-        <LanguageRegion.Select
-          value={timezone}
-          onChange={handleTimezoneChange}
-          options={timezoneOptions}
-          ariaLabel="Timezone"
-        />
-      </LanguageRegion.Section>
+        {/* Time Format */}
+        <LanguageRegion.Section title="Time format" className="lang-sec-3">
+          <LanguageRegion.RadioGroup
+            name="time-format"
+            value={timeFormat}
+            onChange={handleTimeFormatChange}
+            options={timeOptions}
+          />
+        </LanguageRegion.Section>
 
-      {/* Time Format */}
+        {/* Date Format */}
+        <LanguageRegion.Section title="Date format" className="lang-sec-4">
+          <LanguageRegion.RadioGroup
+            name="date-format"
+            value={dateFormat}
+            onChange={handleDateFormatChange}
+            options={dateOptions}
+          />
+          <p className="language-region__preview">Preview: {datePreview}</p>
+        </LanguageRegion.Section>
 
-      <LanguageRegion.Section title="Time format">
-        <LanguageRegion.RadioGroup
-          name="time-format"
-          value={timeFormat}
-          onChange={handleTimeFormatChange}
-          options={timeOptions}
-        />
-      </LanguageRegion.Section>
-
-      {/* Date Format */}
-
-      <LanguageRegion.Section title="Date format">
-        <LanguageRegion.RadioGroup
-          name="date-format"
-          value={dateFormat}
-          onChange={handleDateFormatChange}
-          options={dateOptions}
-        />
-        <p className="language-region__preview">Preview: {datePreview}</p>
-      </LanguageRegion.Section>
-
-      {/* First Day */}
-
-      <LanguageRegion.Section
-        title="First day displayed on your calendars"
-      >
-        <LanguageRegion.RadioGroup
-          name="first-day"
-          value={firstDay}
-          onChange={handleFirstDayChange}
-          options={firstDayOptions}
-        />
-      </LanguageRegion.Section>
-
+        {/* First Day */}
+        <LanguageRegion.Section
+          title="First day displayed on your calendars"
+          className="lang-sec-5"
+        >
+          <LanguageRegion.RadioGroup
+            name="first-day"
+            value={firstDay}
+            onChange={handleFirstDayChange}
+            options={firstDayOptions}
+          />
+        </LanguageRegion.Section>
+      </div>
     </LanguageRegion>
   );
 };

@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import ipaddress
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -74,6 +75,20 @@ def parse_device(user_agent):
         browser_name = "Safari"
 
     return f"{os_name} {browser_name}".strip()
+
+
+def get_client_ip(request):
+    forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    candidates = forwarded_for.split(",") if forwarded_for else []
+    candidates.append(request.META.get("REMOTE_ADDR", ""))
+
+    for candidate in candidates:
+        try:
+            return str(ipaddress.ip_address(candidate.strip()))
+        except ValueError:
+            continue
+
+    return "127.0.0.1"
 
 
 def create_token(

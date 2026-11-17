@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { fetchMeetings, FALLBACK_MEETINGS } from "../../SubSideBar/Knowledge/meetingsApi";
+import { fetchMeetings, FALLBACK_MEETINGS } from "../../SubSideBar/Meetings/meetingsApi";
 import "./knowledgesidebar.css";
 
 /* ---------------- SVG ICONS ---------------- */
@@ -55,6 +55,7 @@ const MeetingsIcon = ({ size = 20 }) => (
     />
   </svg>
 );
+
 
 const CalendarIcon = ({ size = 16 }) => (
   <svg
@@ -203,7 +204,15 @@ const UpcomingMeetingsSection = ({ meetings, onSelectMeeting }) => {
             <div
               key={m.id}
               className="recent-item meeting-sidebar-item"
+              role="button"
+              tabIndex={0}
               onClick={() => onSelectMeeting(m)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelectMeeting(m);
+                }
+              }}
               title={`${m.title} (${m.time})`}
             >
               <span className="sidebar-meet-icon-wrap upcoming">
@@ -261,7 +270,15 @@ const RecentMeetingsSection = ({ meetings, onSelectMeeting }) => {
             <div
               key={m.id}
               className="recent-item meeting-sidebar-item"
+              role="button"
+              tabIndex={0}
               onClick={() => onSelectMeeting(m)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelectMeeting(m);
+                }
+              }}
               title={`${m.title} (${m.date})`}
             >
               <span className="sidebar-meet-icon-wrap recent">
@@ -290,7 +307,7 @@ const RecentMeetingsSection = ({ meetings, onSelectMeeting }) => {
 
 const KnowledgeSidebar = () => {
   const navigate = useNavigate();
-  const [activeItem, setActiveItem] = useState("Meetings");
+  const activeItem = "Meetings";
   const [meetings, setMeetings] = useState(FALLBACK_MEETINGS);
 
   useEffect(() => {
@@ -312,8 +329,7 @@ const KnowledgeSidebar = () => {
     (m) => m.type === "recent" || m.status === "completed"
   );
 
-  const handleNavigate = (item) => {
-    setActiveItem(item);
+  const handleNavigate = () => {
     navigate("/knowledge");
   };
 

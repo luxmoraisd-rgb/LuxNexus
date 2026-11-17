@@ -199,6 +199,7 @@ class GoalViewSet(viewsets.ViewSet):
             "comments": data.get("comments", []),
             "privacy": data.get("privacy", ""),
             "parent": parent_id,
+            "pillar_id": data.get("pillar_id", ""),
             "created_at": now,
             "updated_at": now,
         }

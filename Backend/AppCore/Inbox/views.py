@@ -1,13 +1,23 @@
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
+import logging
+import mimetypes
 import re
+from pathlib import PurePosixPath
 
 from bson import ObjectId
+from django.http import FileResponse
 from rest_framework import status
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from gridfs import GridFSBucket
+from gridfs.errors import NoFile
 
 from AppCore.db import get_database
+
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_SETTINGS = {
@@ -43,9 +53,31 @@ def _notification_filter(request, notification_id):
     return {**_user_filter(request), "_id": {"$in": id_condition}}
 
 
+def _serialize_reply(reply):
+    value = dict(reply)
+    attachments = value.get("attachments")
+    if isinstance(attachments, list):
+        value["attachments"] = [
+            {
+                key: item
+                for key, item in attachment.items()
+                if key != "gridfs_id"
+            }
+            for attachment in attachments
+            if isinstance(attachment, dict)
+        ]
+    return value
+
+
 def _serialize_notification(document):
     value = dict(document)
     value["id"] = str(value.pop("_id"))
+    replies = value.get("replies")
+    if isinstance(replies, list):
+        value["replies"] = [
+            _serialize_reply(reply) if isinstance(reply, dict) else reply
+            for reply in replies
+        ]
     created_at = value.get("created_at")
     if isinstance(created_at, datetime):
         value["created_at"] = created_at.isoformat()
@@ -53,9 +85,6 @@ def _serialize_notification(document):
             value["time"] = created_at.strftime("%I:%M %p")
         if not value.get("date"):
             value["date"] = created_at.strftime("%b %d, %Y")
-    deleted_at = value.get("deleted_at")
-    if isinstance(deleted_at, datetime):
-        value["deleted_at"] = deleted_at.isoformat()
     if isinstance(value.get("user_id"), ObjectId):
         value["user_id"] = str(value["user_id"])
     return value
@@ -220,29 +249,12 @@ class InboxView(APIView):
                 email=getattr(request.user, "email", ""),
             )
 
-        # Automatically purge trash messages older than 30 days
-        thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
-        collection.delete_many({
-            **_user_filter(request),
-            "deleted": True,
-            "$or": [
-                {"deleted_at": {"$lt": thirty_days_ago}},
-                {"deleted_at": {"$exists": False}, "created_at": {"$lt": thirty_days_ago}},
-            ],
-        })
-
         query = _user_filter(request)
         folder = request.query_params.get("folder")
-        include_deleted = request.query_params.get("include_deleted") == "true"
-
-        if folder == "trash":
-            query["deleted"] = True
-        elif folder == "archive":
+        if folder == "archive":
             query["archived"] = True
-            query["deleted"] = {"$ne": True}
         elif folder:
             query["archived"] = {"$ne": True}
-            query["deleted"] = {"$ne": True}
             if folder == "unread":
                 query["unread"] = True
             elif folder == "starred":
@@ -251,9 +263,6 @@ class InboxView(APIView):
                 query["mentioned"] = True
             elif folder == "tasks":
                 query["type"] = "task"
-        elif not include_deleted:
-            query["deleted"] = {"$ne": True}
-
         if request.query_params.get("type"):
             query["type"] = request.query_params["type"]
         if request.query_params.get("search"):
@@ -264,6 +273,7 @@ class InboxView(APIView):
                 {"description": {"$regex": search, "$options": "i"}},
                 {"snippet": {"$regex": search, "$options": "i"}},
             ]
+        query["deleted"] = {"$ne": True}
         notifications = collection.find(query).sort("created_at", -1)
         return Response([_serialize_notification(item) for item in notifications])
 
@@ -326,42 +336,12 @@ class NotificationDetailView(APIView):
 
     def delete(self, request, notification_id):
         query = _notification_filter(request, notification_id)
-        if query is None:
-            return Response({"detail": "Notification not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        collection = get_database().notifications
-        existing = collection.find_one(query)
-        if existing is None:
-            return Response({"detail": "Notification not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        permanent = request.query_params.get("permanent") == "true" or existing.get("deleted") is True
-        if permanent:
-            collection.delete_one(query)
-            return Response(status=status.HTTP_204_NO_CONTENT)
-
-        now = datetime.now(timezone.utc)
-        collection.update_one(query, {"$set": {"deleted": True, "deleted_at": now}})
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-class NotificationRestoreView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def patch(self, request, notification_id):
-        query = _notification_filter(request, notification_id)
-        if query is None:
-            return Response({"detail": "Notification not found."}, status=status.HTTP_404_NOT_FOUND)
-
         result = get_database().notifications.update_one(
-            query,
-            {"$set": {"deleted": False}, "$unset": {"deleted_at": ""}},
+            query or {"_id": None}, {"$set": {"deleted": True}}
         )
         if not result.matched_count:
             return Response({"detail": "Notification not found."}, status=status.HTTP_404_NOT_FOUND)
-        return Response({"id": str(notification_id), "deleted": False})
-
-    def post(self, request, notification_id):
-        return self.patch(request, notification_id)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class NotificationFlagView(APIView):
@@ -431,17 +411,11 @@ class NotificationBulkView(APIView):
     }
 
     def post(self, request):
-        action = request.data.get("action")
-        collection = get_database().notifications
-
-        if action == "empty_trash":
-            result = collection.delete_many({**_user_filter(request), "deleted": True})
-            return Response({"deleted": result.deleted_count})
-
         ids = request.data.get("ids")
+        action = request.data.get("action")
         if not isinstance(ids, list) or not ids:
             return Response({"ids": ["Provide at least one notification id."]}, status=status.HTTP_400_BAD_REQUEST)
-
+        
         id_objects = []
         for val in ids:
             s_val = str(val)
@@ -449,17 +423,10 @@ class NotificationBulkView(APIView):
             if ObjectId.is_valid(s_val):
                 id_objects.append(ObjectId(s_val))
 
+        collection = get_database().notifications
         query = {**_user_filter(request), "_id": {"$in": id_objects}}
         if action == "delete":
-            now = datetime.now(timezone.utc)
-            result = collection.update_many(query, {"$set": {"deleted": True, "deleted_at": now}})
-        elif action == "restore":
-            result = collection.update_many(
-                query,
-                {"$set": {"deleted": False}, "$unset": {"deleted_at": ""}},
-            )
-        elif action == "permanent_delete":
-            result = collection.delete_many(query)
+            result = collection.update_many(query, {"$set": {"deleted": True}})
         elif action in self.flag_actions:
             flag, value = self.flag_actions[action]
             result = collection.update_many(query, {"$set": {flag: value}})
@@ -495,28 +462,149 @@ class NotificationTaskView(APIView):
 
 class NotificationRepliesView(APIView):
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    max_file_size = 25 * 1024 * 1024
+    max_total_size = 100 * 1024 * 1024
 
     def post(self, request, notification_id):
         query = _notification_filter(request, notification_id)
         if query is None:
             return Response({"detail": "Notification not found."}, status=status.HTTP_404_NOT_FOUND)
         text = str(request.data.get("text", "")).strip()
-        if not text:
+        files = request.FILES.getlist("files")
+        if not text and not files:
             return Response({"text": ["This field is required."]}, status=status.HTTP_400_BAD_REQUEST)
+        if any(upload.size > self.max_file_size for upload in files):
+            return Response(
+                {"files": ["Each attachment must be 25 MB or smaller."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if sum(upload.size for upload in files) > self.max_total_size:
+            return Response(
+                {"files": ["The combined attachments must be 100 MB or smaller."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         document = get_database().notifications.find_one(query, {"replies": 1})
         if document is None:
             return Response({"detail": "Notification not found."}, status=status.HTTP_404_NOT_FOUND)
         now = datetime.now(timezone.utc)
+        reply_id = str(ObjectId())
         reply = {
-            "id": str(ObjectId()),
+            "id": reply_id,
+            "sender_id": str(request.user.id),
             "author": getattr(request.user, "username", "User"),
             "text": text,
             "time": now.strftime("%I:%M %p"),
             "date": now.strftime("%b %d, %Y"),
             "created_at": now.isoformat(),
+            "attachments": [],
         }
-        get_database().notifications.update_one(query, {"$push": {"replies": reply}})
-        return Response(reply, status=status.HTTP_201_CREATED)
+        database = get_database()
+        bucket = GridFSBucket(database, bucket_name="inbox_attachments")
+        stored_file_ids = []
+        try:
+            for uploaded in files:
+                filename = PurePosixPath(uploaded.name.replace("\\", "/")).name or "attachment"
+                content_type = uploaded.content_type or mimetypes.guess_type(filename)[0]
+                content_type = content_type or "application/octet-stream"
+                attachment_id = str(ObjectId())
+                gridfs_id = bucket.upload_from_stream(
+                    filename,
+                    uploaded,
+                    metadata={
+                        "content_type": content_type,
+                        "notification_id": str(notification_id),
+                        "reply_id": reply_id,
+                    },
+                )
+                stored_file_ids.append(gridfs_id)
+                reply["attachments"].append(
+                    {
+                        "id": attachment_id,
+                        "filename": filename,
+                        "size": uploaded.size,
+                        "content_type": content_type,
+                        "gridfs_id": gridfs_id,
+                        "download_url": (
+                            f"/api/inbox/{notification_id}/replies/{reply_id}/"
+                            f"attachments/{attachment_id}/"
+                        ),
+                    }
+                )
+
+            result = database.notifications.update_one(query, {"$push": {"replies": reply}})
+            if not result.matched_count:
+                for gridfs_id in stored_file_ids:
+                    bucket.delete(gridfs_id)
+                return Response(
+                    {"detail": "Notification not found."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+        except Exception:
+            logger.exception("Unable to save Inbox reply or its attachments.")
+            for gridfs_id in stored_file_ids:
+                bucket.delete(gridfs_id)
+            return Response(
+                {"detail": "Unable to save the reply and its attachments."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(_serialize_reply(reply), status=status.HTTP_201_CREATED)
+
+
+class NotificationReplyAttachmentView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, notification_id, reply_id, attachment_id):
+        query = _notification_filter(request, notification_id)
+        query["replies"] = {
+            "$elemMatch": {
+                "id": reply_id,
+                "attachments.id": attachment_id,
+            }
+        }
+        document = get_database().notifications.find_one(query)
+        if document is None:
+            return Response(
+                {"detail": "Reply attachment not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        reply = next(
+            (item for item in document.get("replies", []) if item.get("id") == reply_id),
+            None,
+        )
+        attachment = next(
+            (
+                item
+                for item in (reply or {}).get("attachments", [])
+                if item.get("id") == attachment_id
+            ),
+            None,
+        )
+        if attachment is None:
+            return Response(
+                {"detail": "Reply attachment not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            file_stream = GridFSBucket(
+                get_database(), bucket_name="inbox_attachments"
+            ).open_download_stream(attachment["gridfs_id"])
+        except NoFile:
+            return Response(
+                {"detail": "Stored attachment data is missing."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return FileResponse(
+            file_stream,
+            as_attachment=True,
+            filename=attachment["filename"],
+            content_type=attachment.get("content_type") or "application/octet-stream",
+        )
 
 
 class NotificationSettingsView(APIView):

@@ -378,7 +378,13 @@ export default function Projects({ currentUser, rolePermissions }) {
               );
 
               return (
-                <div key={project.id} className="project-card">
+                <div
+                  key={project.id}
+                  className="project-card"
+                  role="group"
+                  tabIndex={0}
+                  aria-label={`${project.name} project details`}
+                >
                   <div className="project-card-header">
                     <div className="project-badge-group">
                       <div

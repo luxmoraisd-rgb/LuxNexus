@@ -1,18 +1,36 @@
-/* =========================================================
-   CHANGE PASSWORD STYLESHEET
-   Full Dark & Light Theme Support
-   Seamless Integration with Profile Settings Page
-========================================================= */
+
 
 .password-settings {
   padding: 32px 34px 40px;
   max-width: 620px;
+  width: 100%;
   border: 1px solid var(--app-border, rgba(255, 255, 255, 0.08));
-  border-radius: 12px;
-  background: var(--app-surface, #18191e);
+  border-radius: 16px;
+  background: var(--app-surface-card, #18191e);
   color: var(--app-text, #f8fafc);
-  box-shadow: var(--app-shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.2));
+  box-shadow: 0 12px 32px -6px rgba(0, 0, 0, 0.3);
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+  transform: translateZ(0);
+  animation: passwordPageEntrance 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+/* Accent glow line at top */
+.password-settings::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, #6366f1 40%, #10b981 75%, transparent 100%);
+  opacity: 0.8;
+}
+
+/* =========================================================
+   HEADER & TITLE
+========================================================= */
 
 .password-settings .settings-page-header {
   display: flex;
@@ -20,6 +38,10 @@
   gap: 12px;
   margin-bottom: 24px;
   color: var(--app-text, #f8fafc);
+}
+
+.password-settings .pass-header {
+  animation: passwordHeaderSlide 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .password-settings .settings-header-title-row {
@@ -31,58 +53,84 @@
 .password-settings .settings-title-group {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
 .password-icon-badge {
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
-  background: rgba(99, 102, 241, 0.14);
-  border: 1px solid rgba(99, 102, 241, 0.3);
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.22), rgba(168, 85, 247, 0.16));
+  border: 1px solid rgba(99, 102, 241, 0.35);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #6366f1;
+  color: #a5b4fc;
   flex-shrink: 0;
+  box-shadow: 0 4px 14px -2px rgba(99, 102, 241, 0.3);
+  transition: transform 0.3s cubic-bezier(0.16, 1.4, 0.3, 1), box-shadow 0.3s ease;
+}
+
+.password-icon-badge:hover {
+  transform: scale(1.08) rotate(-6deg);
+  box-shadow: 0 8px 24px -2px rgba(99, 102, 241, 0.5);
+}
+
+.password-icon {
+  transition: transform 0.2s ease;
 }
 
 .password-settings .settings-title-group h2 {
   margin: 0;
-  font-size: calc(21px * var(--font-scale, 1));
+  font-size: calc(22px * var(--font-scale, 1));
   font-weight: 700;
   color: var(--app-text, #f8fafc);
   letter-spacing: -0.015em;
+  background: linear-gradient(135deg, #ffffff 40%, #c7cef8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
-/* Status / Alert Banner */
+.password-header-sub {
+  margin: 3px 0 0;
+  font-size: calc(13px * var(--font-scale, 1));
+  color: var(--app-muted, #94a3b8);
+  font-weight: 400;
+}
+
+/* =========================================================
+   STATUS / ALERT BANNER
+========================================================= */
+
 .password-status-banner {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 14px;
-  border-radius: 8px;
-  margin-bottom: 20px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  margin-bottom: 22px;
   font-size: 13px;
   line-height: 1.45;
-  animation: fadeIn 0.2s ease-out;
+  animation: bannerIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 .password-status-banner.success {
-  background: rgba(16, 185, 129, 0.12);
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.14);
+  border: 1px solid rgba(16, 185, 129, 0.35);
   color: #34d399;
 }
 
 .password-status-banner.error {
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.14);
+  border: 1px solid rgba(239, 68, 68, 0.35);
   color: #f87171;
 }
 
 .password-status-banner.info {
-  background: rgba(99, 102, 241, 0.12);
-  border: 1px solid rgba(99, 102, 241, 0.3);
+  background: rgba(99, 102, 241, 0.14);
+  border: 1px solid rgba(99, 102, 241, 0.35);
   color: #a5b4fc;
 }
 
@@ -94,19 +142,38 @@
   flex: 1;
 }
 
-/* Form Layout */
+/* =========================================================
+   FORM LAYOUT & STAGGERED ENTRANCES
+========================================================= */
+
 .password-form {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
   width: 100%;
 }
 
 .password-field-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
   width: 100%;
+}
+
+.pass-field-1 {
+  animation: passFieldSlideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.08s backwards;
+}
+
+.pass-field-2 {
+  animation: passFieldSlideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.16s backwards;
+}
+
+.pass-field-3 {
+  animation: passFieldSlideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.24s backwards;
+}
+
+.pass-field-4 {
+  animation: passFieldSlideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.32s backwards;
 }
 
 .password-field-header {
@@ -131,33 +198,24 @@
   font-weight: 700;
 }
 
-.forgot-toggle-link {
-  background: transparent;
-  border: none;
-  color: #818cf8;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  padding: 0;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  transition: color 0.15s ease;
-}
-
-.forgot-toggle-link:hover {
-  color: #a5b4fc;
-}
-
 .password-match-tag {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   font-size: 12px;
   font-weight: 600;
-  color: #10b981;
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  padding: 2px 8px;
+  border-radius: 999px;
+  animation: matchTagSlide 0.35s cubic-bezier(0.16, 1.4, 0.3, 1);
 }
 
-/* Inputs & Wrappers */
+/* =========================================================
+   INPUTS & WRAPPERS
+========================================================= */
+
 .password-input-wrapper {
   position: relative;
   display: flex;
@@ -170,16 +228,20 @@
   min-height: 44px;
   padding: 10px 14px;
   border: 1px solid var(--app-border, rgba(255, 255, 255, 0.12));
-  border-radius: 8px;
-  background: var(--app-input, #141519);
+  border-radius: 10px;
+  background: var(--app-input, #131418);
   color: var(--app-text, #f8fafc);
   font-size: 14px;
   outline: none;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+  box-sizing: border-box;
+  transition: border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              background-color 0.2s ease,
+              transform 0.15s ease;
 }
 
 .password-input-wrapper .password-text-input {
-  padding-right: 42px;
+  padding-right: 44px;
 }
 
 .password-text-input::placeholder {
@@ -187,18 +249,24 @@
   font-size: 13px;
 }
 
+.password-text-input:hover:not(:focus) {
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
 .password-text-input:focus {
   border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.22);
+  background: var(--app-surface-hover, #181920);
+  box-shadow: 0 0 0 3.5px rgba(99, 102, 241, 0.22), 0 4px 14px rgba(99, 102, 241, 0.12);
 }
 
 .password-text-input.has-error {
   border-color: #ef4444 !important;
-  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.18) !important;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2) !important;
 }
 
 .password-text-input.has-success {
   border-color: rgba(16, 185, 129, 0.6) !important;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15) !important;
 }
 
 .password-toggle-btn {
@@ -210,27 +278,32 @@
   border: none;
   color: var(--app-muted, #94a3b8);
   cursor: pointer;
-  padding: 6px;
-  border-radius: 6px;
+  padding: 7px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.15s ease, transform 0.1s ease;
+  transition: color 0.18s ease, transform 0.2s cubic-bezier(0.16, 1.4, 0.3, 1), background-color 0.15s ease;
 }
 
 .password-toggle-btn:hover {
   color: var(--app-text, #f8fafc);
-  transform: translateY(-50%) scale(1.08);
+  background: rgba(255, 255, 255, 0.06);
+  transform: translateY(-50%) scale(1.12);
+}
+
+.password-toggle-btn:active {
+  transform: translateY(-50%) scale(0.95);
 }
 
 .password-field-error-msg {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #ef4444;
+  color: #f87171;
   font-size: 12px;
-  margin-top: 2px;
-  animation: fadeIn 0.15s ease-out;
+  margin-top: 3px;
+  animation: bannerIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* =========================================================
@@ -238,37 +311,39 @@
 ========================================================= */
 
 .auth-password-checklist-card {
-  margin-top: 8px;
-  padding: 12px 14px;
-  background-color: var(--app-surface-raised, rgba(30, 41, 59, 0.5));
+  margin-top: 10px;
+  padding: 14px 16px;
+  background-color: var(--app-surface-raised, #1c1f28);
   border: 1px solid var(--app-border, rgba(255, 255, 255, 0.1));
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  animation: fadeIn 0.2s ease-out;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  animation: checklistSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .auth-password-checklist-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .auth-password-checklist-title {
   font-size: 11.5px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   color: var(--app-muted, #94a3b8);
 }
 
 .auth-password-strength-badge {
   font-size: 11px;
   font-weight: 600;
-  padding: 2px 8px;
+  padding: 3px 9px;
   border-radius: 9999px;
   text-transform: capitalize;
-  transition: all 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  display: inline-flex;
+  align-items: center;
 }
 
 .auth-password-strength-badge.strength-none {
@@ -279,36 +354,64 @@
 .auth-password-strength-badge.strength-weak {
   background-color: rgba(239, 68, 68, 0.18);
   color: #f87171;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.25);
 }
 
 .auth-password-strength-badge.strength-fair {
   background-color: rgba(245, 158, 11, 0.18);
   color: #fbbf24;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
 }
 
 .auth-password-strength-badge.strength-good {
-  background-color: rgba(2, 132, 199, 0.18);
+  background-color: rgba(2, 132, 199, 0.2);
   color: #38bdf8;
+  box-shadow: 0 0 10px rgba(2, 132, 199, 0.25);
 }
 
 .auth-password-strength-badge.strength-strong {
-  background-color: rgba(16, 185, 129, 0.2);
+  background-color: rgba(16, 185, 129, 0.22);
   color: #34d399;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.35);
 }
 
 .auth-password-meter-track {
   width: 100%;
-  height: 4px;
+  height: 5px;
   background-color: rgba(255, 255, 255, 0.08);
   border-radius: 9999px;
   overflow: hidden;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
+  position: relative;
 }
 
 .auth-password-meter-bar {
   height: 100%;
   border-radius: 9999px;
-  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.25s ease;
+  position: relative;
+  overflow: hidden;
+  will-change: width;
+  transition: width 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+              background-color 0.3s ease,
+              box-shadow 0.3s ease;
+}
+
+/* Glowing shimmer overlay across the strength meter */
+.auth-password-meter-bar::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.4) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: meterShimmer 2.2s ease-in-out infinite;
 }
 
 .auth-password-meter-bar.strength-none {
@@ -317,35 +420,43 @@
 
 .auth-password-meter-bar.strength-weak {
   background-color: #ef4444;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
 }
 
 .auth-password-meter-bar.strength-fair {
   background-color: #f59e0b;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);
 }
 
 .auth-password-meter-bar.strength-good {
   background-color: #0284c7;
+  box-shadow: 0 0 8px rgba(2, 132, 199, 0.5);
 }
 
 .auth-password-meter-bar.strength-strong {
   background-color: #10b981;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.6);
 }
 
 .auth-password-rules-list {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 8px;
 }
 
 .auth-password-rule-row {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   cursor: pointer;
   user-select: none;
   font-size: 12.5px;
-  transition: all 0.15s ease;
+  transition: transform 0.18s ease;
+}
+
+.auth-password-rule-row:hover {
+  transform: translateX(2px);
 }
 
 .auth-rule-native-checkbox {
@@ -360,31 +471,32 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
+  width: 17px;
+  height: 17px;
+  border-radius: 5px;
   border: 1.5px solid rgba(255, 255, 255, 0.22);
-  background-color: rgba(0, 0, 0, 0.2);
+  background-color: rgba(0, 0, 0, 0.25);
   color: #ffffff;
   flex-shrink: 0;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .auth-password-rule-row.is-valid .auth-rule-custom-checkbox {
   background-color: #10b981;
   border-color: #10b981;
-  box-shadow: 0 1px 4px rgba(16, 185, 129, 0.45);
-  transform: scale(1.05);
+  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.45);
+  animation: ruleCheckboxSpring 0.35s cubic-bezier(0.16, 1.4, 0.3, 1);
 }
 
 .auth-rule-checkmark {
   stroke: #ffffff;
+  animation: checkmarkPop 0.25s cubic-bezier(0.16, 1.4, 0.3, 1);
 }
 
 .auth-rule-label-text {
   color: var(--app-muted, #94a3b8);
   line-height: 1.25;
-  transition: color 0.15s ease, font-weight 0.15s ease;
+  transition: color 0.2s ease, font-weight 0.2s ease;
 }
 
 .auth-password-rule-row.is-valid .auth-rule-label-text {
@@ -393,120 +505,11 @@
 }
 
 /* =========================================================
-   OTP VERIFICATION CARD & DRAWER
+   FORM ACTIONS & SAVE BUTTON
 ========================================================= */
 
-.otp-verification-flow {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px;
-  border: 1px solid rgba(99, 102, 241, 0.25);
-  border-radius: 10px;
-  background: rgba(99, 102, 241, 0.05);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
-  animation: fadeIn 0.2s ease-out;
-}
-
-.otp-flow-header {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 4px;
-}
-
-.otp-mail-icon {
-  color: #818cf8;
-  margin-top: 3px;
-  flex-shrink: 0;
-}
-
-.otp-flow-header h4 {
-  margin: 0 0 3px 0;
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--app-text, #f8fafc);
-}
-
-.otp-flow-header p {
-  margin: 0;
-  font-size: 12px;
-  color: var(--app-muted, #94a3b8);
-  line-height: 1.4;
-}
-
-.otp-send-row,
-.otp-verify-row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  width: 100%;
-}
-
-.otp-send-row .password-text-input,
-.otp-verify-row .password-text-input {
-  flex: 1;
-  min-width: 0;
-}
-
-.otp-code-input {
-  letter-spacing: 0.2em;
-  font-weight: 600;
-  font-family: monospace;
-}
-
-.otp-send-btn,
-.otp-verify-btn {
-  height: 44px;
-  padding: 0 16px;
-  border: none;
-  border-radius: 8px;
-  background: #6366f1;
-  color: #ffffff;
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  flex-shrink: 0;
-  transition: background-color 0.15s ease, opacity 0.15s ease;
-}
-
-.otp-send-btn:hover:not(:disabled),
-.otp-verify-btn:hover:not(:disabled) {
-  background: #4f46e5;
-}
-
-.otp-send-btn:disabled,
-.otp-verify-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.otp-verified-banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  background: rgba(16, 185, 129, 0.12);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  border-radius: 8px;
-  color: #34d399;
-  font-size: 13px;
-  font-weight: 500;
-  animation: fadeIn 0.2s ease-out;
-}
-
-.success-icon {
-  flex-shrink: 0;
-}
-
-/* Form Action Buttons */
 .password-form-actions {
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 .password-save-button {
@@ -514,23 +517,54 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 44px;
-  padding: 0 24px;
+  min-height: 46px;
+  padding: 0 26px;
   border: 0;
-  border-radius: 8px;
-  background: #6366f1;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
   color: #ffffff;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
-  transition: background-color 0.15s ease, opacity 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Subtle sweep shimmer on hover */
+.password-save-button::after {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -60%;
+  width: 50%;
+  height: 200%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.25) 50%,
+    transparent 100%
+  );
+  transform: rotate(25deg);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.password-save-button:hover:not(:disabled)::after {
+  opacity: 1;
+  animation: buttonShine 1.2s ease-in-out infinite;
 }
 
 .password-save-button:hover:not(:disabled) {
-  background: #4f46e5;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.45);
+  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.45);
+}
+
+.password-save-button:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
 }
 
 .password-save-button:disabled {
@@ -540,8 +574,139 @@
   box-shadow: none;
 }
 
+.save-btn-icon {
+  transition: transform 0.2s cubic-bezier(0.16, 1.4, 0.3, 1);
+}
+
+.password-save-button:hover:not(:disabled) .save-btn-icon {
+  transform: scale(1.15);
+}
+
 .spin-icon {
   animation: spin 1s linear infinite;
+}
+
+/* =========================================================
+   KEYFRAME ANIMATIONS
+========================================================= */
+
+@keyframes passwordPageEntrance {
+  0% {
+    opacity: 0;
+    transform: translateY(22px) scale(0.99);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes passwordHeaderSlide {
+  0% {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes passFieldSlideUp {
+  0% {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes keyBadgePulse {
+  0%, 100% {
+    box-shadow: 0 4px 14px -2px rgba(99, 102, 241, 0.25);
+  }
+  50% {
+    box-shadow: 0 4px 22px 2px rgba(99, 102, 241, 0.55);
+  }
+}
+
+@keyframes bannerIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes checklistSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ruleCheckboxSpring {
+  0% {
+    transform: scale(0.65);
+  }
+  60% {
+    transform: scale(1.25);
+  }
+  100% {
+    transform: scale(1.05);
+  }
+}
+
+@keyframes checkmarkPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.4) rotate(-15deg);
+  }
+  70% {
+    transform: scale(1.2) rotate(4deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes matchTagSlide {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes meterShimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes buttonShine {
+  0% {
+    left: -60%;
+  }
+  100% {
+    left: 140%;
+  }
 }
 
 @keyframes spin {
@@ -550,17 +715,6 @@
   }
   to {
     transform: rotate(360deg);
-  }
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(-3px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -575,7 +729,18 @@ body[data-theme="light"] .password-settings,
 [data-theme="light"] .password-settings {
   background: #ffffff;
   border-color: #e2e8f0;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.08);
+}
+
+:root[data-theme="light"] .password-settings .settings-title-group h2,
+html[data-theme="light"] .password-settings .settings-title-group h2,
+body[data-theme="light"] .password-settings .settings-title-group h2,
+.app[data-theme="light"] .password-settings .settings-title-group h2,
+[data-theme="light"] .password-settings .settings-title-group h2 {
+  background: linear-gradient(135deg, #0f172a 40%, #475569 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 :root[data-theme="light"] .password-text-input,
@@ -583,9 +748,17 @@ html[data-theme="light"] .password-text-input,
 body[data-theme="light"] .password-text-input,
 .app[data-theme="light"] .password-text-input,
 [data-theme="light"] .password-text-input {
-  background: #ffffff;
+  background: #f8fafc;
   border-color: #cbd5e1;
   color: #0f172a;
+}
+
+:root[data-theme="light"] .password-text-input:hover:not(:focus),
+html[data-theme="light"] .password-text-input:hover:not(:focus),
+body[data-theme="light"] .password-text-input:hover:not(:focus),
+.app[data-theme="light"] .password-text-input:hover:not(:focus),
+[data-theme="light"] .password-text-input:hover:not(:focus) {
+  border-color: #94a3b8;
 }
 
 :root[data-theme="light"] .password-text-input:focus,
@@ -595,6 +768,7 @@ body[data-theme="light"] .password-text-input:focus,
 [data-theme="light"] .password-text-input:focus {
   border-color: #6366f1;
   background: #ffffff;
+  box-shadow: 0 0 0 3.5px rgba(99, 102, 241, 0.15), 0 2px 8px rgba(99, 102, 241, 0.08);
 }
 
 :root[data-theme="light"] .auth-password-checklist-card,
@@ -604,7 +778,7 @@ body[data-theme="light"] .auth-password-checklist-card,
 [data-theme="light"] .auth-password-checklist-card {
   background-color: #f8fafc;
   border-color: #e2e8f0;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
 }
 
 :root[data-theme="light"] .auth-rule-custom-checkbox,
@@ -632,29 +806,15 @@ body[data-theme="light"] .auth-password-rule-row.is-valid .auth-rule-label-text,
   color: #0f172a;
 }
 
-:root[data-theme="light"] .otp-verification-flow,
-html[data-theme="light"] .otp-verification-flow,
-body[data-theme="light"] .otp-verification-flow,
-.app[data-theme="light"] .otp-verification-flow,
-[data-theme="light"] .otp-verification-flow {
-  background: rgba(99, 102, 241, 0.04);
-  border-color: rgba(99, 102, 241, 0.18);
-}
+/* =========================================================
+   RESPONSIVE DESIGN
+========================================================= */
 
-/* Responsive */
 @media (max-width: 520px) {
   .password-settings {
-    padding: 20px 16px;
+    padding: 22px 18px 28px;
   }
 
-  .otp-send-row,
-  .otp-verify-row {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .otp-send-btn,
-  .otp-verify-btn,
   .password-save-button {
     width: 100%;
   }

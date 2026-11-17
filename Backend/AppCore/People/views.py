@@ -81,30 +81,6 @@ def _format_user(doc, index=0):
     location = profile.get("location") or "Chennai, India"
     status_state = profile.get("status") or "active"
 
-    # Derive consistent team name
-    team_name = (
-        profile.get("team")
-        or (profile.get("teams")[0] if isinstance(profile.get("teams"), list) and profile.get("teams") else None)
-        or doc.get("team")
-    )
-    if not team_name:
-        if role == "admin":
-            team_name = "Core Platform Engineering"
-        else:
-            available_squads = [
-                "Frontend & UI Experience",
-                "Core Platform Engineering",
-                "DevOps & Cloud Reliability",
-                "Product Strategy & Agile Operations",
-            ]
-            team_name = available_squads[index % len(available_squads)]
-
-    teams_list = profile.get("teams")
-    if not isinstance(teams_list, list) or not teams_list:
-        teams_list = [team_name]
-    elif team_name not in teams_list:
-        teams_list = [team_name] + teams_list
-
     initials = "".join([part[0] for part in name.split()[:2]]).upper() or "NX"
     color = DEFAULT_AVATAR_COLORS[index % len(DEFAULT_AVATAR_COLORS)]
 
@@ -123,8 +99,6 @@ def _format_user(doc, index=0):
         "firstName": first,
         "lastName": last,
         "role": role,
-        "team": team_name,
-        "teams": teams_list,
         "jobTitle": job_title,
         "department": department,
         "location": location,
@@ -138,7 +112,21 @@ def _format_user(doc, index=0):
         "status": status_state,
         "joinedDate": joined_date,
         "tasksCount": profile.get("tasksCount", 3 + (index * 2) % 7),
+        "teams": profile.get(
+            "teams",
+            ["Core Platform"] if role == "admin" else ["Frontend & UI Experience"],
+        ),
     }
+
+
+def _invitation_days_left(expires_at, now):
+    return max(0, (expires_at.date() - now.date()).days - 1)
+
+
+def _pending_invitation_count(db, now):
+    return db.team_invitations.count_documents(
+        {"expires_at": {"$gt": now}, "accepted_at": {"$exists": False}}
+    )
 
 
 class PeopleListView(APIView):
@@ -155,43 +143,6 @@ class PeopleListView(APIView):
         search = request.GET.get("search", "").strip().lower()
         role_filter = request.GET.get("role", "").strip().lower()
         dept_filter = request.GET.get("department", "").strip().lower()
-        viewer_role = request.GET.get("viewer_role", "").strip().lower()
-        viewer_team = request.GET.get("viewer_team", "").strip()
-
-        # Determine admin status & current user's team
-        is_admin = False
-        current_user_team = viewer_team or None
-
-        req_user = getattr(request, "user", None)
-        if req_user and getattr(req_user, "is_authenticated", False):
-            u_role = (getattr(req_user, "role", "user") or "user").lower()
-            if u_role == "admin" or getattr(req_user, "is_staff", False) or getattr(req_user, "is_superuser", False):
-                is_admin = True
-
-            user_doc = None
-            if hasattr(req_user, "id"):
-                try:
-                    user_doc = db.users.find_one({"_id": ObjectId(str(req_user.id))})
-                except Exception:
-                    pass
-            if not user_doc and hasattr(req_user, "email"):
-                user_doc = db.users.find_one({"email": req_user.email})
-            if not user_doc and hasattr(req_user, "username"):
-                user_doc = db.users.find_one({"username": req_user.username})
-
-            if user_doc:
-                if (user_doc.get("role") or "").lower() == "admin":
-                    is_admin = True
-                if not current_user_team:
-                    p = user_doc.get("profile") or {}
-                    current_user_team = (
-                        p.get("team")
-                        or (p.get("teams")[0] if p.get("teams") else None)
-                        or user_doc.get("team")
-                    )
-
-        if viewer_role == "admin":
-            is_admin = True
 
         users_cursor = db.users.find(query).sort("created_at", 1)
         people_list = []
@@ -199,25 +150,9 @@ class PeopleListView(APIView):
         for idx, doc in enumerate(users_cursor):
             person = _format_user(doc, idx)
 
-            # Non-admin users ONLY see members of their own team!
-            # Admin sees all members across all teams.
-            if not is_admin and current_user_team:
-                p_team = person.get("team") or ""
-                p_teams = person.get("teams") or []
-                is_same_team = (
-                    p_team.lower() == current_user_team.lower()
-                    or any(t.lower() == current_user_team.lower() for t in p_teams)
-                )
-                is_self = (
-                    str(doc.get("_id")) == str(getattr(req_user, "id", ""))
-                    or (hasattr(req_user, "email") and doc.get("email") == getattr(req_user, "email", None))
-                )
-                if not is_same_team and not is_self:
-                    continue
-
             # Apply in-memory filtering for rich fields
             if search:
-                text_corpus = f"{person['name']} {person['username']} {person['email']} {person['jobTitle']} {person['department']} {person.get('team', '')} {person['location']}".lower()
+                text_corpus = f"{person['name']} {person['username']} {person['email']} {person['jobTitle']} {person['department']} {person['location']}".lower()
                 if search not in text_corpus:
                     continue
 
@@ -240,7 +175,6 @@ class PeopleListView(APIView):
         email = data.get("email", "").strip().lower()
         name = data.get("name", "").strip()
         role = data.get("role", "user")
-        team = data.get("team") or data.get("teamName") or "Frontend & UI Experience"
         department = data.get("department", "Engineering")
         job_title = data.get("jobTitle", "Team Member")
         location = data.get("location", "Remote")
@@ -260,8 +194,6 @@ class PeopleListView(APIView):
                 {
                     "$set": {
                         "role": role,
-                        "profile.team": team,
-                        "profile.teams": [team],
                         "profile.department": department,
                         "profile.jobTitle": job_title,
                         "profile.location": location,
@@ -289,8 +221,6 @@ class PeopleListView(APIView):
             "created_at": now,
             "updated_at": now,
             "profile": {
-                "team": team,
-                "teams": [team],
                 "department": department,
                 "jobTitle": job_title,
                 "location": location,
@@ -349,11 +279,9 @@ class PeopleDetailView(APIView):
             update_fields["last_name"] = " ".join(parts[1:]) if len(parts) > 1 else ""
 
         profile_updates = {}
-        for key in ["jobTitle", "department", "location", "phone", "bio", "status", "team"]:
+        for key in ["jobTitle", "department", "location", "phone", "bio", "status"]:
             if key in data:
                 profile_updates[f"profile.{key}"] = data[key]
-                if key == "team":
-                    profile_updates["profile.teams"] = [data["team"]]
 
         update_fields.update(profile_updates)
         db.users.update_one(target, {"$set": update_fields})
@@ -480,18 +408,18 @@ class PeopleInvitationsView(APIView):
         invites = []
         for inv in cursor:
             exp = inv.get("expires_at", now)
-            days_left = max(0, (exp - now).days)
+            days_left = _invitation_days_left(exp, now)
             invites.append(
                 {
                     "id": str(inv.get("_id", "")),
                     "email": inv.get("email"),
                     "role": inv.get("role", "user"),
                     "department": inv.get("department", "Engineering"),
-                    "team": inv.get("team", "Frontend & UI Experience"),
                     "createdAt": inv.get("created_at").strftime("%b %d, %Y")
                     if isinstance(inv.get("created_at"), datetime)
                     else "Recent",
                     "expiresIn": f"{days_left} days left" if days_left > 0 else "Expiring soon",
+                    "expiresAt": exp.isoformat(),
                     "status": "pending",
                 }
             )
@@ -503,7 +431,6 @@ class PeopleInvitationsView(APIView):
         email = data.get("email", "").strip().lower()
         role = data.get("role", "user")
         department = data.get("department", "Engineering")
-        team = data.get("team", "Frontend & UI Experience")
 
         if not email:
             return Response(
@@ -513,14 +440,14 @@ class PeopleInvitationsView(APIView):
 
         token = secrets.token_urlsafe(32)
         now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(days=7)
         invitation = {
             "email": email,
             "role": role,
             "department": department,
-            "team": team,
             "token_hash": secrets.token_hex(16),
             "created_at": now,
-            "expires_at": now + timedelta(days=7),
+            "expires_at": expires_at,
         }
         db.team_invitations.update_one(
             {"email": email},
@@ -534,8 +461,8 @@ class PeopleInvitationsView(APIView):
                 "email": email,
                 "role": role,
                 "department": department,
-                "team": team,
-                "expiresIn": "7 days left",
+                "expiresIn": f"{_invitation_days_left(expires_at, now)} days left",
+                "expiresAt": expires_at.isoformat(),
                 "status": "pending",
             },
             status=status.HTTP_201_CREATED,
@@ -551,8 +478,12 @@ class PeopleInvitationsView(APIView):
             )
 
         db.team_invitations.delete_one({"email": target_email.lower()})
+        pending_invites = _pending_invitation_count(db, datetime.now(timezone.utc))
         return Response(
-            {"message": f"Invitation for {target_email} revoked"},
+            {
+                "message": f"Invitation for {target_email} revoked",
+                "pendingInvitations": pending_invites,
+            },
             status=status.HTTP_200_OK,
         )
 
@@ -566,9 +497,7 @@ class PeopleStatsView(APIView):
         db = get_database()
         now = datetime.now(timezone.utc)
         total_members = db.users.count_documents({})
-        pending_invites = db.team_invitations.count_documents(
-            {"expires_at": {"$gt": now}, "accepted_at": {"$exists": False}}
-        )
+        pending_invites = _pending_invitation_count(db, now)
         total_teams = db.teams.count_documents({}) if "teams" in db.list_collection_names() else len(DEFAULT_TEAMS)
 
         return Response(

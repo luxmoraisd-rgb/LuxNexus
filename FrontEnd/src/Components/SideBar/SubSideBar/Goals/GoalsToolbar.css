@@ -13,6 +13,44 @@
   gap: 12px;
 }
 
+.bulk-selection-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #9ca3af;
+  font-size: 13px;
+}
+
+.bulk-delete-btn,
+.bulk-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #383a42;
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: #f3f4f6;
+  background-color: #202226;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.bulk-delete-btn:hover {
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+
+.bulk-clear-btn {
+  color: #9ca3af;
+  background: transparent;
+}
+
+.bulk-clear-btn:hover {
+  color: #f3f4f6;
+  background-color: #25272c;
+}
+
 .create-goal-btn {
   display: inline-flex;
   align-items: center;
@@ -154,6 +192,27 @@
   border-color: var(--brand-primary, #6366f1);
   color: #ffffff;
   box-shadow: 0 2px 6px rgba(99, 102, 241, 0.25);
+}
+
+[data-theme="light"] .bulk-selection-actions {
+  color: #64748b;
+}
+
+[data-theme="light"] .bulk-delete-btn,
+[data-theme="light"] .bulk-clear-btn {
+  border-color: #e2e8f0;
+  color: #334155;
+  background-color: #ffffff;
+}
+
+[data-theme="light"] .bulk-delete-btn:hover {
+  border-color: #ef4444;
+  color: #dc2626;
+}
+
+[data-theme="light"] .bulk-clear-btn:hover {
+  color: #0f172a;
+  background-color: #f1f5f9;
 }
 
 [data-theme="light"] .create-goal-btn:hover {

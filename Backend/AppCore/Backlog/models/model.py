@@ -157,7 +157,6 @@ class Task(models.Model):
     estimated_sp = models.IntegerField(default=3, help_text="Estimated Story Points")
     epic = models.CharField(max_length=255, blank=True, default="")
     comments_count = models.IntegerField(default=0)
-    start_date = models.CharField(max_length=100, blank=True, null=True, default="")
     due_date = models.CharField(max_length=100, blank=True, null=True, default="")
     order = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)

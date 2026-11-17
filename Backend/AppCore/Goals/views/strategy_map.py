@@ -177,6 +177,9 @@ class StrategyMapView(APIView):
                             "team": dg.get("team") or dg.get("accountable_team", "General"),
                             "owner": dg.get("owner", {}).get("name") if isinstance(dg.get("owner"), dict) else str(dg.get("owner") or "Unassigned"),
                             "dueDate": dg.get("due_date") or dg.get("dueDate", ""),
+                            "timePeriod": dg.get("time_period") or dg.get("timePeriod", ""),
+                            "statusSummary": dg.get("status_summary") or dg.get("statusSummary", ""),
+                            "comments": dg.get("comments", []),
                         })
 
             pillar_goals_count = len(p_goals)

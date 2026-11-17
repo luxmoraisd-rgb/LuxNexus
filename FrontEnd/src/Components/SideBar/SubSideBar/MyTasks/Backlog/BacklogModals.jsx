@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import authApi from '../../../../Auth/authApi';
 import { boardAssetApi } from './backlogApi';
+import { addCustomColumn } from './customColumns';
 import {
   CloseIcon,
   CheckIcon,
@@ -35,7 +36,13 @@ import {
   isTaskPastDueAndIncomplete,
 } from './TaskRowUtils';
 
-const getAnchorStyle = (anchorRect, { align = 'left', width = 180, offset = 4, flipThreshold = 220 } = {}) => {
+const getAnchorStyle = (anchorRect, {
+  align = 'left',
+  width = 180,
+  offset = 4,
+  flipThreshold = 220,
+  constrainToViewport = false,
+} = {}) => {
   if (!anchorRect) {
     return {
       position: 'fixed',
@@ -43,6 +50,7 @@ const getAnchorStyle = (anchorRect, { align = 'left', width = 180, offset = 4, f
       left: '50%',
       transform: 'translate(-50%, -50%)',
       zIndex: 10000,
+      ...(constrainToViewport && { maxHeight: 'calc(100vh - 24px)' }),
     };
   }
 
@@ -60,9 +68,15 @@ const getAnchorStyle = (anchorRect, { align = 'left', width = 180, offset = 4, f
   if (flipUp) {
     style.bottom = `${Math.round(window.innerHeight - anchorRect.top + offset)}px`;
     style.top = 'auto';
+    if (constrainToViewport) {
+      style.maxHeight = `${Math.max(0, anchorRect.top - offset - 12)}px`;
+    }
   } else {
     style.top = `${Math.round(anchorRect.bottom + offset)}px`;
     style.bottom = 'auto';
+    if (constrainToViewport) {
+      style.maxHeight = `${Math.max(0, window.innerHeight - anchorRect.bottom - offset - 12)}px`;
+    }
   }
 
   if (align === 'right') {
@@ -138,6 +152,9 @@ const BacklogModals = memo(({
   setStatusFilter,
   typeFilter,
   setTypeFilter,
+  onApplyFilters,
+  onRemoveStatusFilter,
+  onRemoveTypeFilter,
   sortBy,
   setSortBy,
   onStatusChange,
@@ -164,6 +181,7 @@ const BacklogModals = memo(({
   onSelectAllTasks,
   onClearSelection,
   onSelectBoardView,
+  boardTabs = [],
   showToast,
   navigate,
 }) => {
@@ -955,7 +973,7 @@ const BacklogModals = memo(({
                     </svg>
                   ),
                 },
-              ].map((view) => (
+              ].filter((view) => ['Table', 'Kanban'].includes(view.label) && !boardTabs.includes(view.label)).map((view) => (
                 <button
                   key={view.id}
                   type="button"
@@ -1410,8 +1428,12 @@ const BacklogModals = memo(({
       {activeModal === 'filterMenu' && (
         <div className="backlog-popover-backdrop" onClick={onClose}>
           <div
-            className="backlog-popover-dialog anchored-picker"
-            style={getAnchorStyle(anchorRect, { align: 'left', width: 260 })}
+            className="backlog-popover-dialog anchored-picker filter-menu-popover"
+            style={getAnchorStyle(anchorRect, {
+              align: 'left',
+              width: 260,
+              constrainToViewport: true,
+            })}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="backlog-popover-title">Filter by Status</div>
@@ -1419,14 +1441,25 @@ const BacklogModals = memo(({
               <button
                 key={st}
                 type="button"
-                className={`backlog-popover-list-item ${statusFilter === st ? 'active' : ''}`}
+                className={`backlog-popover-list-item ${
+                  (st === 'all' ? statusFilter.length === 0 : statusFilter.includes(st)) ? 'active' : ''
+                }`}
+                aria-pressed={st === 'all' ? statusFilter.length === 0 : statusFilter.includes(st)}
                 onClick={() => {
-                  setStatusFilter(st);
-                  onClose();
+                  if (st === 'all') {
+                    setStatusFilter([]);
+                  } else if (statusFilter.includes(st)) {
+                    setStatusFilter(statusFilter.filter((status) => status !== st));
+                    onRemoveStatusFilter?.(st);
+                  } else {
+                    setStatusFilter([...statusFilter, st]);
+                  }
                 }}
               >
                 <span>{st === 'all' ? 'All Statuses' : st}</span>
-                {statusFilter === st && <CheckIcon size={14} />}
+                {(st === 'all' ? statusFilter.length === 0 : statusFilter.includes(st)) && (
+                  <CheckIcon size={14} />
+                )}
               </button>
             ))}
             <div className="backlog-drawer-divider" />
@@ -1435,32 +1468,49 @@ const BacklogModals = memo(({
               <button
                 key={tp}
                 type="button"
-                className={`backlog-popover-list-item ${typeFilter === tp ? 'active' : ''}`}
+                className={`backlog-popover-list-item ${
+                  (tp === 'all' ? typeFilter.length === 0 : typeFilter.includes(tp)) ? 'active' : ''
+                }`}
+                aria-pressed={tp === 'all' ? typeFilter.length === 0 : typeFilter.includes(tp)}
                 onClick={() => {
-                  setTypeFilter(tp);
-                  onClose();
+                  if (tp === 'all') {
+                    setTypeFilter([]);
+                  } else if (typeFilter.includes(tp)) {
+                    setTypeFilter(typeFilter.filter((type) => type !== tp));
+                    onRemoveTypeFilter?.(tp);
+                  } else {
+                    setTypeFilter([...typeFilter, tp]);
+                  }
                 }}
               >
                 <span>{tp === 'all' ? 'All Types' : tp}</span>
-                {typeFilter === tp && <CheckIcon size={14} />}
+                {(tp === 'all' ? typeFilter.length === 0 : typeFilter.includes(tp)) && (
+                  <CheckIcon size={14} />
+                )}
               </button>
             ))}
-            {(statusFilter !== 'all' || typeFilter !== 'all') && (
+            {(statusFilter.length > 0 || typeFilter.length > 0) && (
               <>
                 <div className="backlog-drawer-divider" />
                 <button
                   type="button"
                   className="backlog-popover-list-item backlog-popover-clear-item"
                   onClick={() => {
-                    setStatusFilter('all');
-                    setTypeFilter('all');
-                    onClose();
+                    setStatusFilter([]);
+                    setTypeFilter([]);
                   }}
                 >
                   <span>Reset All Filters</span>
                 </button>
               </>
             )}
+            <button
+              type="button"
+              className="backlog-btn-primary-blue filter-menu-apply-btn"
+              onClick={onApplyFilters}
+            >
+              Apply Filters
+            </button>
           </div>
         </div>
       )}
@@ -1568,9 +1618,11 @@ const BacklogModals = memo(({
               <button
                 key={m.id}
                 type="button"
-                className={`backlog-popover-list-item ${selectedPersonFilter === m.id ? 'active' : ''}`}
+                className={`backlog-popover-list-item ${String(selectedPersonFilter) === String(m.id) ? 'active' : ''}`}
                 onClick={() => {
-                  setSelectedPersonFilter(m.id);
+                  setSelectedPersonFilter((current) => (
+                    String(current) === String(m.id) ? 'all' : m.id
+                  ));
                   onClose();
                 }}
               >
@@ -1580,7 +1632,7 @@ const BacklogModals = memo(({
                   </div>
                   <span>{m.name}</span>
                 </div>
-                {selectedPersonFilter === m.id && <CheckIcon size={14} />}
+                {String(selectedPersonFilter) === String(m.id) && <CheckIcon size={14} />}
               </button>
             )) : (
               <div className="backlog-popover-list-item">No board members yet</div>
@@ -3535,7 +3587,11 @@ const BacklogModals = memo(({
                 type="button"
                 className="backlog-popover-list-item"
                 onClick={() => {
-                  showToast(`Column "${col}" added to table!`, 'success');
+                  const wasAdded = addCustomColumn(col);
+                  showToast(
+                    wasAdded ? `Column "${col}" added to table!` : `Column "${col}" is already in the table`,
+                    wasAdded ? 'success' : 'info'
+                  );
                   onClose();
                 }}
               >

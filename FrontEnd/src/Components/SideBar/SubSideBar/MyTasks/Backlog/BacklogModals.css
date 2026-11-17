@@ -594,6 +594,11 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   box-sizing: border-box;
 }
 
+.backlog-popover-dialog.filter-menu-popover {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 @keyframes backlogPopIn {
   from { opacity: 0; transform: scale(0.96) translateY(-4px); }
   to { opacity: 1; transform: scale(1) translateY(0); }
@@ -662,6 +667,11 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 .backlog-popover-list-item.active svg {
   color: #579dff;
   stroke: #579dff;
+}
+
+.filter-menu-apply-btn {
+  width: 100%;
+  margin-top: 6px;
 }
 
 .backlog-popover-clear-item {

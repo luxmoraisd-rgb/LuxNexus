@@ -23,6 +23,16 @@ HTTP/HTTPS links stored in the `board_assets` collection. Selected files are bun
 into a ZIP archive; each file may be up to 25 MB and the combined upload may be up to
 100 MB. New task IDs use the `LUX` project key by default.
 
+The authenticated `view_reports` capability protects the EOD reports API, which
+stores editable report rows in the MongoDB
+`eod_reports` collection and reads EOD-tagged task comments from
+`backlog_task_comments`. Report spreadsheets can be previewed as CSV, XLS, or XLSX
+before importing; XLSX and XLS parsing uses `openpyxl` and `xlrd`, respectively.
+Report rows are available at `/api/reporting/eod-reports/`; filter options,
+spreadsheet preview, confirmed imports, and EOD comments use `/api/reporting/eod-options/`,
+`/api/reporting/eod-reports/preview-import/`, `/api/reporting/eod-reports/import/`,
+and `/api/reporting/eod-comments/`.
+
 Team invitations are stored in MongoDB with hashed, single-use tokens that expire
 after seven days. Configure `FRONTEND_URL`, `DEFAULT_FROM_EMAIL`, and SMTP settings
 (`EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, and TLS/SSL)

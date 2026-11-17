@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useDeferredValue, useEffect, lazy, Suspense } from 'react';
+import { useState, useMemo, useCallback, useDeferredValue, useEffect, useRef, lazy, Suspense } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   ChevronDownIcon,
@@ -23,11 +23,12 @@ import {
   TEAM_MEMBERS,
   parseTaskId,
   getNextJiraTaskId,
+  isTaskAssignedToPerson,
   isPastDate,
   isTaskPastDueAndIncomplete,
-  isTaskAssignedToUser,
 } from './TaskRowUtils';
 import BacklogBatchBar from './BacklogBatchBar';
+import { useCustomColumns } from './customColumns';
 import KanbanBoard from '../Kanban/KanbanBoard';
 import {
   sprintApi,
@@ -107,6 +108,7 @@ const getBoardPeople = () => {
 const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const customColumns = useCustomColumns();
 
   const getTabFromLocation = (pathname, fallback) => {
     if (pathname === '/work/all-sprints' || pathname === '/all-sprints') return 'All Sprints';
@@ -145,31 +147,12 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
   const [isLoading, setIsLoading] = useState(() => (getStoredTasks() || []).length === 0);
 
   
-  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
-  const isMyTasksRequested = useMemo(() => {
-    if (searchParams.get('filter') === 'my-tasks' || searchParams.get('myTasksOnly') === 'true') {
-      return true;
-    }
-    if (location.state?.myTasksOnly) return true;
-    if (location.pathname === '/work/tasks' || location.pathname === '/tasks') {
-      return true;
-    }
-    return false;
-  }, [searchParams, location.state, location.pathname]);
-
-  const [selectedPersonFilter, setSelectedPersonFilter] = useState(() =>
-    isMyTasksRequested ? 'my-tasks' : 'all'
-  );
-
-  useEffect(() => {
-    if (isMyTasksRequested) {
-      setSelectedPersonFilter('my-tasks');
-    }
-  }, [isMyTasksRequested]);
-
+  const [selectedPersonFilter, setSelectedPersonFilter] = useState('all');
   const [personFilterMembers, setPersonFilterMembers] = useState([]);
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [typeFilter, setTypeFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState([]);
+  const [typeFilter, setTypeFilter] = useState([]);
+  const [draftStatusFilter, setDraftStatusFilter] = useState([]);
+  const [draftTypeFilter, setDraftTypeFilter] = useState([]);
   const [sortBy, setSortBy] = useState(null); // 'title-asc' | 'id-asc' | 'sp-desc' | 'status'
   const [groupBy, setGroupBy] = useState('sprint');
 
@@ -209,6 +192,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
     'Bug': { bg: '#e2445c', text: '#ffffff' },
     'Quality': { bg: '#f783ac', text: '#202124' },
   });
+  const lastBadgeColorChangeRef = useRef(null);
 
   const handleUpdateStatusColor = useCallback((statusKey, newBgColor) => {
     const isLight = (hex) => {
@@ -223,6 +207,11 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
       return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6;
     };
 
+    lastBadgeColorChangeRef.current = {
+      kind: 'status',
+      key: statusKey,
+      previous: statusConfig[statusKey] || STATUS_CONFIG[statusKey],
+    };
     setStatusConfig((prev) => ({
       ...prev,
       [statusKey]: {
@@ -245,6 +234,11 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
       return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6;
     };
 
+    lastBadgeColorChangeRef.current = {
+      kind: 'type',
+      key: typeKey,
+      previous: typeConfig[typeKey] || TYPE_CONFIG[typeKey],
+    };
     setTypeConfig((prev) => ({
       ...prev,
       [typeKey]: {
@@ -305,16 +299,28 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
     setActiveModal(modalName);
   }, []);
 
+  const handleOpenFilterMenu = useCallback((event) => {
+    setDraftStatusFilter(statusFilter);
+    setDraftTypeFilter(typeFilter);
+    handleOpenModal('filterMenu', null, event);
+  }, [handleOpenModal, statusFilter, typeFilter]);
+
   const handleOpenPersonFilter = useCallback((event) => {
     if (activeTab === 'Kanban') {
       const result = getBoardPeople();
-      setPersonFilterMembers(result.members);
+      const membersByIdentity = new Map();
+      [...TEAM_MEMBERS, ...result.members].forEach((person) => {
+        const key = (person.email || String(person.id || person.name)).trim().toLowerCase();
+        membersByIdentity.set(key, person);
+      });
+      const availablePeople = Array.from(membersByIdentity.values());
+      setPersonFilterMembers(availablePeople);
       if (result.error) {
         showToast('Unable to load board people from browser storage', 'error');
       }
       if (
         selectedPersonFilter !== 'all' &&
-        !result.members.some((person) => String(person.id) === String(selectedPersonFilter))
+        !availablePeople.some((person) => String(person.id) === String(selectedPersonFilter))
       ) {
         setSelectedPersonFilter('all');
       }
@@ -323,12 +329,26 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
   }, [activeTab, handleOpenModal, selectedPersonFilter, showToast]);
 
   const activePersonFilterMembers = activeTab === 'Kanban' ? personFilterMembers : TEAM_MEMBERS;
-  const personFilterTitle = activeTab === 'Kanban' ? 'People invited to this board' : 'Filter by Person';
+  const personFilterTitle = 'Filter by Person';
 
   const handleCloseModal = useCallback(() => {
     setActiveModal(null);
     setActiveTaskTarget(null);
     setAnchorRect(null);
+  }, []);
+
+  const handleApplyFilters = useCallback(() => {
+    setStatusFilter(draftStatusFilter);
+    setTypeFilter(draftTypeFilter);
+    handleCloseModal();
+  }, [draftStatusFilter, draftTypeFilter, handleCloseModal]);
+
+  const handleRemoveStatusFilter = useCallback((status) => {
+    setStatusFilter((current) => current.filter((value) => value !== status));
+  }, []);
+
+  const handleRemoveTypeFilter = useCallback((type) => {
+    setTypeFilter((current) => current.filter((value) => value !== type));
   }, []);
 
 
@@ -496,23 +516,23 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
       );
     }
 
-    if (selectedPersonFilter === 'my-tasks') {
-      result = result.filter((t) => isTaskAssignedToUser(t, currentUser));
-    } else if (selectedPersonFilter !== 'all') {
-      result = result.filter((t) => {
-        if (typeof t.owner === 'object' && t.owner) {
-          return String(t.owner.id || t.owner.email || t.owner.username || t.owner.name) === String(selectedPersonFilter);
-        }
-        return String(t.owner) === String(selectedPersonFilter);
-      });
+    if (selectedPersonFilter !== 'all') {
+      const selectedPerson = TEAM_MEMBERS.find(
+        (person) => String(person.id) === String(selectedPersonFilter)
+      ) || { id: selectedPersonFilter };
+      result = result.filter((task) => isTaskAssignedToPerson(task.owner, selectedPerson));
     }
 
-    if (statusFilter !== 'all') {
-      result = result.filter((t) => t.status === statusFilter);
+    if (statusFilter.length > 0) {
+      const selectedStatuses = statusFilter.map((status) => status.toLowerCase());
+      result = result.filter((task) =>
+        selectedStatuses.includes((task.status || 'Ready to start').toLowerCase())
+      );
     }
 
-    if (typeFilter !== 'all') {
-      result = result.filter((t) => t.type === typeFilter);
+    if (typeFilter.length > 0) {
+      const selectedTypes = typeFilter.map((type) => type.toLowerCase());
+      result = result.filter((task) => selectedTypes.includes((task.type || '').toLowerCase()));
     }
 
     if (sortBy === 'title-asc') {
@@ -526,7 +546,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
     }
 
     return result;
-  }, [deferredSearchQuery, selectedPersonFilter, statusFilter, typeFilter, sortBy, currentUser]);
+  }, [deferredSearchQuery, selectedPersonFilter, statusFilter, typeFilter, sortBy]);
 
   const processedTasks = useMemo(() => processTasks(allTasks), [processTasks, allTasks]);
 
@@ -950,6 +970,12 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
 
   const handleSelectBoardView = useCallback(
     (viewLabel) => {
+      if (!['Table', 'Kanban'].includes(viewLabel)) {
+        setActiveModal(null);
+        showToast(`The ${viewLabel} view is not available yet`, 'info');
+        return;
+      }
+
       setActiveModal(null);
       setBoardTabs((prev) => {
         if (!prev.includes(viewLabel)) {
@@ -1172,15 +1198,24 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
   }, [canManageTasks, requirePermission, selectedTaskIds, showToast]);
 
   const handleClearSelection = useCallback(() => {
+    const lastColorChange = lastBadgeColorChangeRef.current;
+    if (lastColorChange?.previous) {
+      const setConfig = lastColorChange.kind === 'status' ? setStatusConfig : setTypeConfig;
+      setConfig((prev) => ({ ...prev, [lastColorChange.key]: lastColorChange.previous }));
+      lastBadgeColorChangeRef.current = null;
+      showToast('Restored the previous badge color and cleared selection', 'success');
+    }
     setSelectedTaskIds(new Set());
-  }, []);
+    setActiveModal(null);
+  }, [showToast]);
 
   const handleSelectAllTasks = useCallback(() => {
     const all = new Set(allTasks.map((t) => t.id));
-    setSelectedTaskIds(all);
+    const allSelected = all.size > 0 && Array.from(all).every((id) => selectedTaskIds.has(id));
+    setSelectedTaskIds(allSelected ? new Set() : all);
     setActiveModal(null);
-    showToast(`Selected all ${all.size} tasks`, 'info');
-  }, [allTasks, showToast]);
+    showToast(allSelected ? 'Cleared task selection' : `Selected all ${all.size} tasks`, 'info');
+  }, [allTasks, selectedTaskIds, showToast]);
 
   const handleCopyLink = useCallback(() => {
     navigator.clipboard.writeText(window.location.href);
@@ -1379,14 +1414,14 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
               {/* 3. Filter */}
               <button
                 type="button"
-                className={`backlog-tool-btn ${statusFilter !== 'all' || typeFilter !== 'all' ? 'active' : ''}`}
-                onClick={(e) => handleOpenModal('filterMenu', null, e)}
+                className={`backlog-tool-btn ${statusFilter.length > 0 || typeFilter.length > 0 ? 'active' : ''}`}
+                onClick={handleOpenFilterMenu}
                 title="Filter by status, type or epic"
               >
                 <FilterFunnelIcon />
                 <span>
                   {(() => {
-                    const count = (statusFilter !== 'all' ? 1 : 0) + (typeFilter !== 'all' ? 1 : 0);
+                    const count = statusFilter.length + typeFilter.length;
                     return count > 0 ? `Filter (${count})` : 'Filter';
                   })()}
                 </span>
@@ -1497,14 +1532,14 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
 
               <button
                 type="button"
-                className={`backlog-tool-btn ${statusFilter !== 'all' || typeFilter !== 'all' ? 'active' : ''}`}
-                onClick={(e) => handleOpenModal('filterMenu', null, e)}
+                className={`backlog-tool-btn ${statusFilter.length > 0 || typeFilter.length > 0 ? 'active' : ''}`}
+                onClick={handleOpenFilterMenu}
                 title="Filter by status, type or epic"
               >
                 <FilterFunnelIcon />
                 <span>
                   {(() => {
-                    const count = (statusFilter !== 'all' ? 1 : 0) + (typeFilter !== 'all' ? 1 : 0);
+                    const count = statusFilter.length + typeFilter.length;
                     return count > 0 ? `Filter / ${count}` : 'Filter';
                   })()}
                 </span>
@@ -1613,6 +1648,14 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
               onMoveTask={handleMoveTask}
               onDeleteTask={handleDeleteTask}
               onRemoveEpic={handleRemoveEpic}
+              onAddTaskToSprint={(sprintId, title, type) =>
+                handleCreateTaskFromModal({
+                  title,
+                  sprint: sprintId,
+                  type,
+                  status: 'Ready to start',
+                })
+              }
               onCreateSprint={handleCreateSprint}
               showToast={showToast}
               onGoToBacklog={() => {
@@ -1767,6 +1810,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
                           <col className="col-sp" />
                           <col className="col-epic" />
                           <col className="col-actions" />
+                          {customColumns.map((column) => <col key={column} style={{ width: 120 }} />)}
                           <col className="col-add" />
                         </colgroup>
 
@@ -1804,6 +1848,9 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
                               </div>
                             </th>
                             <th className="th-actions">Actions</th>
+                            {customColumns.map((column) => (
+                              <th key={column} className="th-custom-column" style={{ minWidth: 120 }}>{column}</th>
+                            ))}
                             <th className="th-add-col">
                               <button
                                 type="button"
@@ -1838,6 +1885,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
                               onDeleteTask={handleDeleteTask}
                               onRemoveEpic={handleRemoveEpic}
                               showToast={showToast}
+                              customColumns={customColumns}
                             />
                           ))}
 
@@ -1893,6 +1941,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
 
                             <td className="td-epic" />
                             <td className="td-actions" />
+                            {customColumns.map((column) => <td className="td-custom-column" key={column} />)}
                             <td className="td-empty" />
                           </tr>
                         </tfoot>
@@ -1952,6 +2001,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
                       <col className="col-sp" />
                       <col className="col-epic" />
                       <col className="col-actions" />
+                      {customColumns.map((column) => <col key={column} style={{ width: 120 }} />)}
                       <col className="col-add" />
                     </colgroup>
 
@@ -1995,6 +2045,9 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
                           </div>
                         </th>
                         <th className="th-actions">Actions</th>
+                        {customColumns.map((column) => (
+                          <th key={column} className="th-custom-column" style={{ minWidth: 120 }}>{column}</th>
+                        ))}
                         <th className="th-add-col">
                           <button
                             type="button"
@@ -2029,6 +2082,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
                           onDeleteTask={handleDeleteTask}
                           onRemoveEpic={handleRemoveEpic}
                           showToast={showToast}
+                          customColumns={customColumns}
                         />
                       ))}
 
@@ -2081,6 +2135,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
 
                         <td className="td-epic" />
                         <td className="td-actions" />
+                        {customColumns.map((column) => <td className="td-custom-column" key={column} />)}
                         <td className="td-empty" />
                       </tr>
                     </tfoot>
@@ -2133,10 +2188,13 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
             setSelectedPersonFilter={setSelectedPersonFilter}
             personFilterMembers={activePersonFilterMembers}
             personFilterTitle={personFilterTitle}
-            statusFilter={statusFilter}
-            setStatusFilter={setStatusFilter}
-            typeFilter={typeFilter}
-            setTypeFilter={setTypeFilter}
+            statusFilter={draftStatusFilter}
+            setStatusFilter={setDraftStatusFilter}
+            typeFilter={draftTypeFilter}
+            setTypeFilter={setDraftTypeFilter}
+            onApplyFilters={handleApplyFilters}
+            onRemoveStatusFilter={handleRemoveStatusFilter}
+            onRemoveTypeFilter={handleRemoveTypeFilter}
             sortBy={sortBy}
             setSortBy={setSortBy}
             groupBy={groupBy}
@@ -2165,6 +2223,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
             onSelectAllTasks={handleSelectAllTasks}
             onClearSelection={handleClearSelection}
             onSelectBoardView={handleSelectBoardView}
+            boardTabs={boardTabs}
             showToast={showToast}
             navigate={navigate}
           />

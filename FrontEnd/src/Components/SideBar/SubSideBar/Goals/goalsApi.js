@@ -37,7 +37,7 @@ export const DEFAULT_GOALS = [
     progress: 75,
     timePeriod: "Q1 FY26",
     team: "Engineering",
-    owner: { name: "Jagadeep", initials: "Ja", role: "Developer" },
+    owner: { name: "Franklin", initials: "FR", role: "Member" },
     dueDate: "Mar 31, 2026",
     statusSummary: "Core features implemented and automated test coverage reached 85%.",
     comments: [
@@ -102,11 +102,20 @@ export const DEFAULT_GOALS = [
 
 export const normalizeOwner = (owner) => {
   if (!owner) return null;
-  if (typeof owner === "object" && owner.name) {
+  if (typeof owner === "object") {
+    const name =
+      owner.name || owner.username || owner.email || owner.id || owner.userId || owner.user_id;
+    if (!name) return null;
+    const displayName = String(name);
     return {
-      name: owner.name,
-      initials: owner.initials || owner.name.slice(0, 2).toUpperCase(),
+      name: displayName,
+      initials: owner.initials || displayName.slice(0, 2).toUpperCase(),
       role: owner.role || "Team Member",
+      ...(owner.email ? { email: owner.email } : {}),
+      ...(owner.id != null ? { id: owner.id } : {}),
+      ...(owner.username ? { username: owner.username } : {}),
+      ...(owner.userId != null ? { userId: owner.userId } : {}),
+      ...(owner.user_id != null ? { user_id: owner.user_id } : {}),
     };
   }
   if (typeof owner === "string") {
@@ -219,6 +228,7 @@ export const goalsApi = {
       comments: Array.isArray(goalData.comments) ? goalData.comments : [],
       privacy: goalData.privacy || "",
       parent: goalData.parent || null,
+      pillar_id: goalData.pillarId || goalData.pillar_id || "",
     };
 
     try {
@@ -323,7 +333,7 @@ export const goalsApi = {
               status: "on track",
               progress: 75,
               team: "Engineering",
-              owner: "Jagadeep",
+              owner: "Franklin",
               dueDate: "Mar 31, 2026",
             },
             {
@@ -656,6 +666,37 @@ export const goalsApi = {
         id: `tg-${Date.now()}`,
         ...goalData,
       };
+    }
+  },
+
+  async updateTeamGoal(id, goalData) {
+    try {
+      const response = await goalsClient.patch(
+        `/team-goals/${encodeURIComponent(id)}/`,
+        goalData
+      );
+      const updated = response.data;
+
+      try {
+        const cached = localStorage.getItem("nexus_team_goals_cache");
+        if (cached) {
+          const teamData = JSON.parse(cached);
+          teamData.teams = (teamData.teams || []).map((team) => ({
+            ...team,
+            goals: (team.goals || []).map((goal) =>
+              goal.id === updated.id ? { ...goal, ...updated } : goal
+            ),
+          }));
+          localStorage.setItem("nexus_team_goals_cache", JSON.stringify(teamData));
+        }
+      } catch (cacheError) {
+        console.warn("[goalsApi] Failed to update cached team goals:", cacheError);
+      }
+
+      return updated;
+    } catch (error) {
+      console.warn("[goalsApi] Backend PATCH /team-goals/ error:", error.message);
+      throw error;
     }
   },
 };

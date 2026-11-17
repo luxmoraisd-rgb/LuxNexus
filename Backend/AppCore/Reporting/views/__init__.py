@@ -3,5 +3,25 @@
 from .dashboard_detail import DashboardDetailView
 from .dashboard_summary import DashboardSummaryView
 from .dashboards import DashboardListCreateView
+from .reports import (
+    EODCommentsView,
+    EODReportDetailView,
+    EODReportImportView,
+    EODReportListCreateView,
+    EODReportSampleDataView,
+    EODSpreadsheetPreviewView,
+    ReportOptionsView,
+)
 
-__all__ = ["DashboardListCreateView", "DashboardDetailView", "DashboardSummaryView"]
+__all__ = [
+    "DashboardListCreateView",
+    "DashboardDetailView",
+    "DashboardSummaryView",
+    "EODCommentsView",
+    "EODReportDetailView",
+    "EODReportImportView",
+    "EODReportListCreateView",
+    "EODReportSampleDataView",
+    "EODSpreadsheetPreviewView",
+    "ReportOptionsView",
+]
