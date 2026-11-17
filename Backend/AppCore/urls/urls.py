@@ -18,6 +18,7 @@ from ..Auth.views import (
     TeamInvitationView,
 )
 from ..Auth.views.permissions import RolePermissionsView
+from ..Chat.views import AdminChatReadView, AdminChatUnreadView, AdminChatView
 from ..views.views import (
     ResourcingProjectListCreateView,
     ResourcingProjectDetailView,
@@ -161,4 +162,7 @@ urlpatterns = [
     path("verify-otp/", VerifyOTPView.as_view(), name="verify-otp"),
     path("reset-password/", ResetPasswordView.as_view(), name="reset-password"),
     path("permissions/", RolePermissionsView.as_view(), name="role-permissions"),
+    path("admin-chat/", AdminChatView.as_view(), name="admin-chat"),
+    path("admin-chat/read/", AdminChatReadView.as_view(), name="admin-chat-read"),
+    path("admin-chat/unread/", AdminChatUnreadView.as_view(), name="admin-chat-unread"),
 ]

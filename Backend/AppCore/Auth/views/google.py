@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ...db import get_database
-from ..utils import create_token, normalize_username, user_payload
+from ..utils import create_token, get_client_ip, normalize_username, user_payload
 
 
 class GoogleAuthView(APIView):
@@ -60,12 +60,7 @@ class GoogleAuthView(APIView):
             database.users.update_one({"_id": user_document["_id"]}, {"$set": updates})
             user_document = database.users.find_one({"_id": user_document["_id"]})
 
-        client_ip = (
-            request.data.get("client_ip")
-            or (request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip() if request.META.get("HTTP_X_FORWARDED_FOR") else None)
-            or request.META.get("REMOTE_ADDR", "").strip()
-            or "127.0.0.1"
-        )
+        client_ip = get_client_ip(request)
         user_agent = request.META.get("HTTP_USER_AGENT", "")
         token = create_token(
             user_document["_id"],

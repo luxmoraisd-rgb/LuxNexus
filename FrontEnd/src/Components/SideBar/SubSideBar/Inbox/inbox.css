@@ -146,6 +146,7 @@ body[data-theme="light"],
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 14px;
   padding: 16px 18px 10px 18px;
 }
 
@@ -153,6 +154,7 @@ body[data-theme="light"],
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .inbox-heading {
@@ -170,18 +172,28 @@ body[data-theme="light"],
   border-radius: 999px;
   background: var(--inbox-accent-light);
   color: var(--inbox-accent);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .inbox-badge-caughtup {
   font-size: 11px;
   font-weight: 500;
   color: var(--inbox-text-faint);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .inbox-head-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  flex-shrink: 0;
+  height: 39px;
+  gap: 10px;
 }
 
 .inbox-primary-compose-btn {
@@ -1258,6 +1270,68 @@ body[data-theme="light"],
   color: var(--inbox-text-main);
 }
 
+.reply-attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.reply-attachment-link,
+.reply-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--inbox-border);
+  border-radius: 6px;
+  background: var(--inbox-toolbar-bg);
+  color: var(--inbox-text-muted);
+  font: inherit;
+  font-size: 12px;
+}
+
+.reply-attachment-link {
+  cursor: pointer;
+}
+
+.reply-attachment-link:hover:not(:disabled) {
+  color: var(--inbox-accent);
+  border-color: var(--inbox-accent);
+}
+
+.reply-attachment-link:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.reply-attachment-link span,
+.reply-attachment-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reply-selected-attachments {
+  padding: 0 14px 12px;
+  margin-top: 0;
+}
+
+.reply-attachment-chip button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.reply-attachment-chip button:disabled {
+  cursor: wait;
+}
+
 /* Inline Reply Box */
 .reading-reply-box {
   padding: 18px 28px 28px 28px;
@@ -1317,6 +1391,52 @@ body[data-theme="light"],
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+.reply-attachment-picker {
+  position: relative;
+}
+
+.reply-attachment-options {
+  position: absolute;
+  z-index: 20;
+  bottom: calc(100% + 8px);
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 144px;
+  padding: 4px;
+  border: 1px solid var(--inbox-border);
+  border-radius: 8px;
+  background: var(--inbox-card-bg);
+  box-shadow: var(--inbox-shadow);
+}
+
+.reply-attachment-options button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--inbox-text-main);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.reply-attachment-options button:hover,
+.reply-attachment-options button:focus-visible {
+  outline: none;
+  background: var(--inbox-card-hover);
+}
+
+.reply-attachment-options svg {
+  flex: 0 0 auto;
+  color: var(--inbox-text-muted);
 }
 
 .reply-tool-btn {
@@ -1536,6 +1656,23 @@ body[data-theme="light"],
   gap: 12px;
 }
 
+.email-field-control {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.field-error {
+  color: var(--inbox-red);
+  font-size: 12px;
+}
+
+.field-input[aria-invalid="true"] {
+  border-color: var(--inbox-red);
+}
+
 .form-field-col {
   display: flex;
   flex-direction: column;
@@ -1683,6 +1820,16 @@ body[data-theme="light"],
   animation: toastIn 0.2s ease-out;
 }
 
+.inbox-refresh-success-toast {
+  position: fixed;
+  z-index: 10000;
+}
+
+.inbox-refresh-success-toast .toast-check {
+  color: var(--inbox-green);
+  flex-shrink: 0;
+}
+
 .inbox-toast .toast-dot {
   width: 7px;
   height: 7px;
@@ -1763,5 +1910,25 @@ body[data-theme="light"],
   }
   .reading-back-button {
     display: flex;
+  }
+}
+
+@media (max-width: 380px) {
+  .inbox-header-title-bar {
+    gap: 4px;
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+  .inbox-title-cluster {
+    gap: 4px;
+  }
+}
+
+@media (max-width: 353px) {
+  .inbox-header-title-bar {
+    justify-content: flex-end;
+  }
+  .inbox-title-cluster {
+    display: none;
   }
 }

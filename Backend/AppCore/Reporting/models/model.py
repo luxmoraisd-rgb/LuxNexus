@@ -9,5 +9,8 @@ def get_tasks_collection():
     return get_database()["tasks"]
 
 
-__all__ = ["get_dashboards_collection", "get_tasks_collection"]
+def get_eod_reports_collection():
+    return get_database()["eod_reports"]
 
+
+__all__ = ["get_dashboards_collection", "get_tasks_collection", "get_eod_reports_collection"]

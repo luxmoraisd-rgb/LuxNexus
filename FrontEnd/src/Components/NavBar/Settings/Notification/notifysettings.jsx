@@ -148,8 +148,6 @@ export const NotificationSettingsPanel = ({
     return DEFAULT_NOTIFICATION_SETTINGS;
   });
 
-  const [savedBadge, setSavedBadge] = useState(false);
-
   useEffect(() => {
     inboxApi
       .getSettings()
@@ -181,9 +179,6 @@ export const NotificationSettingsPanel = ({
       localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(payload));
     } catch {}
 
-    setSavedBadge(true);
-    setTimeout(() => setSavedBadge(false), 2000);
-
     try {
       await inboxApi.updateSettings(payload);
     } catch (err) {
@@ -210,12 +205,6 @@ export const NotificationSettingsPanel = ({
         </div>
 
         <div className="notification-header-actions">
-          {savedBadge && (
-            <span className="notif-saved-indicator">
-              <Check size={12} />
-              Saved
-            </span>
-          )}
           {onClose && (
             <button
               type="button"
@@ -244,10 +233,19 @@ export const NotificationSettingsPanel = ({
               <span className="notification-desc">{item.description}</span>
             </div>
 
-            <span
-              className={`toggle-pill ${item.enabled ? "on" : ""}`}
-              aria-label={`${item.name} ${item.enabled ? "enabled" : "disabled"}`}
-            />
+            <div className="notification-setting-control">
+              <span
+                className={`notification-setting-state ${
+                  item.enabled ? "is-enabled" : "is-disabled"
+                }`}
+              >
+                {item.enabled ? "Enabled" : "Disabled"}
+              </span>
+              <span
+                className={`toggle-pill ${item.enabled ? "on" : ""}`}
+                aria-label={`${item.name} ${item.enabled ? "enabled" : "disabled"}`}
+              />
+            </div>
           </button>
         ))}
       </div>

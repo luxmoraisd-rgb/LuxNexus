@@ -71,8 +71,6 @@ class TaskSerializer(MongoModelSerializer):
         queryset=User.objects.all(), source='owner', write_only=True, required=False, allow_null=True
     )
     owner = UserSerializer(read_only=True)
-    startDate = serializers.CharField(source='start_date', required=False, allow_blank=True, allow_null=True)
-    start_date = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     dueDate = serializers.CharField(source='due_date', required=False, allow_blank=True, allow_null=True)
     due_date = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
@@ -97,8 +95,6 @@ class TaskSerializer(MongoModelSerializer):
             'sp',
             'epic',
             'sprintId',
-            'start_date',
-            'startDate',
             'due_date',
             'dueDate',
             'comments_count',

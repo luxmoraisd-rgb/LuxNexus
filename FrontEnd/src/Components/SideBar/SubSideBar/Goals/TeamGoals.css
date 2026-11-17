@@ -321,6 +321,38 @@
   color: var(--app-text, #f8fafc);
 }
 
+.row-goal-title-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.team-goal-edit-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 7px;
+  border: 1px solid var(--app-border, rgba(255, 255, 255, 0.12));
+  border-radius: 6px;
+  background: transparent;
+  color: var(--app-muted, #94a3b8);
+  font-size: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.team-goal-edit-button:hover {
+  border-color: #10b981;
+  color: #34d399;
+}
+
+.team-goal-edit-error {
+  margin: 0;
+  color: #fb7185;
+  font-size: 12px;
+}
+
 .row-goal-summary {
   font-size: calc(11px * var(--font-scale, 1));
   color: var(--app-muted, #94a3b8);
@@ -478,6 +510,15 @@
   color: var(--app-text, #f8fafc);
   font-size: 13px;
   outline: none;
+}
+
+.team-modal-form input[type="date"] {
+  color-scheme: dark;
+}
+
+.app[data-theme="light"] .team-modal-form input[type="date"],
+:root[data-theme="light"] .team-modal-form input[type="date"] {
+  color-scheme: light;
 }
 
 .team-modal-actions {

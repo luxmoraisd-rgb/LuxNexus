@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  ChevronDown,
   Users,
   UserPlus,
   Search,
@@ -26,6 +27,120 @@ import {
 import peopleApi from "./peopleApi";
 import "./people.css";
 
+const getInvitationExpiryLabel = (expiresAt, currentDate) => {
+  const expirationDate = new Date(expiresAt);
+  if (Number.isNaN(expirationDate.getTime())) return null;
+
+  const expirationDay = Date.UTC(
+    expirationDate.getFullYear(),
+    expirationDate.getMonth(),
+    expirationDate.getDate()
+  );
+  const today = Date.UTC(
+    currentDate.getFullYear(),
+    currentDate.getMonth(),
+    currentDate.getDate()
+  );
+  const daysLeft = Math.max(0, Math.round((expirationDay - today) / 86400000) - 1);
+  return daysLeft > 0 ? `${daysLeft} days left` : "Expiring soon";
+};
+
+const ScrollableSelect = ({ ariaLabel, options, value, onChange }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
+  const selectedOption = options.find((option) => option.value === value);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    menuRef.current
+      ?.querySelector('[aria-selected="true"]')
+      ?.focus();
+
+    const handlePointerDown = (event) => {
+      if (!containerRef.current?.contains(event.target)) setIsOpen(false);
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [isOpen]);
+
+  const closeMenu = () => {
+    setIsOpen(false);
+    triggerRef.current?.focus();
+  };
+
+  const handleTriggerKeyDown = (event) => {
+    if (["ArrowDown", "ArrowUp", "Enter", " "].includes(event.key)) {
+      event.preventDefault();
+      setIsOpen(true);
+    }
+  };
+
+  const handleOptionKeyDown = (event, index) => {
+    let nextIndex;
+    if (event.key === "ArrowDown") nextIndex = Math.min(index + 1, options.length - 1);
+    else if (event.key === "ArrowUp") nextIndex = Math.max(index - 1, 0);
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = options.length - 1;
+    else if (event.key === "Escape") {
+      event.preventDefault();
+      closeMenu();
+    }
+
+    if (nextIndex !== undefined) {
+      event.preventDefault();
+      const optionElements = menuRef.current?.querySelectorAll('[role="option"]');
+      optionElements?.[nextIndex]?.focus();
+    }
+  };
+
+  return (
+    <div className="people-scroll-select" ref={containerRef}>
+      <button
+        type="button"
+        className="form-control people-scroll-select-trigger"
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((open) => !open)}
+        onKeyDown={handleTriggerKeyDown}
+        ref={triggerRef}
+      >
+        <span>{selectedOption?.label || "Select an option"}</span>
+        <ChevronDown size={16} aria-hidden="true" />
+      </button>
+      {isOpen && (
+        <div
+          className="people-scroll-select-menu"
+          role="listbox"
+          aria-label={ariaLabel}
+          ref={menuRef}
+        >
+          {options.map((option, index) => (
+            <button
+              type="button"
+              className="people-scroll-select-option"
+              role="option"
+              aria-selected={option.value === value}
+              key={option.value}
+              onClick={() => {
+                onChange(option.value);
+                closeMenu();
+              }}
+              onKeyDown={(event) => handleOptionKeyDown(event, index)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const PeoplePage = ({
   theme = "dark",
   currentUser,
@@ -34,16 +149,13 @@ export const PeoplePage = ({
 }) => {
   const navigate = useNavigate();
 
-  // Internal tab state synced with prop or fallback
   const sanitizeTab = (tab) => (tab === "workspace" ? "members" : tab || "members");
-  const [currentTab, setCurrentTab] = useState(sanitizeTab(activeTab));
-  useEffect(() => {
-    if (activeTab) setCurrentTab(sanitizeTab(activeTab));
-  }, [activeTab]);
+  const [internalTab, setInternalTab] = useState(sanitizeTab(activeTab));
+  const currentTab = onTabChange ? sanitizeTab(activeTab) : internalTab;
 
   const handleTabSwitch = (tab) => {
-    setCurrentTab(tab);
     if (onTabChange) onTabChange(tab);
+    else setInternalTab(tab);
   };
 
   // Data states
@@ -59,6 +171,7 @@ export const PeoplePage = ({
 
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [countdownDate, setCountdownDate] = useState(() => new Date());
 
   // Filters & display mode
   const [searchQuery, setSearchQuery] = useState("");
@@ -174,6 +287,16 @@ export const PeoplePage = ({
     loadData();
   }, []);
 
+  useEffect(() => {
+    const now = new Date();
+    const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const timer = setTimeout(
+      () => setCountdownDate(new Date()),
+      nextMidnight.getTime() - now.getTime()
+    );
+    return () => clearTimeout(timer);
+  }, [countdownDate]);
+
   const handleRefresh = () => {
     setIsRefreshing(true);
     loadData(true);
@@ -283,12 +406,40 @@ export const PeoplePage = ({
     }
   };
 
+  const handleTeamModalKeyDown = (event) => {
+    if (event.key !== "Tab") return;
+
+    const focusableElements = event.currentTarget.querySelectorAll(
+      'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+    );
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+
+    if (event.shiftKey && document.activeElement === firstElement) {
+      event.preventDefault();
+      lastElement.focus();
+    } else if (!event.shiftKey && document.activeElement === lastElement) {
+      event.preventDefault();
+      firstElement.focus();
+    }
+  };
+
   // Revoke invite
   const handleRevokeInvite = async (email) => {
+    if (!window.confirm(`Are you sure you want to revoke the invitation for ${email}?`)) {
+      return;
+    }
+
     try {
-      await peopleApi.revokeInvitation(email);
+      const response = await peopleApi.revokeInvitation(email);
       showToast(`Invitation for ${email} revoked`);
       setInvitations((prev) => prev.filter((i) => i.email !== email));
+      if (Number.isFinite(response?.pendingInvitations)) {
+        setStats((prev) => ({
+          ...prev,
+          pendingInvitations: response.pendingInvitations,
+        }));
+      }
     } catch {
       showToast("Failed to revoke invitation");
     }
@@ -436,7 +587,7 @@ export const PeoplePage = ({
             <Clock size={20} />
           </div>
           <div className="stat-info">
-            <span className="stat-value">{stats.pendingInvitations || invitations.length}</span>
+            <span className="stat-value">{stats.pendingInvitations ?? invitations.length}</span>
             <span className="stat-label">Pending Invitations</span>
           </div>
         </div>
@@ -591,7 +742,15 @@ export const PeoplePage = ({
                 <div
                   key={member.id}
                   className="member-card"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setSelectedMember(member)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setSelectedMember(member);
+                    }
+                  }}
                 >
                   <div className="card-top-row">
                     <div className="card-avatar-wrap">
@@ -740,14 +899,6 @@ export const PeoplePage = ({
                   Invited teammates receive a secure invitation link to join the Nexus workspace.
                 </p>
               </div>
-              <button
-                type="button"
-                className="people-btn people-btn-primary"
-                onClick={() => setShowInviteModal(true)}
-              >
-                <Plus size={15} />
-                <span>Invite Member</span>
-              </button>
             </div>
 
             {invitations.length === 0 ? (
@@ -757,29 +908,32 @@ export const PeoplePage = ({
               </div>
             ) : (
               <div className="invite-list">
-                {invitations.map((inv) => (
-                  <div key={inv.id || inv.email} className="invite-row">
-                    <div className="invite-left">
-                      <Mail size={18} color="#6366f1" />
-                      <div>
-                        <div className="invite-email">{inv.email}</div>
-                        <div className="invite-meta">
-                          Invited as {inv.role} • {inv.department} • {inv.expiresIn}
+                {invitations.map((inv) => {
+                  const expiresIn = getInvitationExpiryLabel(inv.expiresAt, countdownDate);
+                  return (
+                    <div key={inv.id || inv.email} className="invite-row">
+                      <div className="invite-left">
+                        <Mail size={18} color="#6366f1" />
+                        <div>
+                          <div className="invite-email">{inv.email}</div>
+                          <div className="invite-meta">
+                            Invited as {inv.role} • {inv.department} • {expiresIn || inv.expiresIn}
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="invite-actions">
-                      <button
-                        type="button"
-                        className="revoke-btn"
-                        onClick={() => handleRevokeInvite(inv.email)}
-                      >
-                        Revoke
-                      </button>
+                      <div className="invite-actions">
+                        <button
+                          type="button"
+                          className="revoke-btn"
+                          onClick={() => handleRevokeInvite(inv.email)}
+                        >
+                          Revoke
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -973,38 +1127,46 @@ export const PeoplePage = ({
 
                 <div className="form-group">
                   <label>Workspace Role</label>
-                  <select
-                    className="form-control"
+                  <ScrollableSelect
+                    ariaLabel="Workspace Role"
                     value={inviteForm.role}
-                    onChange={(e) =>
-                      setInviteForm({ ...inviteForm, role: e.target.value })
+                    onChange={(role) =>
+                      setInviteForm({ ...inviteForm, role })
                     }
-                  >
-                    <option value="user">Member (Standard Contributor)</option>
-                    <option value="team_lead">Team Lead (Sprint Manager)</option>
-                    <option value="admin">Admin (Organization Lead)</option>
-                  </select>
+                    options={[
+                      { value: "user", label: "Member (Standard Contributor)" },
+                      { value: "team_lead", label: "Team Lead (Sprint Manager)" },
+                      { value: "admin", label: "Admin (Organization Lead)" },
+                    ]}
+                  />
                 </div>
 
                 <div className="form-group">
                   <label>Assign to Team / Squad</label>
-                  <select
-                    className="form-control"
+                  <ScrollableSelect
+                    ariaLabel="Assign to Team / Squad"
                     value={inviteForm.team}
-                    onChange={(e) =>
-                      setInviteForm({ ...inviteForm, team: e.target.value })
+                    onChange={(team) =>
+                      setInviteForm({ ...inviteForm, team })
                     }
-                  >
-                    <option value="Frontend & UI Experience">Frontend & UI Experience</option>
-                    <option value="Core Platform Engineering">Core Platform Engineering</option>
-                    <option value="DevOps & Cloud Reliability">DevOps & Cloud Reliability</option>
-                    <option value="Product Strategy & Agile Operations">Product Strategy & Agile Operations</option>
-                    {teams.map((t) => (
-                      !["Frontend & UI Experience", "Core Platform Engineering", "DevOps & Cloud Reliability", "Product Strategy & Agile Operations"].includes(t.name) ? (
-                        <option key={t.id || t.name} value={t.name}>{t.name}</option>
-                      ) : null
-                    ))}
-                  </select>
+                    options={[
+                      { value: "Frontend & UI Experience", label: "Frontend & UI Experience" },
+                      { value: "Core Platform Engineering", label: "Core Platform Engineering" },
+                      { value: "DevOps & Cloud Reliability", label: "DevOps & Cloud Reliability" },
+                      { value: "Product Strategy & Agile Operations", label: "Product Strategy & Agile Operations" },
+                      ...teams
+                        .filter(
+                          (team) =>
+                            ![
+                              "Frontend & UI Experience",
+                              "Core Platform Engineering",
+                              "DevOps & Cloud Reliability",
+                              "Product Strategy & Agile Operations",
+                            ].includes(team.name)
+                        )
+                        .map((team) => ({ value: team.name, label: team.name })),
+                    ]}
+                  />
                 </div>
 
                 <div className="form-group">
@@ -1061,9 +1223,13 @@ export const PeoplePage = ({
           <div
             className="people-modal-card"
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={handleTeamModalKeyDown}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-team-title"
           >
             <div className="people-modal-header">
-              <h3>Create New Team / Squad</h3>
+              <h3 id="create-team-title">Create New Team / Squad</h3>
               <button
                 type="button"
                 className="people-modal-close"
@@ -1076,13 +1242,15 @@ export const PeoplePage = ({
             <form onSubmit={handleTeamSubmit}>
               <div className="people-modal-body">
                 <div className="form-group">
-                  <label>Team Name</label>
+                  <label htmlFor="create-team-name">Team Name</label>
                   <input
+                    id="create-team-name"
                     type="text"
                     required
                     className="form-control"
                     placeholder="e.g. Mobile Engineering, Growth Squad"
                     value={teamForm.name}
+                    autoFocus
                     onChange={(e) =>
                       setTeamForm({ ...teamForm, name: e.target.value })
                     }

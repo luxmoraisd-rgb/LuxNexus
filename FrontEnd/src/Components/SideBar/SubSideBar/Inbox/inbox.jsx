@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Inbox as InboxIcon,
   Mail,
@@ -30,6 +30,8 @@ import {
   Sun,
   Moon,
   RotateCcw,
+  Image,
+  FileText,
 } from "lucide-react";
 import inboxApi from "./inboxApi";
 import "./inbox.css";
@@ -40,6 +42,102 @@ import "./inbox.css";
    Clean 2-Pane Architecture: Message List + Reading Pane
    Top Command & Folder Bar with Theme Switcher
 ========================================================= */
+
+const createInitialComposeForm = () => ({
+  to: "",
+  toEmail: "",
+  subject: "",
+  type: "message",
+  description: "",
+  tags: "",
+});
+
+const MAX_REPLY_FILE_SIZE = 25 * 1024 * 1024;
+const MAX_REPLY_TOTAL_SIZE = 100 * 1024 * 1024;
+const VALID_EMAIL_TLDS = new Set([
+  "com", "org", "net", "edu", "gov", "mil", "int", "biz", "info", "name",
+  "pro", "museum", "aero", "coop", "jobs", "mobi", "travel", "asia", "app",
+  "dev", "io", "ai", "co", "me", "tv", "tech", "online", "site", "xyz",
+  "cloud", "store", "shop", "email", "agency", "solutions", "company",
+  "digital", "world", "finance", "systems", "services", "group", "live",
+  "blog", "design", "software", "website",
+]);
+const COMMON_EMAIL_DOMAINS = [
+  "gmail.com",
+  "yahoo.com",
+  "outlook.com",
+  "hotmail.com",
+  "icloud.com",
+  "aol.com",
+  "live.com",
+  "proton.me",
+];
+const EMAIL_ADDRESS_PATTERN =
+  /^[A-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+([A-Z]{2,63})$/i;
+const getEmailDomainDistance = (left, right) => {
+  const distances = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    let previousDiagonal = distances[0];
+    distances[0] = leftIndex;
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const previousRow = distances[rightIndex];
+      distances[rightIndex] = Math.min(
+        distances[rightIndex] + 1,
+        distances[rightIndex - 1] + 1,
+        previousDiagonal +
+          (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1)
+      );
+      previousDiagonal = previousRow;
+    }
+  }
+  return distances[right.length];
+};
+const isValidRecipientEmail = (email) => {
+  const match = email.match(EMAIL_ADDRESS_PATTERN);
+  if (
+    !match ||
+    (!/^[a-z]{2}$/i.test(match[1]) &&
+      !VALID_EMAIL_TLDS.has(match[1].toLowerCase()))
+  ) {
+    return false;
+  }
+
+  const domain = email.slice(email.lastIndexOf("@") + 1).toLowerCase();
+  const isLikelyProviderTypo = COMMON_EMAIL_DOMAINS.some(
+    (knownDomain) =>
+      domain !== knownDomain &&
+      Math.abs(domain.length - knownDomain.length) <= 2 &&
+      getEmailDomainDistance(domain, knownDomain) <= 2
+  );
+  return !isLikelyProviderTypo;
+};
+const RECIPIENT_EMAIL_ERROR = "Please enter a valid email address.";
+
+const formatRelativeTimestamp = (item, now) => {
+  const createdAt = item.created_at || item.createdAt;
+  if (!createdAt) return item.time || item.date || "Today";
+
+  const timestamp = new Date(createdAt).getTime();
+  if (!Number.isFinite(timestamp)) return item.time || item.date || "Today";
+
+  const elapsedMinutes = Math.floor(Math.max(0, now - timestamp) / 60000);
+  if (elapsedMinutes < 1) return "Just now";
+  if (elapsedMinutes < 60) {
+    return `${elapsedMinutes} min${elapsedMinutes === 1 ? "" : "s"} ago`;
+  }
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) {
+    return `${elapsedHours} hour${elapsedHours === 1 ? "" : "s"} ago`;
+  }
+
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  if (elapsedDays === 1) return "Yesterday";
+  if (elapsedDays < 30) {
+    return `${elapsedDays} day${elapsedDays === 1 ? "" : "s"} ago`;
+  }
+  return new Date(timestamp).toLocaleDateString();
+};
 
 function Inbox({ theme: propTheme }) {
   // Theme state synced with App / localStorage / DOM attribute
@@ -87,6 +185,10 @@ function Inbox({ theme: propTheme }) {
 
   // Main notifications state
   const [notifications, setNotifications] = useState([]);
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
+  const refreshInFlight = useRef(false);
+  const refreshToastTimeout = useRef(null);
+  const [refreshToastVisible, setRefreshToastVisible] = useState(false);
   const [activeFolder, setActiveFolder] = useState("inbox"); // inbox, unread, starred, mentions, tasks, sent, archive, trash
   const [activeLabel, setActiveLabel] = useState(null); // optional label filter
   const [selectedId, setSelectedId] = useState(null);
@@ -99,20 +201,52 @@ function Inbox({ theme: propTheme }) {
   const [labelMenuOpen, setLabelMenuOpen] = useState(false);
 
   // Reply Composer State
-  const [replyText, setReplyText] = useState("");
-  const [isSendingReply, setIsSendingReply] = useState(false);
+  const [replyDrafts, setReplyDrafts] = useState({});
+  const [sendingReplyIds, setSendingReplyIds] = useState(() => new Set());
+  const [downloadingAttachmentId, setDownloadingAttachmentId] = useState(null);
+  const [showReplyAttachmentOptions, setShowReplyAttachmentOptions] =
+    useState(false);
+  const replyPhotoInputRef = useRef(null);
+  const replyDocumentInputRef = useRef(null);
+  const replyAttachmentTriggerRef = useRef(null);
+  const replyAttachmentMenuRef = useRef(null);
+  const inboxFetchSequence = useRef(0);
+
+  useEffect(() => {
+    if (!showReplyAttachmentOptions) return;
+
+    const closeOnOutsidePointerDown = (event) => {
+      if (
+        replyAttachmentTriggerRef.current?.contains(event.target) ||
+        replyAttachmentMenuRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+      setShowReplyAttachmentOptions(false);
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePointerDown);
+    return () =>
+      document.removeEventListener("pointerdown", closeOnOutsidePointerDown);
+  }, [showReplyAttachmentOptions]);
 
   // Compose Modal State
   const [showCompose, setShowCompose] = useState(false);
-  const [composeForm, setComposeForm] = useState({
-    to: "Alex Rivera",
-    toEmail: "alex.rivera@nexusapp.io",
-    subject: "",
-    type: "message",
-    description: "",
-    tags: "Sprint, Team",
-  });
+  const [composeForm, setComposeForm] = useState(createInitialComposeForm);
   const [isSubmittingCompose, setIsSubmittingCompose] = useState(false);
+  const [recipientEmailError, setRecipientEmailError] = useState("");
+
+  const handleComposeOpen = () => {
+    setComposeForm(createInitialComposeForm());
+    setRecipientEmailError("");
+    setShowCompose(true);
+  };
+
+  const handleComposeClose = () => {
+    setShowCompose(false);
+    setComposeForm(createInitialComposeForm());
+    setRecipientEmailError("");
+  };
 
   // Preferences Modal State
   const [showSettings, setShowSettings] = useState(false);
@@ -128,6 +262,16 @@ function Inbox({ theme: propTheme }) {
   // Toast banner alert
   const [statusToast, setStatusToast] = useState(null);
 
+  useEffect(() => {
+    const timerId = setInterval(() => setCurrentTime(Date.now()), 30_000);
+    return () => {
+      clearInterval(timerId);
+      if (refreshToastTimeout.current) {
+        clearTimeout(refreshToastTimeout.current);
+      }
+    };
+  }, []);
+
   const showToast = (message, type = "success") => {
     setStatusToast({ message, type });
     setTimeout(() => {
@@ -138,21 +282,65 @@ function Inbox({ theme: propTheme }) {
   /* ---------------------------------------------------------
      FETCH INBOX DATA FROM BACKEND API
   --------------------------------------------------------- */
-  const fetchInboxData = async (silent = false) => {
+  const fetchInboxData = async (silent = false, isRefresh = false) => {
+    if (isRefresh) {
+      if (refreshInFlight.current) return;
+      refreshInFlight.current = true;
+      setIsRefreshing(true);
+      setRefreshToastVisible(false);
+      if (refreshToastTimeout.current) {
+        clearTimeout(refreshToastTimeout.current);
+        refreshToastTimeout.current = null;
+      }
+    }
+    const fetchSequence = ++inboxFetchSequence.current;
     if (!silent) setIsLoading(true);
     try {
       const data = await inboxApi.getAll();
-      if (Array.isArray(data)) {
-        setNotifications(data);
-        if (selectedId && !data.some((n) => n.id === selectedId)) {
-          setSelectedId(null);
-        }
+      if (fetchSequence === inboxFetchSequence.current && Array.isArray(data)) {
+        setNotifications((current) => {
+          const currentById = new Map(current.map((item) => [item.id, item]));
+          return data.map((item) => {
+            const existing = currentById.get(item.id);
+            if (!existing) return item;
+            const createdAt = existing.created_at || existing.createdAt;
+            const replies = Array.isArray(item.replies) ? item.replies : [];
+            const currentReplies = Array.isArray(existing.replies)
+              ? existing.replies
+              : [];
+            const replyIds = new Set(replies.map((reply) => reply.id));
+            const locallyAddedReplies = currentReplies.filter(
+              (reply) => !replyIds.has(reply.id)
+            );
+            return {
+              ...item,
+              ...(createdAt ? { created_at: createdAt } : {}),
+              replies: [...replies, ...locallyAddedReplies],
+            };
+          });
+        });
+        setSelectedId((currentSelectedId) =>
+          currentSelectedId &&
+          !data.some((notification) => notification.id === currentSelectedId)
+            ? null
+            : currentSelectedId
+        );
       }
-    } catch (err) {
-      console.warn("[Inbox] Error fetching inbox notifications:", err);
+      if (isRefresh && fetchSequence === inboxFetchSequence.current) {
+        setRefreshToastVisible(true);
+        refreshToastTimeout.current = setTimeout(() => {
+          setRefreshToastVisible(false);
+          refreshToastTimeout.current = null;
+        }, 3000);
+      }
+    } catch {
+      // Retain the current notifications and last successful fetch timestamp.
     } finally {
       if (!silent) setIsLoading(false);
-      setIsRefreshing(false);
+      if (isRefresh) {
+        refreshInFlight.current = false;
+        setIsRefreshing(false);
+      }
     }
   };
 
@@ -170,8 +358,7 @@ function Inbox({ theme: propTheme }) {
   }, []);
 
   const handleRefresh = () => {
-    setIsRefreshing(true);
-    fetchInboxData(true);
+    fetchInboxData(true, true);
   };
 
   /* ---------------------------------------------------------
@@ -288,6 +475,46 @@ function Inbox({ theme: propTheme }) {
       ? notifications.find((n) => n.id === selectedId) || null
       : null;
   }, [notifications, selectedId]);
+  const activeReplyDraft = activeNotification
+    ? replyDrafts[activeNotification.id]
+    : null;
+  const replyText = activeReplyDraft?.text || "";
+  const replyFiles = activeReplyDraft?.files || [];
+  const isSendingReply = activeNotification
+    ? sendingReplyIds.has(activeNotification.id)
+    : false;
+  const updateReplyDraft = (notificationId, updates) => {
+    if (!notificationId) return;
+    setReplyDrafts((drafts) => ({
+      ...drafts,
+      [notificationId]: {
+        text: "",
+        files: [],
+        ...drafts[notificationId],
+        ...updates,
+      },
+    }));
+  };
+  const setReplyText = (text) => {
+    if (activeNotification) {
+      updateReplyDraft(activeNotification.id, { text });
+    }
+  };
+  const setReplyFiles = (filesOrUpdater) => {
+    if (!activeNotification) return;
+    const notificationId = activeNotification.id;
+    setReplyDrafts((drafts) => {
+      const currentDraft = drafts[notificationId] || { text: "", files: [] };
+      const files =
+        typeof filesOrUpdater === "function"
+          ? filesOrUpdater(currentDraft.files)
+          : filesOrUpdater;
+      return {
+        ...drafts,
+        [notificationId]: { ...currentDraft, files },
+      };
+    });
+  };
 
   /* ---------------------------------------------------------
      ACTIONS & API HANDLERS
@@ -577,49 +804,125 @@ function Inbox({ theme: propTheme }) {
   /* Send Reply */
   const handleSendReply = async (e) => {
     e.preventDefault();
-    if (!replyText.trim() || !activeNotification) return;
+    if ((!replyText.trim() && !replyFiles.length) || !activeNotification) return;
 
-    setIsSendingReply(true);
+    const notificationId = activeNotification.id;
     const textToSend = replyText.trim();
-    const replyDoc = {
-      id: `rep_${Date.now()}`,
-      author: "You",
-      text: textToSend,
-      time: "Just now",
-      date: "Today",
-      created_at: new Date().toISOString(),
-    };
-
-    setNotifications((prev) =>
-      prev.map((n) => {
-        if (n.id !== activeNotification.id) return n;
-        return {
-          ...n,
-          replies: [...(n.replies || []), replyDoc],
-        };
-      })
-    );
-    setReplyText("");
-
+    const filesToSend = replyFiles;
+    setSendingReplyIds((current) => new Set(current).add(notificationId));
     try {
-      await inboxApi.sendReply(activeNotification.id, textToSend);
+      const savedReply = await inboxApi.sendReply(
+        notificationId,
+        textToSend,
+        filesToSend
+      );
+      setNotifications((prev) =>
+        prev.map((notification) =>
+          notification.id === notificationId
+            ? {
+                ...notification,
+                replies: [...(notification.replies || []), savedReply],
+              }
+            : notification
+        )
+      );
+      setReplyDrafts((drafts) => {
+        const nextDrafts = { ...drafts };
+        delete nextDrafts[notificationId];
+        return nextDrafts;
+      });
       showToast("Reply sent successfully");
     } catch (err) {
       console.warn("[Inbox] sendReply error:", err);
+      const errorMessage =
+        err.response?.data?.files?.[0] ||
+        err.response?.data?.text?.[0] ||
+        err.response?.data?.detail ||
+        "Unable to send reply. Please try again.";
+      showToast(errorMessage, "error");
     } finally {
-      setIsSendingReply(false);
+      setSendingReplyIds((current) => {
+        const next = new Set(current);
+        next.delete(notificationId);
+        return next;
+      });
+    }
+  };
+
+  const handleReplyFilesSelected = (event) => {
+    const selectedFiles = Array.from(event.currentTarget.files || []);
+    event.currentTarget.value = "";
+
+    let totalSize = replyFiles.reduce((sum, file) => sum + file.size, 0);
+    const acceptedFiles = [];
+    let validationMessage = "";
+    for (const file of selectedFiles) {
+      if (file.size > MAX_REPLY_FILE_SIZE) {
+        validationMessage = "Each attachment must be 25 MB or smaller.";
+        continue;
+      }
+      if (totalSize + file.size > MAX_REPLY_TOTAL_SIZE) {
+        validationMessage = "The combined attachments must be 100 MB or smaller.";
+        continue;
+      }
+      acceptedFiles.push(file);
+      totalSize += file.size;
+    }
+
+    if (acceptedFiles.length) {
+      setReplyFiles((currentFiles) => [...currentFiles, ...acceptedFiles]);
+    }
+    if (validationMessage) showToast(validationMessage, "error");
+  };
+
+  const handleDownloadReplyAttachment = async (reply, attachment) => {
+    setDownloadingAttachmentId(attachment.id);
+    try {
+      const blob = await inboxApi.downloadReplyAttachment(
+        activeNotification.id,
+        reply.id,
+        attachment.id
+      );
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = attachment.filename || "attachment";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch (err) {
+      console.warn("[Inbox] attachment download error:", err);
+      showToast("Unable to download attachment. Please try again.", "error");
+    } finally {
+      setDownloadingAttachmentId(null);
     }
   };
 
   /* Submit Compose Message */
   const handleComposeSubmit = async (e) => {
     e.preventDefault();
+    if (!isValidRecipientEmail(composeForm.toEmail)) {
+      setRecipientEmailError(RECIPIENT_EMAIL_ERROR);
+      return;
+    }
+
+    if (!e.currentTarget.checkValidity()) {
+      e.currentTarget.reportValidity();
+      return;
+    }
+
     if (!composeForm.subject.trim()) {
       showToast("Subject line is required", "error");
       return;
     }
+    if (!composeForm.description.trim()) {
+      showToast("Message content is required", "error");
+      return;
+    }
 
     setIsSubmittingCompose(true);
+    const createdAt = new Date().toISOString();
     const newMsg = {
       title: composeForm.subject.trim(),
       description:
@@ -637,7 +940,7 @@ function Inbox({ theme: propTheme }) {
       unread: false,
       starred: false,
       isSent: true,
-      time: "Just now",
+      created_at: createdAt,
       date: "Today",
     };
 
@@ -645,15 +948,7 @@ function Inbox({ theme: propTheme }) {
       const created = await inboxApi.create(newMsg);
       const inserted = created || { ...newMsg, id: `msg_${Date.now()}` };
       setNotifications((prev) => [inserted, ...prev]);
-      setShowCompose(false);
-      setComposeForm({
-        to: "Alex Rivera",
-        toEmail: "alex.rivera@nexusapp.io",
-        subject: "",
-        type: "message",
-        description: "",
-        tags: "Sprint, Team",
-      });
+      handleComposeClose();
       showToast("Message sent successfully");
       setActiveFolder("inbox");
       setSelectedId(inserted.id);
@@ -681,6 +976,12 @@ function Inbox({ theme: propTheme }) {
 
   return (
     <div className="inbox-page-root" data-theme={currentTheme}>
+      {refreshToastVisible && (
+        <div className="inbox-toast inbox-refresh-success-toast" role="status">
+          <Check size={14} strokeWidth={2.5} className="toast-check" />
+          <span>Refreshed just now</span>
+        </div>
+      )}
       {/* Toast Notification Banner */}
       {statusToast && (
         <div className={`inbox-toast toast-${statusToast.type}`}>
@@ -719,20 +1020,23 @@ function Inbox({ theme: propTheme }) {
                 <button
                   type="button"
                   className="inbox-primary-compose-btn"
-                  onClick={() => setShowCompose(true)}
+                  onClick={handleComposeOpen}
                   title="Compose New Message"
                 >
                   <Plus size={15} strokeWidth={2.4} />
                   <span>New</span>
                 </button>
-
                 <button
                   type="button"
-                  className={`inbox-head-btn ${isRefreshing ? "spinning" : ""}`}
+                  className="inbox-head-btn"
                   onClick={handleRefresh}
                   title="Refresh inbox"
+                  disabled={isRefreshing || isLoading}
                 >
-                  <RefreshCw size={14} />
+                  <RefreshCw
+                    size={14}
+                    className={isRefreshing ? "spinning" : ""}
+                  />
                 </button>
 
                 <button
@@ -1136,7 +1440,7 @@ function Inbox({ theme: propTheme }) {
                               </span>
                             )}
                             <span className="row-timestamp-text">
-                              {item.time || item.date || "Today"}
+                              {formatRelativeTimestamp(item, currentTime)}
                             </span>
                           </div>
                         </div>
@@ -1412,10 +1716,10 @@ function Inbox({ theme: propTheme }) {
                       </span>
                       <span className="meta-sep">·</span>
                       <span className="meta-date-stamp">
-                        {activeNotification.date || "Today"}
-                        {activeNotification.time
-                          ? ` at ${activeNotification.time}`
-                          : ""}
+                        {formatRelativeTimestamp(
+                          activeNotification,
+                          currentTime
+                        )}
                       </span>
                     </div>
                   </div>
@@ -1525,6 +1829,38 @@ function Inbox({ theme: propTheme }) {
                             <div className="bubble-message-text">
                               {reply.text}
                             </div>
+                            {Array.isArray(reply.attachments) &&
+                              reply.attachments.length > 0 && (
+                                <div className="reply-attachment-list">
+                                  {reply.attachments.map((attachment) => (
+                                    <button
+                                      key={attachment.id}
+                                      type="button"
+                                      className="reply-attachment-link"
+                                      disabled={
+                                        downloadingAttachmentId === attachment.id
+                                      }
+                                      onClick={() =>
+                                        handleDownloadReplyAttachment(
+                                          reply,
+                                          attachment
+                                        )
+                                      }
+                                    >
+                                      {downloadingAttachmentId ===
+                                      attachment.id ? (
+                                        <Loader2
+                                          size={13}
+                                          className="spinning"
+                                        />
+                                      ) : (
+                                        <Paperclip size={13} />
+                                      )}
+                                      <span>{attachment.filename}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                           </div>
                         ))}
                       </div>
@@ -1551,33 +1887,138 @@ function Inbox({ theme: propTheme }) {
                       activeNotification.author || "the sender"
                     }...`}
                     value={replyText}
+                    disabled={isSendingReply}
                     onChange={(e) => setReplyText(e.target.value)}
                   />
 
+                  {replyFiles.length > 0 && (
+                    <div
+                      className="reply-attachment-list reply-selected-attachments"
+                      aria-label="Selected attachments"
+                    >
+                      {replyFiles.map((file, index) => (
+                        <div
+                          key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
+                          className="reply-attachment-chip"
+                        >
+                          <Paperclip size={13} />
+                          <span>{file.name}</span>
+                          <button
+                            type="button"
+                            aria-label={`Remove ${file.name}`}
+                            title={`Remove ${file.name}`}
+                            disabled={isSendingReply}
+                            onClick={() =>
+                              setReplyFiles((currentFiles) =>
+                                currentFiles.filter(
+                                  (_, fileIndex) => fileIndex !== index
+                                )
+                              )
+                            }
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   <div className="reply-box-footer">
                     <div className="reply-tools-left">
-                      <button
-                        type="button"
-                        className="reply-tool-btn"
-                        title="Attach file"
+                      <input
+                        ref={replyPhotoInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        hidden
+                        onChange={handleReplyFilesSelected}
+                        aria-label="Choose photos"
+                      />
+                      <input
+                        ref={replyDocumentInputRef}
+                        type="file"
+                        multiple
+                        hidden
+                        onChange={handleReplyFilesSelected}
+                        aria-label="Choose files"
+                      />
+                      <div
+                        className="reply-attachment-picker"
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            setShowReplyAttachmentOptions(false);
+                          }
+                        }}
                       >
-                        <Paperclip size={14} />
-                      </button>
+                        <button
+                          ref={replyAttachmentTriggerRef}
+                          type="button"
+                          className="reply-tool-btn"
+                          title="Attach file"
+                          aria-label="Attach file"
+                          aria-haspopup="menu"
+                          aria-expanded={showReplyAttachmentOptions}
+                          disabled={isSendingReply}
+                          onClick={() =>
+                            setShowReplyAttachmentOptions((isOpen) => !isOpen)
+                          }
+                        >
+                          <Paperclip size={14} />
+                        </button>
+                        {showReplyAttachmentOptions && (
+                          <div
+                            ref={replyAttachmentMenuRef}
+                            className="reply-attachment-options"
+                            role="menu"
+                            aria-label="Choose attachment source"
+                          >
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                replyPhotoInputRef.current?.click();
+                                setShowReplyAttachmentOptions(false);
+                              }}
+                            >
+                              <Image size={15} />
+                              <span>Photos</span>
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                replyDocumentInputRef.current?.click();
+                                setShowReplyAttachmentOptions(false);
+                              }}
+                            >
+                              <FileText size={15} />
+                              <span>Files</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     <div className="reply-actions-right">
-                      {replyText && (
+                      {(replyText || replyFiles.length > 0) && (
                         <button
                           type="button"
                           className="reply-cancel-btn"
-                          onClick={() => setReplyText("")}
+                          disabled={isSendingReply}
+                          onClick={() => {
+                            setReplyText("");
+                            setReplyFiles([]);
+                          }}
                         >
                           Discard
                         </button>
                       )}
                       <button
                         type="submit"
-                        disabled={!replyText.trim() || isSendingReply}
+                        disabled={
+                          (!replyText.trim() && !replyFiles.length) ||
+                          isSendingReply
+                        }
                         className="reply-submit-btn"
                       >
                         {isSendingReply ? (
@@ -1633,7 +2074,7 @@ function Inbox({ theme: propTheme }) {
               <button
                 type="button"
                 className="inbox-modal-close"
-                onClick={() => setShowCompose(false)}
+                onClick={handleComposeClose}
               >
                 <X size={16} />
               </button>
@@ -1656,19 +2097,37 @@ function Inbox({ theme: propTheme }) {
 
               <div className="form-field-row">
                 <label className="field-label">Email:</label>
-                <input
-                  type="email"
-                  className="field-input"
-                  value={composeForm.toEmail}
-                  onChange={(e) =>
-                    setComposeForm({
-                      ...composeForm,
-                      toEmail: e.target.value,
-                    })
-                  }
-                  placeholder="recipient@nexusapp.io"
-                  required
-                />
+                <div className="email-field-control">
+                  <input
+                    type="email"
+                    className="field-input"
+                    value={composeForm.toEmail}
+                    onChange={(e) => {
+                      const toEmail = e.target.value;
+                      setComposeForm({ ...composeForm, toEmail });
+                      setRecipientEmailError(
+                        toEmail && !isValidRecipientEmail(toEmail)
+                          ? RECIPIENT_EMAIL_ERROR
+                          : ""
+                      );
+                    }}
+                    placeholder="recipient@nexusapp.io"
+                    aria-invalid={Boolean(recipientEmailError)}
+                    aria-describedby={
+                      recipientEmailError ? "recipient-email-error" : undefined
+                    }
+                    required
+                  />
+                  {recipientEmailError && (
+                    <span
+                      className="field-error"
+                      id="recipient-email-error"
+                      role="alert"
+                    >
+                      {recipientEmailError}
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="form-field-row">
@@ -1737,7 +2196,7 @@ function Inbox({ theme: propTheme }) {
                 <button
                   type="button"
                   className="modal-btn-cancel"
-                  onClick={() => setShowCompose(false)}
+                  onClick={handleComposeClose}
                 >
                   Discard
                 </button>

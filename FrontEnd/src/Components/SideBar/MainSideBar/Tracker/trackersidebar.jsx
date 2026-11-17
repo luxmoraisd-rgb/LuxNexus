@@ -1,40 +1,31 @@
 import { useEffect, useState } from "react";
 import {
   Triangle,
-  GitBranch,
+  BarChart3,
   Gauge,
 } from "lucide-react";
 
 import SubSidebarAurora from "../../Common/SubSidebarAurora";
 import "./trackersidebar.css";
 
-/* =========================================
-   Compound Sidebar
-========================================= */
+
 
 const TrackerSidebar = ({ children }) => {
   return <aside className="tracker-sidebar">{children}</aside>;
 };
 
-/* =========================================
-   Sidebar Header
-========================================= */
 
 TrackerSidebar.Header = ({ children }) => {
   return <div className="tracker-header">{children}</div>;
 };
 
-/* =========================================
-   Navigation
-========================================= */
+
 
 TrackerSidebar.Navigation = ({ children }) => {
   return <nav className="tracker-navigation">{children}</nav>;
 };
 
-/* =========================================
-   Navigation Item
-========================================= */
+
 
 TrackerSidebar.NavItem = ({
   icon: Icon,
@@ -54,9 +45,7 @@ TrackerSidebar.NavItem = ({
   );
 };
 
-/* =========================================
-   Main Component
-========================================= */
+
 
 export default function TrackerSidebarExample({ onSelectionChange, selectedItem }) {
   const [selected, setSelected] = useState(selectedItem || "Goals");
@@ -89,10 +78,10 @@ export default function TrackerSidebarExample({ onSelectionChange, selectedItem 
         />
 
         <TrackerSidebar.NavItem
-          icon={GitBranch}
-          label="Reporting"
-          active={selected === "Reporting"}
-          onClick={() => handleSelect("Reporting")}
+          icon={BarChart3}
+          label="Reports"
+          active={selected === "Reports"}
+          onClick={() => handleSelect("Reports")}
         />
 
         <TrackerSidebar.NavItem

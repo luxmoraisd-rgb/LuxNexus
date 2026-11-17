@@ -1,9 +1,9 @@
-import React, { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   UserSilhouetteIcon,
   TeamSilhouetteIcon,
   ChevronRightIcon,
-  TrashIcon,
 } from "./Icons";
 import "./GoalRow.css";
 import "./ProgressBar.css";
@@ -15,27 +15,121 @@ const STATUS_CONFIG = {
   achieved: { label: "Achieved", color: "#22c55e", bg: "rgba(34, 197, 94, 0.18)", border: "rgba(34, 197, 94, 0.35)" },
 };
 
+function usePositionedPopover(isOpen, setIsOpen, triggerRef, popoverRef) {
+  useLayoutEffect(() => {
+    if (!isOpen) return undefined;
+
+    const positionPopover = () => {
+      const trigger = triggerRef.current;
+      const popover = popoverRef.current;
+      if (!trigger || !popover) return;
+
+      const triggerRect = trigger.getBoundingClientRect();
+      const popoverRect = popover.getBoundingClientRect();
+      const viewportPadding = 8;
+      const maxLeft = Math.max(
+        viewportPadding,
+        window.innerWidth - popoverRect.width - viewportPadding
+      );
+      const left = Math.min(Math.max(triggerRect.left, viewportPadding), maxLeft);
+      let top = triggerRect.bottom + 4;
+
+      if (top + popoverRect.height > window.innerHeight - viewportPadding) {
+        const aboveTop = triggerRect.top - popoverRect.height - 4;
+        top =
+          aboveTop >= viewportPadding
+            ? aboveTop
+            : Math.max(
+                viewportPadding,
+                window.innerHeight - popoverRect.height - viewportPadding
+              );
+      }
+
+      popover.style.left = `${left}px`;
+      popover.style.top = `${top}px`;
+    };
+
+    const handleOutsidePointerDown = (event) => {
+      if (
+        !triggerRef.current?.contains(event.target) &&
+        !popoverRef.current?.contains(event.target)
+      ) {
+        setIsOpen(false);
+      }
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    };
+
+    positionPopover();
+    document.addEventListener("scroll", positionPopover, true);
+    document.addEventListener("pointerdown", handleOutsidePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", positionPopover);
+
+    return () => {
+      document.removeEventListener("scroll", positionPopover, true);
+      document.removeEventListener("pointerdown", handleOutsidePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", positionPopover);
+    };
+  }, [isOpen, setIsOpen, triggerRef, popoverRef]);
+}
+
 function GoalRow({
   goal,
   isSelected = false,
+  isBulkSelected = false,
   onSelectGoal,
+  onToggleSelection,
   onUpdateGoal,
-  onDeleteGoal,
 }) {
-  const [isChecked, setIsChecked] = useState(false);
   const [showStatusPicker, setShowStatusPicker] = useState(false);
   const [showOwnerPicker, setShowOwnerPicker] = useState(false);
   const [showPeriodPicker, setShowPeriodPicker] = useState(false);
   const [showTeamPicker, setShowTeamPicker] = useState(false);
+  const statusPickerTriggerRef = useRef(null);
+  const statusPickerRef = useRef(null);
+  const ownerPickerTriggerRef = useRef(null);
+  const ownerPickerRef = useRef(null);
+  const periodPickerTriggerRef = useRef(null);
+  const periodPickerRef = useRef(null);
+  const teamPickerTriggerRef = useRef(null);
+  const teamPickerRef = useRef(null);
 
   const statusKey = goal.status ? goal.status.toLowerCase().replace(/_/g, " ") : "";
   const currentStatus = STATUS_CONFIG[statusKey] || null;
 
+  usePositionedPopover(
+    showStatusPicker,
+    setShowStatusPicker,
+    statusPickerTriggerRef,
+    statusPickerRef
+  );
+  usePositionedPopover(
+    showOwnerPicker,
+    setShowOwnerPicker,
+    ownerPickerTriggerRef,
+    ownerPickerRef
+  );
+  usePositionedPopover(
+    showPeriodPicker,
+    setShowPeriodPicker,
+    periodPickerTriggerRef,
+    periodPickerRef
+  );
+  usePositionedPopover(
+    showTeamPicker,
+    setShowTeamPicker,
+    teamPickerTriggerRef,
+    teamPickerRef
+  );
 
   const handleRowClick = (e) => {
     if (e.target.closest(".row-checkbox-btn")) return;
     if (e.target.closest(".cell-popover")) return;
-    if (e.target.closest(".row-delete-btn")) return;
     if (e.target.closest(".dashed-avatar-btn")) return;
 
     if (onSelectGoal) {
@@ -54,11 +148,13 @@ function GoalRow({
             className="row-checkbox-btn"
             onClick={(e) => {
               e.stopPropagation();
-              setIsChecked(!isChecked);
+              onToggleSelection(goal.id);
             }}
-            title={isChecked ? "Uncheck goal" : "Check goal"}>
-            <span className={`custom-checkbox ${isChecked ? "checked" : ""}`}>
-              {isChecked && "✓"}
+            aria-label={isBulkSelected ? "Deselect goal" : "Select goal"}
+            aria-pressed={isBulkSelected}
+            title={isBulkSelected ? "Deselect goal" : "Select goal"}>
+            <span className={`custom-checkbox ${isBulkSelected ? "checked" : ""}`}>
+              {isBulkSelected && "✓"}
             </span>
           </button>
 
@@ -82,6 +178,8 @@ function GoalRow({
       <button
         type="button"
         className="status-badge"
+        ref={statusPickerTriggerRef}
+        ref={statusPickerTriggerRef}
         style={{
           color: currentStatus.color,
           backgroundColor: currentStatus.bg,
@@ -91,16 +189,13 @@ function GoalRow({
           e.stopPropagation();
           setShowStatusPicker(!showStatusPicker);
         }}>
-        <span
-          className="status-dot"
-          style={{ backgroundColor: currentStatus.color }}
-        />
         <span>{currentStatus.label}</span>
       </button>
     ) : (
       <button
         type="button"
         className="cell-empty-area"
+        ref={statusPickerTriggerRef}
         aria-label="Select goal status"
         onClick={(e) => {
           e.stopPropagation();
@@ -108,58 +203,60 @@ function GoalRow({
         }}/>
     )}
 
-    {showStatusPicker && (
-      <div
-        className="cell-popover"
-        onClick={(e) => e.stopPropagation()}>
-        <div className="popover-title">Update status</div>
+    {showStatusPicker &&
+      createPortal(
+        <div
+          ref={statusPickerRef}
+          className="cell-popover"
+          onClick={(e) => e.stopPropagation()}>
+          <div className="popover-title">Update status</div>
 
-        {Object.entries(STATUS_CONFIG).map(([key, config]) => (
+          {Object.entries(STATUS_CONFIG).map(([key, config]) => (
+            <button
+              key={key}
+              type="button"
+              className="popover-item"
+              onClick={() => {
+                const progressByStatus = {
+                  "on track": 75,
+                  "at risk": 40,
+                  "off track": 20,
+                  achieved: 100,
+                };
+
+                onUpdateGoal({
+                  ...goal,
+                  status: key,
+                  progress: progressByStatus[key],
+                  isPlaceholder: false,
+                });
+
+                setShowStatusPicker(false);
+              }}>
+              <span
+                className="status-dot"
+                style={{ backgroundColor: config.color }}/>
+              <span>{config.label}</span>
+            </button>
+          ))}
+
           <button
-            key={key}
             type="button"
-            className="popover-item"
+            className="popover-item clear"
             onClick={() => {
-              const progressByStatus = {
-                "on track": 75,
-                "at risk": 40,
-                "off track": 20,
-                achieved: 100,
-              };
-
               onUpdateGoal({
                 ...goal,
-                status: key,
-                progress: progressByStatus[key],
+                status: "",
                 isPlaceholder: false,
               });
 
               setShowStatusPicker(false);
-            }}
-          >
-            <span
-              className="status-dot"
-              style={{ backgroundColor: config.color }}/>
-            <span>{config.label}</span>
+            }}>
+            Clear status
           </button>
-        ))}
-
-        <button
-          type="button"
-          className="popover-item clear"
-          onClick={() => {
-            onUpdateGoal({
-              ...goal,
-              status: "",
-              isPlaceholder: false,
-            });
-
-            setShowStatusPicker(false);
-          }}>
-          Clear status
-        </button>
-      </div>
-    )}
+        </div>,
+        document.body
+      )}
   </div>
 </td>
 
@@ -201,6 +298,7 @@ function GoalRow({
           {goal.timePeriod ? (
             <span
               className="period-text"
+              ref={periodPickerTriggerRef}
               onClick={(e) => {
                 e.stopPropagation();
                 setShowPeriodPicker(!showPeriodPicker);
@@ -210,14 +308,20 @@ function GoalRow({
           ) : (
             <span
               className="period-text placeholder"
+              ref={periodPickerTriggerRef}
               onClick={(e) => {
                 e.stopPropagation();
                 setShowPeriodPicker(!showPeriodPicker);
               }}/>
           )}
 
-          {showPeriodPicker && (
-            <div className="cell-popover" onClick={(e) => e.stopPropagation()}>
+        </div>
+        {showPeriodPicker &&
+          createPortal(
+            <div
+              ref={periodPickerRef}
+              className="cell-popover"
+              onClick={(e) => e.stopPropagation()}>
               <div className="popover-title">Select time period</div>
               {["Q1 FY26", "Q2 FY26", "Q3 FY26", "Q4 FY26", "Q1 FY27", "Q2 FY27", "Full Year 2026"].map(
                 (period) => (
@@ -237,9 +341,9 @@ function GoalRow({
                   </button>
                 )
               )}
-            </div>
+            </div>,
+            document.body
           )}
-        </div>
       </td>
 
       <td className="goal-cell cell-team">
@@ -247,6 +351,7 @@ function GoalRow({
           {goal.team ? (
             <span
               className="team-text"
+              ref={teamPickerTriggerRef}
               onClick={(e) => {
                 e.stopPropagation();
                 setShowTeamPicker(!showTeamPicker);
@@ -257,6 +362,7 @@ function GoalRow({
             <button
               type="button"
               className="dashed-avatar-btn"
+              ref={teamPickerTriggerRef}
               title="Assign accountable team"
               onClick={(e) => {
                 e.stopPropagation();
@@ -266,8 +372,13 @@ function GoalRow({
             </button>
           )}
 
-          {showTeamPicker && (
-            <div className="cell-popover" onClick={(e) => e.stopPropagation()}>
+        </div>
+        {showTeamPicker &&
+          createPortal(
+            <div
+              ref={teamPickerRef}
+              className="cell-popover"
+              onClick={(e) => e.stopPropagation()}>
               <div className="popover-title">Assign team</div>
               {["Product", "Engineering", "Marketing", "Design", "Sales"].map((t) => (
                 <button
@@ -287,97 +398,94 @@ function GoalRow({
                 onClick={() => {
                   onUpdateGoal({ ...goal, team: "" });
                   setShowTeamPicker(false);
-                }} >
+                }}>
                 Clear team
               </button>
-            </div>
+            </div>,
+            document.body
           )}
-        </div>
       </td>
 
       <td className="goal-cell cell-owner">
-        <div className="owner-container">
-          {goal.owner ? (
-            <button
-              type="button"
-              className="owner-assigned-pill"
-              title={`Owner: ${goal.owner.name}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowOwnerPicker(!showOwnerPicker);
-              }}>
-              <span className="owner-avatar-circle small">
-                {goal.owner.initials || goal.owner.name[0]}
-              </span>
-              <span className="owner-name-label">{goal.owner.name}</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="dashed-avatar-btn"
-              title="Assign owner"
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowOwnerPicker(!showOwnerPicker);
-              }} >
-              <UserSilhouetteIcon size={13} className="dashed-avatar-icon" />
-            </button>
-          )}
+        <div className="owner-cell-content">
+          <div className="owner-container">
+            {goal.owner ? (
+              <button
+                type="button"
+                className="owner-assigned-pill"
+                ref={ownerPickerTriggerRef}
+                title={`Owner: ${goal.owner.name}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowOwnerPicker(!showOwnerPicker);
+                }}>
+                <span className="owner-avatar-circle small">
+                  {goal.owner.initials || goal.owner.name[0]}
+                </span>
+                <span className="owner-name-label">{goal.owner.name}</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="dashed-avatar-btn"
+                ref={ownerPickerTriggerRef}
+                title="Assign owner"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowOwnerPicker(!showOwnerPicker);
+                }} >
+                <UserSilhouetteIcon size={13} className="dashed-avatar-icon" />
+              </button>
+            )}
 
-          {showOwnerPicker && (
-            <div className="cell-popover owner-popover" onClick={(e) => e.stopPropagation()}>
-              <div className="popover-title">Assign owner</div>
-              {[
-                { name: "Jagadeep", initials: "Ja", role: "Product Manager" },
-                { name: "Sarah Chen", initials: "SC", role: "Engineering Lead" },
-                { name: "Alex Rivera", initials: "AR", role: "Design Lead" },
-              ].map((user) => (
-                <button
-                  key={user.name}
-                  type="button"
-                  className="popover-item user-item"
-                  onClick={() => {
-                    onUpdateGoal({
-                      ...goal,
-                      owner: user,
-                      isPlaceholder: false,
-                    });
-                    setShowOwnerPicker(false);
-                  }}>
-                  <span className="owner-avatar-circle small">{user.initials}</span>
-                  <span className="user-info">
-                    <span className="user-name">{user.name}</span>
-                    <span className="user-role">{user.role}</span>
-                  </span>
-                </button>
-              ))}
-              {goal.owner && (
-                <button
-                  type="button"
-                  className="popover-item clear"
-                  onClick={() => {
-                    onUpdateGoal({ ...goal, owner: null });
-                    setShowOwnerPicker(false);
-                  }}>
-                  Unassign owner
-                </button>
+            {showOwnerPicker &&
+              createPortal(
+                <div
+                  ref={ownerPickerRef}
+                  className="cell-popover owner-popover"
+                  onClick={(e) => e.stopPropagation()}>
+                  <div className="popover-title">Assign owner</div>
+                  {[
+                    { name: "Franklin", initials: "FR", role: "Member" },
+                    { name: "Sarah Chen", initials: "SC", role: "Engineering Lead" },
+                    { name: "Alex Rivera", initials: "AR", role: "Design Lead" },
+                  ].map((user) => (
+                    <button
+                      key={user.name}
+                      type="button"
+                      className="popover-item user-item"
+                      onClick={() => {
+                        onUpdateGoal({
+                          ...goal,
+                          owner: user,
+                          isPlaceholder: false,
+                        });
+                        setShowOwnerPicker(false);
+                      }}>
+                      <span className="owner-avatar-circle small">{user.initials}</span>
+                      <span className="user-info">
+                        <span className="user-name">{user.name}</span>
+                        <span className="user-role">{user.role}</span>
+                      </span>
+                    </button>
+                  ))}
+                  {goal.owner && (
+                    <button
+                      type="button"
+                      className="popover-item clear"
+                      onClick={() => {
+                        onUpdateGoal({ ...goal, owner: null });
+                        setShowOwnerPicker(false);
+                      }}>
+                      Unassign owner
+                    </button>
+                  )}
+                </div>,
+                document.body
               )}
-            </div>
-          )}
-        </div>
+          </div>
 
-        {onDeleteGoal && (
-          <button
-            type="button"
-            className="row-delete-btn"
-            title="Delete goal"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDeleteGoal(goal.id);
-            }} >
-            <TrashIcon size={13} />
-          </button>
-        )}
+        </div>
       </td>
     </tr>
   );

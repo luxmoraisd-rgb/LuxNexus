@@ -61,8 +61,6 @@ const SubSidebar = ({ activeMenu = "tasks", onMenuSelect }) => {
           </button>
         ))}
       </nav>
-
-      {/* Pure Ambient Aurora & Stardust Canvas */}
       <SubSidebarAurora />
     </aside>
   );

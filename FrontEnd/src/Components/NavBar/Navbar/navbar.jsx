@@ -12,6 +12,7 @@ import {
 
 import NotificationSettings from "../Settings/Notification/notifysettings";
 import IntegrateButton from "../Integrate/integrate";
+import AdminChat from "../Chat/AdminChat";
 
 import "./navbar.css";
 
@@ -22,8 +23,11 @@ const appSearchOptions = [
   "Backlog",
   "Projects",
   "Portfolios",
+  "Goals",
   "Reporting",
   "Resourcing",
+  "People",
+  "Docs & Knowledge",
 ];
 
 const Navbar = ({
@@ -134,7 +138,13 @@ const Navbar = ({
       </div>
 
       <div className="nav-search-create">
-        <div className="nav-search-autocomplete" ref={searchRef}>
+        <div
+          className="nav-search-autocomplete"
+          ref={searchRef}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setSearchOpen(false);
+          }}
+        >
           <div className="search-box">
             <Search size={18} className="search-icon" aria-hidden="true" />
             <input
@@ -181,6 +191,7 @@ const Navbar = ({
                   role="option"
                   aria-selected={activeSuggestion === index}
                   className={activeSuggestion === index ? "active" : ""}
+                  onFocus={() => setActiveSuggestion(index)}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => chooseSearchSuggestion(suggestion)}
                 >
@@ -225,6 +236,9 @@ const Navbar = ({
           </div>
         ) : (
           <>
+            {["admin", "team_lead", "user"].includes(currentUser?.role) && (
+              <AdminChat currentUser={currentUser} theme={theme} />
+            )}
             <NotificationSettings theme={theme} />
 
             <IntegrateButton theme={theme} />

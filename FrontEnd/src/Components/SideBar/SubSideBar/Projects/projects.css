@@ -233,6 +233,11 @@
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
 }
 
+.project-card:focus-within {
+  outline: 2px solid var(--brand-primary, #6366f1);
+  outline-offset: 2px;
+}
+
 .project-card-header {
   display: flex;
   align-items: flex-start;

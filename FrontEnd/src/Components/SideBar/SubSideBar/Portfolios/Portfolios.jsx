@@ -571,7 +571,7 @@ export default function Portfolios({ currentUser, rolePermissions }) {
                   <div className="form-group">
                     <label>Priority</label>
                     <select
-                      className="form-select"
+                      className={`form-select priority-select ${formData.priority.toLowerCase()}`}
                       value={formData.priority}
                       onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
                     >
@@ -598,7 +598,7 @@ export default function Portfolios({ currentUser, rolePermissions }) {
                   <div className="form-group">
                     <label>Status</label>
                     <select
-                      className="form-select"
+                      className={`form-select status-select ${formData.status.replace(/\s+/g, "-")}`}
                       value={formData.status}
                       onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                     >

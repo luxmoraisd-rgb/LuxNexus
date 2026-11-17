@@ -353,21 +353,21 @@
 }
 
 .status-pill.at-risk {
-  background: rgba(245, 158, 11, 0.15);
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.25);
+  background: rgba(139, 92, 246, 0.16);
+  color: #c4b5fd;
+  border: 1px solid rgba(139, 92, 246, 0.32);
 }
 .status-pill.at-risk .status-dot {
-  background: #f59e0b;
+  background: #8b5cf6;
 }
 
 .status-pill.off-track {
-  background: rgba(239, 68, 68, 0.15);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.25);
+  background: rgba(71, 85, 105, 0.28);
+  color: #cbd5e1;
+  border: 1px solid rgba(100, 116, 139, 0.45);
 }
 .status-pill.off-track .status-dot {
-  background: #ef4444;
+  background: #64748b;
 }
 
 /* Priority Tag */
@@ -381,14 +381,24 @@
   color: var(--text-secondary, #cbd5e1);
 }
 .priority-tag.urgent {
-  background: rgba(239, 68, 68, 0.12);
-  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(127, 29, 29, 0.3);
+  border-color: rgba(185, 28, 28, 0.5);
   color: #fca5a5;
 }
 .priority-tag.high {
-  background: rgba(245, 158, 11, 0.12);
-  border-color: rgba(245, 158, 11, 0.3);
-  color: #fcd34d;
+  background: rgba(194, 65, 12, 0.2);
+  border-color: rgba(249, 115, 22, 0.4);
+  color: #fdba74;
+}
+.priority-tag.medium {
+  background: rgba(161, 98, 7, 0.2);
+  border-color: rgba(250, 204, 21, 0.4);
+  color: #fde047;
+}
+.priority-tag.low {
+  background: rgba(29, 78, 216, 0.2);
+  border-color: rgba(96, 165, 250, 0.4);
+  color: #93c5fd;
 }
 
 /* Card Body */
@@ -764,6 +774,75 @@
   box-sizing: border-box;
 }
 
+.form-select {
+  color-scheme: dark;
+}
+
+.form-select option {
+  background-color: #12141a;
+  color: #f1f5f9;
+}
+
+.form-select.priority-select.urgent,
+.form-select option[value="Urgent"] {
+  color: #fca5a5;
+}
+
+.form-select.priority-select.high,
+.form-select option[value="High"] {
+  color: #fdba74;
+}
+
+.form-select.priority-select.medium,
+.form-select option[value="Medium"] {
+  color: #fde047;
+}
+
+.form-select.priority-select.low,
+.form-select option[value="Low"] {
+  color: #93c5fd;
+}
+
+.form-select.status-select.on-track,
+.form-select option[value="on track"] {
+  color: #6ee7b7;
+}
+
+.form-select.status-select.at-risk,
+.form-select option[value="at risk"] {
+  color: #c4b5fd;
+}
+
+.form-select.status-select.off-track,
+.form-select option[value="off track"] {
+  background-color: #252a33;
+  color: #cbd5e1;
+}
+
+.form-select option[value="Urgent"] {
+  background-color: #3b1111;
+}
+
+.form-select option[value="High"] {
+  background-color: #3b240f;
+}
+
+.form-select option[value="Medium"] {
+  background-color: #3a2d0b;
+}
+
+.form-select option[value="Low"] {
+  background-color: #102944;
+}
+
+.form-select option[value="on track"] {
+  background-color: #0d2b23;
+}
+
+.form-select option[value="at risk"] {
+  background-color: #281b3d;
+}
+
 .form-input:focus,
 .form-textarea:focus,
 .form-select:focus {
@@ -964,14 +1043,74 @@
 
 [data-theme="light"] .priority-tag.medium {
   background: #fef3c7;
-  color: #b45309;
+  color: #a16207;
   border-color: #fcd34d;
 }
 
 [data-theme="light"] .priority-tag.low {
-  background: #f1f5f9;
-  color: #475569;
-  border-color: #cbd5e1;
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-color: #93c5fd;
+}
+
+[data-theme="light"] .status-pill.on-track {
+  background: #dcfce7;
+  color: #166534;
+  border-color: #86efac;
+}
+
+[data-theme="light"] .status-pill.on-track .status-dot {
+  background: #16a34a;
+  box-shadow: none;
+}
+
+[data-theme="light"] .status-pill.at-risk {
+  background: #f3e8ff;
+  color: #6b21a8;
+  border-color: #d8b4fe;
+}
+
+[data-theme="light"] .status-pill.at-risk .status-dot {
+  background: #9333ea;
+}
+
+[data-theme="light"] .status-pill.off-track {
+  background: #e2e8f0;
+  color: #334155;
+  border-color: #94a3b8;
+}
+
+[data-theme="light"] .status-pill.off-track .status-dot {
+  background: #475569;
+}
+
+[data-theme="light"] .form-select.priority-select.urgent {
+  color: #991b1b;
+}
+
+[data-theme="light"] .form-select.priority-select.high {
+  color: #c2410c;
+}
+
+[data-theme="light"] .form-select.priority-select.medium {
+  color: #a16207;
+}
+
+[data-theme="light"] .form-select.priority-select.low {
+  color: #1d4ed8;
+}
+
+[data-theme="light"] .form-select.status-select.on-track {
+  color: #166534;
+}
+
+[data-theme="light"] .form-select.status-select.at-risk {
+  color: #6b21a8;
+}
+
+[data-theme="light"] .form-select.status-select.off-track {
+  background-color: #e2e8f0;
+  color: #334155;
 }
 
 [data-theme="light"] .portfolio-progress-bar {

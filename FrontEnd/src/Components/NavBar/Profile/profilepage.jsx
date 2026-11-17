@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowLeft,
   User,
@@ -22,6 +23,9 @@ import {
   LogOut,
   Loader2,
   Bell,
+  Sparkles,
+  Clock,
+  ShieldCheck,
 } from "lucide-react";
 
 import "./profilepage.css";
@@ -50,49 +54,127 @@ const formatLocation = (value) => {
 };
 
 const Profile = ({ children }) => (
-  <div className="profile-page">{children}</div>
+  <div className="profile-page">
+    <div className="profile-ambient-sphere profile-ambient-1" />
+    <div className="profile-ambient-sphere profile-ambient-2" />
+    {children}
+  </div>
 );
 
-Profile.Sidebar = ({ activeTab, setActiveTab }) => {
+Profile.Sidebar = ({ activeTab, setActiveTab, profile = {}, projectKey = "LUX" }) => {
   const settingsOpen = activeTab !== "personal";
+
+  const fields = [
+    profile.name,
+    profile.email,
+    profile.mobile,
+    profile.location,
+    profile.jobTitle,
+    profile.photo,
+  ];
+  const filledCount = fields.filter(Boolean).length;
+  const completionPct = Math.round((filledCount / fields.length) * 100);
 
   return (
     <aside className="profile-sidebar">
-      <button
-        className={`sidebar-item ${activeTab === "personal" ? "active" : ""}`}
-        onClick={() => setActiveTab("personal")}
-      >
-        <User size={19} />
-        <span>Personal info</span>
-      </button>
-      <button
-        className={`sidebar-item settings-parent ${settingsOpen ? "active" : ""}`}
-        onClick={() => setActiveTab(settingsOpen ? "personal" : "basic")}
-        aria-expanded={settingsOpen}
-      >
-        <Settings size={19} />
-        <span>General settings</span>
-      </button>
-      {settingsOpen && (
-        <nav className="profile-subsidebar" aria-label="General settings">
-          {[
-            { id: "basic", label: "Basic settings", icon: <SlidersHorizontal size={18} /> },
-            { id: "notifications", label: "Notification settings", icon: <Bell size={18} /> },
-            { id: "language", label: "Language & region", icon: <Globe2 size={18} /> },
-            { id: "password", label: "Password", icon: <Lock size={18} /> },
-            { id: "session", label: "Session history", icon: <List size={18} /> },
-          ].map((item) => (
-            <button
-              key={item.id}
-              className={`sidebar-item subsidebar-item ${activeTab === item.id ? "active" : ""}`}
-              onClick={() => setActiveTab(item.id)}
+      <div className="sidebar-nav-section">
+        <span className="sidebar-section-label">Account Navigation</span>
+        <button
+          className={`sidebar-item ${activeTab === "personal" ? "active" : ""}`}
+          onClick={() => setActiveTab("personal")}
+          aria-current={activeTab === "personal" ? "page" : undefined}
+        >
+          <div className="sidebar-item-icon-wrap">
+            <User size={18} />
+          </div>
+          <span>Personal info</span>
+          {activeTab === "personal" && <span className="active-glow-pip" />}
+        </button>
+
+        <button
+          className={`sidebar-item settings-parent ${settingsOpen ? "active" : ""}`}
+          onClick={() => setActiveTab(settingsOpen ? "personal" : "basic")}
+          aria-expanded={settingsOpen}
+        >
+          <div className="sidebar-item-icon-wrap">
+            <Settings size={18} />
+          </div>
+          <span>General settings</span>
+          {settingsOpen && <span className="active-glow-pip" />}
+        </button>
+
+        {settingsOpen && (
+          <nav className="profile-subsidebar" aria-label="General settings">
+            {[
+              { id: "basic", label: "Basic settings", icon: <SlidersHorizontal size={17} /> },
+              { id: "notifications", label: "Notification settings", icon: <Bell size={17} /> },
+              { id: "language", label: "Language & Region", icon: <Globe2 size={17} /> },
+              { id: "password", label: "Password", icon: <Lock size={17} /> },
+              { id: "session", label: "Session history", icon: <List size={17} /> },
+            ].map((item, idx) => (
+              <button
+                key={item.id}
+                className={`sidebar-item subsidebar-item ${activeTab === item.id ? "active" : ""}`}
+                onClick={() => setActiveTab(item.id)}
+                style={{ animationDelay: `${idx * 0.04}s` }}
+                aria-current={activeTab === item.id ? "page" : undefined}
+              >
+                <div className="sidebar-item-icon-wrap">{item.icon}</div>
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </nav>
+        )}
+      </div>
+
+      {/* Animated Profile Strength & Status Card */}
+      <div className="sidebar-status-widget">
+        <div className="sidebar-status-header">
+          <div className="status-indicator-pill">
+            <span className="live-ping-dot" />
+            <span className="live-status-text">Online & Active</span>
+          </div>
+          <span className="sidebar-workspace-tag">{projectKey}</span>
+        </div>
+
+        <div className="profile-strength-card">
+          <div className="strength-header">
+            <div className="strength-icon-wrap">
+              <Sparkles size={15} className="strength-sparkle" />
+            </div>
+            <div>
+              <span className="strength-label">Profile Strength</span>
+              <strong className="strength-value">{completionPct}%</strong>
+            </div>
+          </div>
+
+          <div className="strength-progress-track">
+            <div
+              className="strength-progress-fill"
+              style={{ width: `${Math.max(10, completionPct)}%` }}
             >
-              {item.icon}
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </nav>
-      )}
+              <span className="progress-shimmer-sparkle" />
+            </div>
+          </div>
+          <p className="strength-tip">
+            {completionPct === 100
+              ? "All profile fields are completed!"
+              : "Complete your profile details"}
+          </p>
+        </div>
+
+        <div className="sidebar-quick-stats">
+          <div className="sidebar-quick-stat-item">
+            <span className="quick-stat-number">{profile.role || "Member"}</span>
+            <span className="quick-stat-label">Role</span>
+          </div>
+          <div className="sidebar-quick-stat-divider" />
+          <div className="sidebar-quick-stat-item">
+            <span className="quick-stat-number">{projectKey}</span>
+            <span className="quick-stat-label">Workspace</span>
+          </div>
+        </div>
+      </div>
     </aside>
   );
 };
@@ -146,6 +228,29 @@ const ProfileHero = ({ profile, onUpdate, onPhotoUpload, isSaving }) => {
   const [jobTitle, setJobTitle] = useState(profile.jobTitle || "");
   const [editingMobile, setEditingMobile] = useState(false);
   const [mobile, setMobile] = useState(profile.mobile || "");
+  const [mobileError, setMobileError] = useState("");
+  const [isPhotoPreviewOpen, setIsPhotoPreviewOpen] = useState(false);
+  const previewCloseButtonRef = useRef(null);
+
+  useEffect(() => {
+    if (!isPhotoPreviewOpen) return undefined;
+
+    const previousBodyOverflow = document.body.style.overflow;
+    const triggerElement = document.activeElement;
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") setIsPhotoPreviewOpen(false);
+    };
+
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", handleKeyDown);
+    previewCloseButtonRef.current?.focus();
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.removeEventListener("keydown", handleKeyDown);
+      triggerElement?.focus?.();
+    };
+  }, [isPhotoPreviewOpen]);
 
   const saveName = () => {
     const trimmed = name.trim();
@@ -160,6 +265,10 @@ const ProfileHero = ({ profile, onUpdate, onPhotoUpload, isSaving }) => {
   };
 
   const saveMobile = () => {
+    if (mobileError || !/^[0-9]{0,10}$/.test(mobile)) {
+      setMobileError("Enter a mobile number with up to 10 digits.");
+      return;
+    }
     onUpdate({ ...profile, mobile: mobile.trim() });
     setEditingMobile(false);
   };
@@ -184,13 +293,21 @@ const ProfileHero = ({ profile, onUpdate, onPhotoUpload, isSaving }) => {
     <div className="profile-hero">
       <div className="profile-main-info">
         <div className="avatar-wrapper">
-          <div className="profile-avatar">
-            {profile.photo ? (
-              <img src={profile.photo} alt={profile.name} className="profile-avatar-image" />
-            ) : (
+          {profile.photo ? (
+            <button
+              type="button"
+              className="profile-avatar"
+              onClick={() => setIsPhotoPreviewOpen(true)}
+              aria-label={`View ${profile.name || "user"} profile picture`}
+              title="View profile picture"
+            >
+              <img src={profile.photo} alt={profile.name || "Profile"} className="profile-avatar-image" />
+            </button>
+          ) : (
+            <div className="profile-avatar">
               <div className="avatar-fallback">{profile.name?.charAt(0) || "U"}</div>
-            )}
-          </div>
+            </div>
+          )}
 
           <label className="upload-button" htmlFor="profile-photo-upload" title="Upload new photo">
             <Camera size={16} />
@@ -304,30 +421,56 @@ const ProfileHero = ({ profile, onUpdate, onPhotoUpload, isSaving }) => {
           <div className="mobile-info-content">
             <strong>Mobile phone</strong>
             {editingMobile ? (
-              <div className="mobile-number-editor">
-                <input
-                  type="tel"
-                  value={mobile}
-                  onChange={(event) => setMobile(event.target.value)}
-                  placeholder="e.g. +1 555-0199"
-                  aria-label="Mobile phone number"
-                  autoFocus
-                />
-                <button type="button" onClick={saveMobile} aria-label="Save mobile number" title="Save">
-                  <Check size={15} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMobile(profile.mobile || "");
-                    setEditingMobile(false);
-                  }}
-                  aria-label="Cancel mobile number edit"
-                  title="Cancel"
-                >
-                  <X size={15} />
-                </button>
-              </div>
+              <>
+                <div className="mobile-number-editor">
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    maxLength={10}
+                    value={mobile}
+                    onChange={(event) => {
+                      const enteredValue = event.target.value;
+                      if (/[^0-9]/.test(enteredValue)) {
+                        setMobileError("Enter digits only.");
+                        setMobile(enteredValue.replace(/[^0-9]/g, "").slice(0, 10));
+                        return;
+                      }
+                      if (enteredValue.length > 10) {
+                        setMobileError("Mobile number cannot exceed 10 digits.");
+                        setMobile(enteredValue.slice(0, 10));
+                        return;
+                      }
+                      setMobile(enteredValue);
+                      setMobileError("");
+                    }}
+                    placeholder="Enter up to 10 digits"
+                    aria-label="Mobile phone number"
+                    aria-invalid={Boolean(mobileError)}
+                    aria-describedby={mobileError ? "mobile-number-error" : undefined}
+                    autoFocus
+                  />
+                  <button type="button" onClick={saveMobile} aria-label="Save mobile number" title="Save">
+                    <Check size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobile(profile.mobile || "");
+                      setMobileError("");
+                      setEditingMobile(false);
+                    }}
+                    aria-label="Cancel mobile number edit"
+                    title="Cancel"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+                {mobileError && (
+                  <p id="mobile-number-error" className="mobile-number-error" role="alert">
+                    {mobileError}
+                  </p>
+                )}
+              </>
             ) : (
               <div className="mobile-number-display">
                 <p className={!profile.mobile ? "empty-info" : ""}>
@@ -338,6 +481,7 @@ const ProfileHero = ({ profile, onUpdate, onPhotoUpload, isSaving }) => {
                   className="mobile-number-edit"
                   onClick={() => {
                     setMobile(profile.mobile || "");
+                    setMobileError("");
                     setEditingMobile(true);
                   }}
                   aria-label="Edit mobile number"
@@ -349,14 +493,51 @@ const ProfileHero = ({ profile, onUpdate, onPhotoUpload, isSaving }) => {
             )}
           </div>
         </div>
-
-        <Profile.InfoItem
-          icon={<MapPin size={18} />}
-          title="Location"
-          value={profile.location ? formatLocation(profile.location) : "Add a location"}
-          empty={!profile.location}
-        />
       </div>
+      {isPhotoPreviewOpen && profile.photo && typeof document !== "undefined" && createPortal(
+        <div
+          className="profile-photo-preview-overlay"
+          onClick={() => setIsPhotoPreviewOpen(false)}
+        >
+          <div
+            className="profile-photo-preview-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${profile.name || "User"} profile picture preview`}
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                setIsPhotoPreviewOpen(false);
+              } else {
+                event.stopPropagation();
+              }
+            }}
+          >
+            <button
+              ref={previewCloseButtonRef}
+              type="button"
+              className="profile-photo-preview-close"
+              onClick={() => setIsPhotoPreviewOpen(false)}
+              aria-label="Close profile picture preview"
+            >
+              <X size={20} />
+            </button>
+            <img
+              className="profile-photo-preview-image"
+              src={profile.photo}
+              alt={`${profile.name || "User"} profile`}
+            />
+            <span className="profile-photo-preview-caption">{profile.name || "Profile picture"}</span>
+            <button
+              type="button"
+              className="profile-photo-preview-cancel"
+              onClick={() => setIsPhotoPreviewOpen(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };
@@ -365,9 +546,9 @@ Profile.Hero = ProfileHero;
 
 Profile.InfoItem = ({ icon, title, value, empty }) => {
   return (
-    <div className="info-item">
+    <div className="info-item" title={value}>
       <div className="info-icon">{icon}</div>
-      <div>
+      <div className="info-item-text">
         <strong>{title}</strong>
         <p className={empty ? "empty-info" : ""}>{value}</p>
       </div>
@@ -379,9 +560,20 @@ Profile.Card = ({ children, className = "" }) => (
   <div className={`profile-card ${className}`}>{children}</div>
 );
 
-const ProfilePersonalDetails = ({ profile, taskCount, onUpdate, isSaving }) => {
+const ProfilePersonalDetails = ({ profile, onUpdate, isSaving }) => {
   const [editingLocation, setEditingLocation] = useState(false);
   const [locationInput, setLocationInput] = useState(profile.location || "");
+
+  const timezoneInfo = useMemo(() => {
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      return { timezone: tz, localTime: timeStr };
+    } catch {
+      return { timezone: "Local Time", localTime: "" };
+    }
+  }, []);
 
   const saveLocation = () => {
     onUpdate({ ...profile, location: locationInput.trim() });
@@ -390,75 +582,105 @@ const ProfilePersonalDetails = ({ profile, taskCount, onUpdate, isSaving }) => {
 
   return (
     <Profile.Card className="details-card">
-      <div className="detail-item">
-        <div className="detail-icon">
-          <MapPin size={19} />
-        </div>
-        <div className="detail-content">
-          <div className="detail-header-row">
-            <h3>Location</h3>
-            {profile.location && !editingLocation && (
+      <div className="card-section-title">
+        <User size={18} />
+        <span>Personal & Regional Details</span>
+      </div>
+
+      <div className="detail-rows-container">
+        {/* Location Row */}
+        <div className="detail-item">
+          <div className="detail-icon">
+            <MapPin size={19} />
+          </div>
+          <div className="detail-content">
+            <div className="detail-header-row">
+              <h3>Location</h3>
+              {profile.location && !editingLocation && (
+                <button
+                  type="button"
+                  className="detail-edit-btn"
+                  onClick={() => setEditingLocation(true)}
+                  title="Edit location"
+                  aria-label="Edit location"
+                >
+                  <Pencil size={13} />
+                </button>
+              )}
+            </div>
+            {editingLocation ? (
+              <div className="inline-detail-editor">
+                <input
+                  type="text"
+                  placeholder="City, State"
+                  value={locationInput}
+                  onChange={(e) => setLocationInput(e.target.value)}
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  className="detail-save-btn"
+                  onClick={saveLocation}
+                  disabled={isSaving}
+                  title="Save location"
+                >
+                  <Check size={14} />
+                </button>
+                <button
+                  type="button"
+                  className="detail-cancel-btn"
+                  onClick={() => {
+                    setLocationInput(profile.location || "");
+                    setEditingLocation(false);
+                  }}
+                  title="Cancel"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ) : profile.location ? (
+              <p>{formatLocation(profile.location)}</p>
+            ) : (
               <button
                 type="button"
-                className="detail-edit-btn"
+                className="add-button"
                 onClick={() => setEditingLocation(true)}
-                title="Edit location"
-                aria-label="Edit location"
               >
-                <Pencil size={13} />
+                Add a location
               </button>
             )}
           </div>
-          {editingLocation ? (
-            <div className="inline-detail-editor">
-              <input
-                type="text"
-                placeholder="City, State"
-                value={locationInput}
-                onChange={(e) => setLocationInput(e.target.value)}
-                autoFocus
-              />
-              <button
-                type="button"
-                className="detail-save-btn"
-                onClick={saveLocation}
-                disabled={isSaving}
-                title="Save location"
-              >
-                <Check size={14} />
-              </button>
-              <button
-                type="button"
-                className="detail-cancel-btn"
-                onClick={() => {
-                  setLocationInput(profile.location || "");
-                  setEditingLocation(false);
-                }}
-                title="Cancel"
-              >
-                <X size={14} />
-              </button>
-            </div>
-          ) : profile.location ? (
-            <p>{formatLocation(profile.location)}</p>
-          ) : (
-            <button
-              type="button"
-              className="add-button"
-              onClick={() => setEditingLocation(true)}
-            >
-              Add a location
-            </button>
-          )}
         </div>
-      </div>
 
-      <div className="task-count-box">
-        <ListChecks size={22} />
-        <div>
-          <span>Task count</span>
-          <strong>{taskCount} tasks</strong>
-          <small>Across your Kanban board</small>
+        {/* Timezone / Region Row */}
+        <div className="detail-item">
+          <div className="detail-icon">
+            <Globe2 size={19} />
+          </div>
+          <div className="detail-content">
+            <div className="detail-header-row">
+              <h3>Timezone & Region</h3>
+            </div>
+            <p className="detail-meta-text">
+              {timezoneInfo.timezone} {timezoneInfo.localTime ? `(${timezoneInfo.localTime} local)` : ""}
+            </p>
+          </div>
+        </div>
+
+        {/* Work Status Row */}
+        <div className="detail-item">
+          <div className="detail-icon">
+            <ShieldCheck size={19} />
+          </div>
+          <div className="detail-content">
+            <div className="detail-header-row">
+              <h3>Account Status</h3>
+            </div>
+            <div className="detail-status-pill">
+              <span className="live-ping-dot" />
+              <span>Active Verified Contributor</span>
+            </div>
+          </div>
         </div>
       </div>
     </Profile.Card>
@@ -467,27 +689,55 @@ const ProfilePersonalDetails = ({ profile, taskCount, onUpdate, isSaving }) => {
 
 Profile.PersonalDetails = ProfilePersonalDetails;
 
-const ProfileProjectSummaryCard = ({ tasks, projectKey }) => {
+const ProfileProjectSummaryCard = ({ tasks = [], projectKey = "LUX" }) => {
+  const totalTasks = tasks.length;
   const completedTasks = tasks.filter((task) => task.status === "Done").length;
+  const inProgressTasks = tasks.filter((task) => task.status !== "Done").length;
+  const completionPercentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
   return (
     <Profile.Card className="project-summary-card">
       <header className="project-summary-header">
-        <div className="project-summary-icon"><FolderKanban size={22} /></div>
-        <div>
-          <span>Project summary</span>
+        <div className="project-summary-icon">
+          <FolderKanban size={22} />
+        </div>
+        <div className="project-summary-heading">
+          <span>Project Workspace</span>
           <h2>{projectKey}</h2>
         </div>
-      </header>
-      <div className="project-summary-stats">
-        <div>
-          <ListChecks size={19} />
-          <span>Total tasks</span>
-          <strong>{tasks.length}</strong>
+        <div className="project-rate-badge">
+          {completionPercentage}% complete
         </div>
-        <div>
-          <CircleCheck size={19} />
+      </header>
+
+      <div className="project-summary-stats">
+        <div className="stat-metric-box">
+          <ListChecks size={18} />
+          <span>Total tasks</span>
+          <strong>{totalTasks}</strong>
+        </div>
+        <div className="stat-metric-box">
+          <Clock size={18} />
+          <span>In progress</span>
+          <strong>{inProgressTasks}</strong>
+        </div>
+        <div className="stat-metric-box">
+          <CircleCheck size={18} />
           <span>Completed</span>
           <strong>{completedTasks}</strong>
+        </div>
+      </div>
+
+      <div className="project-progress-section">
+        <div className="project-progress-labels">
+          <span>Sprint delivery</span>
+          <span>{completedTasks} of {totalTasks} finished</span>
+        </div>
+        <div className="project-progress-track">
+          <div
+            className="project-progress-bar"
+            style={{ width: `${Math.max(4, completionPercentage)}%` }}
+          />
         </div>
       </div>
     </Profile.Card>
@@ -530,7 +780,7 @@ Profile.BasicSettings = ({ theme, onThemeChange }) => (
 
 Profile.TabContent = ({ activeTab, theme, onThemeChange, onLogout, currentUser }) => {
   const titles = {
-    language: "Language & region",
+    language: "Language & Region",
     password: "Password",
     session: "Session history",
   };
@@ -807,7 +1057,12 @@ const ProfilePage = ({
       )}
 
       <Profile.Layout>
-        <Profile.Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+        <Profile.Sidebar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          profile={profile}
+          projectKey={projectKey}
+        />
 
         <Profile.Content className={isProfileAnimating ? "profile-change-animation" : ""}>
           {isLoading ? (
@@ -818,7 +1073,7 @@ const ProfilePage = ({
           ) : (
             <>
               {activeTab === "personal" && (
-                <>
+                <div key="personal" className="profile-tab-pane personal-info-pane">
                   <Profile.Hero
                     key={JSON.stringify([profile.name, profile.jobTitle, profile.mobile])}
                     profile={profile}
@@ -831,23 +1086,25 @@ const ProfilePage = ({
                     <Profile.PersonalDetails
                       key={profile.location}
                       profile={profile}
-                      taskCount={tasks.length}
                       onUpdate={updateProfile}
                       isSaving={isSaving}
                     />
                     <ProfileProjectSummaryCard tasks={tasks} projectKey={projectKey} />
                   </div>
-
-                </>
+                </div>
               )}
 
-              <Profile.TabContent
-                activeTab={activeTab}
-                theme={theme}
-                onThemeChange={onThemeChange}
-                onLogout={onLogout}
-                currentUser={currentUser}
-              />
+              {activeTab !== "personal" && (
+                <div key={activeTab} className="profile-tab-pane settings-tab-pane">
+                  <Profile.TabContent
+                    activeTab={activeTab}
+                    theme={theme}
+                    onThemeChange={onThemeChange}
+                    onLogout={onLogout}
+                    currentUser={currentUser}
+                  />
+                </div>
+              )}
 
             </>
           )}

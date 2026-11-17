@@ -45,6 +45,16 @@ def get_database():
     )
     database.team_invitations.create_index("expires_at", expireAfterSeconds=0)
     database.board_assets.create_index([("created_at", -1)])
+    database.chat_messages.create_index(
+        [("conversation_id", ASCENDING), ("created_at", ASCENDING)]
+    )
+    database.chat_messages.create_index(
+        [
+            ("conversation_id", ASCENDING),
+            ("sender_id", ASCENDING),
+            ("read_by", ASCENDING),
+        ]
+    )
 
     return database
 

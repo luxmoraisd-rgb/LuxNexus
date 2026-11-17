@@ -4,8 +4,10 @@ import "./resourcing.css";
 import {
   getStoredCharts,
   getStoredProjects,
+  getTodayDate,
   resourcingApi,
   saveStoredCharts,
+  validateProjectDates,
 } from "./resourcingApi";
 
 const chartSections = [
@@ -424,6 +426,9 @@ const Resourcing = () => {
   const [newProjectName, setNewProjectName] = useState("");
   const [newStartDate, setNewStartDate] = useState("");
   const [newEndDate, setNewEndDate] = useState("");
+  const [dateErrors, setDateErrors] = useState({});
+  const [dateValidationAttempted, setDateValidationAttempted] = useState(false);
+  const [createProjectError, setCreateProjectError] = useState("");
 
   useEffect(() => {
     let isCurrent = true;
@@ -443,6 +448,19 @@ const Resourcing = () => {
       isCurrent = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!showNewProjectModal) return;
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setShowNewProjectModal(false);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [showNewProjectModal]);
 
   const handleChartSelect = (chart) => {
     setCharts((currentCharts) => {
@@ -469,22 +487,37 @@ const Resourcing = () => {
     e.preventDefault();
     if (!newProjectName.trim()) return;
 
-    const start = newStartDate || new Date().toISOString().split("T")[0];
-    const end =
-      newEndDate ||
-      new Date(Date.now() + 90 * 86400000).toISOString().split("T")[0];
+    setDateValidationAttempted(true);
+    const errors = validateProjectDates(newStartDate, newEndDate);
+    setDateErrors(errors);
+    setCreateProjectError("");
+    if (Object.keys(errors).length > 0) return;
 
-    const created = await resourcingApi.createProject({
-      name: newProjectName.trim(),
-      start_date: start,
-      end_date: end,
-    });
+    try {
+      const created = await resourcingApi.createProject({
+        name: newProjectName.trim(),
+        start_date: newStartDate,
+        end_date: newEndDate,
+      });
 
-    setProjects((prev) => [created, ...prev.filter((p) => p.id !== created.id)]);
-    setNewProjectName("");
-    setNewStartDate("");
-    setNewEndDate("");
-    setShowNewProjectModal(false);
+      setProjects((prev) => [created, ...prev.filter((p) => p.id !== created.id)]);
+      setNewProjectName("");
+      setNewStartDate("");
+      setNewEndDate("");
+      setDateErrors({});
+      setDateValidationAttempted(false);
+      setShowNewProjectModal(false);
+    } catch (error) {
+      const serverErrors = error.fieldErrors || {};
+      setDateErrors((previous) => ({
+        ...previous,
+        ...(serverErrors.start_date ? { start_date: serverErrors.start_date } : {}),
+        ...(serverErrors.end_date ? { end_date: serverErrors.end_date } : {}),
+      }));
+      if (!serverErrors.start_date && !serverErrors.end_date) {
+        setCreateProjectError("Unable to create the project. Please try again.");
+      }
+    }
   };
 
   const handleDeleteProject = async (projectId) => {
@@ -1002,7 +1035,12 @@ const Resourcing = () => {
             >
               Create Resourcing Project
             </h2>
-            <form onSubmit={handleCreateProject}>
+            <form onSubmit={handleCreateProject} noValidate>
+              {createProjectError && (
+                <p role="alert" style={{ color: "#ef476f", fontSize: "13px", margin: "0 0 12px" }}>
+                  {createProjectError}
+                </p>
+              )}
               <div style={{ marginBottom: "16px" }}>
                 <label
                   style={{
@@ -1054,8 +1092,17 @@ const Resourcing = () => {
                   </label>
                   <input
                     type="date"
+                    required
+                    min={getTodayDate()}
                     value={newStartDate}
-                    onChange={(e) => setNewStartDate(e.target.value)}
+                    aria-invalid={Boolean(dateErrors.start_date)}
+                    aria-describedby={dateErrors.start_date ? "new-project-start-date-error" : undefined}
+                    onChange={(e) => {
+                      const startDate = e.target.value;
+                      setNewStartDate(startDate);
+                      setDateErrors(validateProjectDates(startDate, newEndDate, dateValidationAttempted));
+                      setCreateProjectError("");
+                    }}
                     style={{
                       width: "100%",
                       padding: "8px 10px",
@@ -1066,6 +1113,11 @@ const Resourcing = () => {
                       fontSize: "13px",
                     }}
                   />
+                  {dateErrors.start_date && (
+                    <p id="new-project-start-date-error" role="alert" style={{ color: "#ef476f", fontSize: "12px", margin: "5px 0 0" }}>
+                      {dateErrors.start_date}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label
@@ -1080,8 +1132,17 @@ const Resourcing = () => {
                   </label>
                   <input
                     type="date"
+                    required
+                    min={newStartDate || getTodayDate()}
                     value={newEndDate}
-                    onChange={(e) => setNewEndDate(e.target.value)}
+                    aria-invalid={Boolean(dateErrors.end_date)}
+                    aria-describedby={dateErrors.end_date ? "new-project-end-date-error" : undefined}
+                    onChange={(e) => {
+                      const endDate = e.target.value;
+                      setNewEndDate(endDate);
+                      setDateErrors(validateProjectDates(newStartDate, endDate, dateValidationAttempted));
+                      setCreateProjectError("");
+                    }}
                     style={{
                       width: "100%",
                       padding: "8px 10px",
@@ -1092,6 +1153,11 @@ const Resourcing = () => {
                       fontSize: "13px",
                     }}
                   />
+                  {dateErrors.end_date && (
+                    <p id="new-project-end-date-error" role="alert" style={{ color: "#ef476f", fontSize: "12px", margin: "5px 0 0" }}>
+                      {dateErrors.end_date}
+                    </p>
+                  )}
                 </div>
               </div>
 

@@ -12,6 +12,7 @@ import {
 import TaskRow from '../Backlog/TaskRow';
 import { STATUS_CONFIG, TYPE_CONFIG, isTaskPastDueAndIncomplete } from '../Backlog/TaskRowUtils';
 import InlineTaskInput from '../Backlog/InlineTaskInput';
+import { useCustomColumns } from '../Backlog/customColumns';
 import '../Backlog/Backlog.css';
 import './AllSprints.css';
 
@@ -47,6 +48,7 @@ const AllSprints = memo(({
 }) => {
   // Filter state: 'all' | 'active' | 'planned' | 'completed'
   const [filterState, setFilterState] = useState('all');
+  const customColumns = useCustomColumns();
 
   // Breakdown counts
   const activeSprintsCount = useMemo(
@@ -415,6 +417,7 @@ const AllSprints = memo(({
                         <col className="col-sp" />
                         <col className="col-epic" />
                         <col className="col-actions" />
+                        {customColumns.map((column) => <col key={column} style={{ width: 120 }} />)}
                         <col className="col-add" />
                       </colgroup>
 
@@ -455,6 +458,9 @@ const AllSprints = memo(({
                             </div>
                           </th>
                           <th className="th-actions">Actions</th>
+                          {customColumns.map((column) => (
+                            <th key={column} className="th-custom-column" style={{ minWidth: 120 }}>{column}</th>
+                          ))}
                           <th className="th-add-col">
                             <button
                               type="button"
@@ -491,6 +497,7 @@ const AllSprints = memo(({
                             onDeleteTask={onDeleteTask}
                             onRemoveEpic={onRemoveEpic}
                             showToast={showToast}
+                            customColumns={customColumns}
                           />
                         ))}
 
@@ -502,6 +509,7 @@ const AllSprints = memo(({
                           isSprint1={sprint.isStarted}
                           availableTypes={Object.keys(typeConfig || TYPE_CONFIG)}
                           defaultType="Frontend"
+                          colSpan={9 + customColumns.length}
                         />
                       </tbody>
 
@@ -555,6 +563,7 @@ const AllSprints = memo(({
 
                           <td className="td-epic" />
                           <td className="td-actions" />
+                          {customColumns.map((column) => <td className="td-custom-column" key={column} />)}
                           <td className="td-empty" />
                         </tr>
                       </tfoot>

@@ -8,4 +8,5 @@ router.register("goals", GoalViewSet, basename="goal")
 urlpatterns = [
     path("strategy-map/", StrategyMapView.as_view(), name="strategy-map"),
     path("team-goals/", TeamGoalsView.as_view(), name="team-goals"),
+    path("team-goals/<str:pk>/", TeamGoalsView.as_view(), name="team-goal-detail"),
 ] + router.urls

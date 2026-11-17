@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from bson import ObjectId
+from django.utils import timezone
 from rest_framework import serializers
 
 
@@ -20,9 +21,13 @@ class ProjectInputSerializer(serializers.Serializer):
     end_date = serializers.DateField()
 
     def validate(self, attrs):
+        if attrs["start_date"] < timezone.localdate():
+            raise serializers.ValidationError(
+                {"start_date": "Start date cannot be earlier than today."}
+            )
         if attrs["start_date"] > attrs["end_date"]:
             raise serializers.ValidationError(
-                "Start date cannot be after end date."
+                {"end_date": "End date must be on or after the start date."}
             )
         return attrs
 

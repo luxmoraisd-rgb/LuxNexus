@@ -7,12 +7,10 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
-  Mail,
   Check,
 } from "lucide-react";
 import "./changepass.css";
 import profileApi from "../../../Profile/profileApi";
-import authApi from "../../../../Auth/authApi";
 
 const getStoredUser = () => {
   try {
@@ -349,16 +347,6 @@ const ChangePassword = () => {
   const [isNewPasswordFocused, setIsNewPasswordFocused] = useState(false);
   const [fieldErrors, setFieldErrors] = useState({});
 
-  const [resetEmail, setResetEmail] = useState(
-    () => getStoredUser()?.email || ""
-  );
-  const [showEmailReset, setShowEmailReset] = useState(false);
-  const [generatedOtp, setGeneratedOtp] = useState("");
-  const [enteredOtp, setEnteredOtp] = useState("");
-  const [otpVerified, setOtpVerified] = useState(false);
-  const [isSendingOtp, setIsSendingOtp] = useState(false);
-  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
-
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [status, setStatus] = useState("");
   const [statusType, setStatusType] = useState("info");
@@ -412,101 +400,13 @@ const ChangePassword = () => {
     return confirmPassword.length > 0 && newPassword === confirmPassword;
   }, [newPassword, confirmPassword]);
 
-  // Generate Reset OTP via Backend
-  const generateResetCode = async () => {
-    const targetEmail = resetEmail.trim() || storedUser?.email;
-    if (!targetEmail) {
-      setShowEmailReset(true);
-      setStatus("Please enter your registered email address to receive a reset code.");
-      setStatusType("error");
-      return;
-    }
-
-    setIsSendingOtp(true);
-    setStatus("Requesting reset verification code from backend...");
-    setStatusType("info");
-
-    try {
-      const res = await authApi.forgotPassword({ email: targetEmail });
-      setGeneratedOtp(res.data?.otp || "SENT");
-      setEnteredOtp("");
-      setOtpVerified(false);
-      setShowEmailReset(true);
-      const msg =
-        res.data?.message ||
-        `Verification code sent to ${targetEmail}. Please check your inbox.`;
-      setStatus(msg);
-      setStatusType("info");
-      if (res.data?.otp) {
-        console.info("[Password Reset] OTP generated in MongoDB:", res.data.otp);
-      }
-    } catch (err) {
-      const errMsg =
-        err.response?.data?.message ||
-        err.response?.data?.error ||
-        "Failed to send reset code. Please try again.";
-      setStatus(errMsg);
-      setStatusType("error");
-    } finally {
-      setIsSendingOtp(false);
-    }
-  };
-
-  // Verify Reset Code via Backend
-  const verifyResetCode = async () => {
-    if (!enteredOtp || enteredOtp.trim().length < 4) {
-      setStatus("Please enter the 6-digit verification code.");
-      setStatusType("error");
-      return;
-    }
-
-    setIsVerifyingOtp(true);
-    setStatus("Verifying verification code...");
-    setStatusType("info");
-
-    try {
-      const targetEmail = resetEmail.trim() || storedUser?.email;
-      const res = await authApi.verifyOtp({
-        email: targetEmail,
-        otp: enteredOtp.trim(),
-      });
-      setOtpVerified(true);
-      setStatus(
-        res.data?.message ||
-          "Reset code verified! You can now choose a new password."
-      );
-      setStatusType("success");
-      setFieldErrors((prev) => ({ ...prev, currentPassword: "" }));
-    } catch (err) {
-      if (
-        generatedOtp &&
-        generatedOtp !== "SENT" &&
-        enteredOtp.trim() === generatedOtp.trim()
-      ) {
-        setOtpVerified(true);
-        setStatus("Reset code verified! You can now choose a new password.");
-        setStatusType("success");
-        setFieldErrors((prev) => ({ ...prev, currentPassword: "" }));
-      } else {
-        const errMsg =
-          err.response?.data?.message ||
-          err.response?.data?.error ||
-          "That verification code is incorrect or expired.";
-        setStatus(errMsg);
-        setStatusType("error");
-      }
-    } finally {
-      setIsVerifyingOtp(false);
-    }
-  };
-
   // Form Submit Handler
   const savePassword = async (event) => {
     event.preventDefault();
     const errors = {};
 
-    // Validate current password if not OTP verified
-    if (!otpVerified && !currentPassword.trim()) {
+    // Validate current password
+    if (!currentPassword.trim()) {
       errors.currentPassword = "Your current password is required.";
     }
 
@@ -521,7 +421,7 @@ const ChangePassword = () => {
       } else if (!/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?~`]/.test(newPassword)) {
         errors.newPassword = "Password must contain at least one special character.";
       }
-    } else if (!otpVerified && currentPassword && newPassword === currentPassword) {
+    } else if (currentPassword && newPassword === currentPassword) {
       errors.newPassword = "New password cannot be the same as your current password.";
     }
 
@@ -545,13 +445,11 @@ const ChangePassword = () => {
     setStatusType("info");
 
     try {
-      const targetEmail = resetEmail.trim() || storedUser?.email;
       const res = await profileApi.changePassword({
-        currentPassword: otpVerified ? undefined : currentPassword,
+        currentPassword,
         newPassword,
         confirmPassword,
-        otp: otpVerified ? enteredOtp.trim() : undefined,
-        email: targetEmail,
+        email: storedUser?.email,
         username: storedUser?.username,
       });
 
@@ -560,10 +458,6 @@ const ChangePassword = () => {
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      setEnteredOtp("");
-      setGeneratedOtp("");
-      setOtpVerified(false);
-      setShowEmailReset(false);
       setFieldErrors({});
     } catch (err) {
       const errMsg =
@@ -599,7 +493,7 @@ const ChangePassword = () => {
 
   return (
     <section className="settings-page password-settings">
-      <header className="settings-page-header">
+      <header className="settings-page-header pass-header">
         <div className="settings-header-title-row">
           <div className="settings-title-group">
             <div className="password-icon-badge">
@@ -607,6 +501,7 @@ const ChangePassword = () => {
             </div>
             <div>
               <h2>Change Password</h2>
+              <p className="password-header-sub">Update your password to keep your account secure</p>
             </div>
           </div>
         </div>
@@ -630,164 +525,57 @@ const ChangePassword = () => {
 
       <form className="password-form" onSubmit={savePassword} noValidate>
         {/* CURRENT PASSWORD FIELD */}
-        {!otpVerified && (
-          <div className="password-field-group">
-            <div className="password-field-header">
-              <label
-                className="password-field-label"
-                htmlFor="current-password-input"
-              >
-                Current Password <span className="req-star">*</span>
-              </label>
-              <button
-                type="button"
-                className="forgot-toggle-link"
-                onClick={() => setShowEmailReset(!showEmailReset)}
-              >
-                {showEmailReset ? "Hide reset option" : "Forgot current password?"}
-              </button>
-            </div>
+        <div className="password-field-group pass-field-1">
+          <div className="password-field-header">
+            <label
+              className="password-field-label"
+              htmlFor="current-password-input"
+            >
+              Current Password <span className="req-star">*</span>
+            </label>
+          </div>
 
-            <div className="password-input-wrapper">
-              <DelayedPasswordInput
-                id="current-password-input"
-                type={showCurrentPassword ? "text" : "password"}
-                autoComplete="current-password"
-                placeholder="Enter your current password"
-                value={currentPassword}
-                onChange={(event) => {
-                  setCurrentPassword(event.target.value);
-                  if (fieldErrors.currentPassword) {
-                    setFieldErrors((prev) => ({ ...prev, currentPassword: "" }));
-                  }
-                }}
-                className={`password-text-input ${
-                  fieldErrors.currentPassword ? "has-error" : ""
-                }`}
-                required={!otpVerified}
-              />
-              <button
-                type="button"
-                className="password-toggle-btn"
-                onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                aria-label={
-                  showCurrentPassword ? "Hide password" : "Show password"
+          <div className="password-input-wrapper">
+            <DelayedPasswordInput
+              id="current-password-input"
+              type={showCurrentPassword ? "text" : "password"}
+              autoComplete="current-password"
+              placeholder="Enter your current password"
+              value={currentPassword}
+              onChange={(event) => {
+                setCurrentPassword(event.target.value);
+                if (fieldErrors.currentPassword) {
+                  setFieldErrors((prev) => ({ ...prev, currentPassword: "" }));
                 }
-                tabIndex={0}
-              >
-                {showCurrentPassword ? <EyeOff size={17} /> : <Eye size={17} />}
-              </button>
-            </div>
-
-            {fieldErrors.currentPassword && (
-              <div className="password-field-error-msg">
-                <AlertCircle size={14} />
-                <span>{fieldErrors.currentPassword}</span>
-              </div>
-            )}
+              }}
+              className={`password-text-input ${
+                fieldErrors.currentPassword ? "has-error" : ""
+              }`}
+              required
+            />
+            <button
+              type="button"
+              className="password-toggle-btn"
+              onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+              aria-label={
+                showCurrentPassword ? "Hide password" : "Show password"
+              }
+              tabIndex={0}
+            >
+              {showCurrentPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+            </button>
           </div>
-        )}
 
-        {/* OTP VERIFIED BANNER */}
-        {otpVerified && (
-          <div className="otp-verified-banner">
-            <CheckCircle2 size={18} className="success-icon" />
-            <span>
-              Identity verified via email code. Current password is not required.
-            </span>
-          </div>
-        )}
-
-        {/* OTP / EMAIL RESET DRAWER */}
-        {showEmailReset && !otpVerified && (
-          <div className="otp-verification-flow">
-            <div className="otp-flow-header">
-              <Mail size={16} className="otp-mail-icon" />
-              <div>
-                <h4>Reset via Email Verification Code</h4>
-                <p>
-                  Receive a 6-digit one-time code to update your password without your current password.
-                </p>
-              </div>
+          {fieldErrors.currentPassword && (
+            <div className="password-field-error-msg">
+              <AlertCircle size={14} />
+              <span>{fieldErrors.currentPassword}</span>
             </div>
-
-            <div className="password-field-group">
-              <label
-                className="password-field-label"
-                htmlFor="reset-email-input"
-              >
-                Registered Account Email
-              </label>
-              <div className="otp-send-row">
-                <input
-                  id="reset-email-input"
-                  type="email"
-                  className="password-text-input"
-                  value={resetEmail}
-                  onChange={(e) => setResetEmail(e.target.value)}
-                  placeholder="user@example.com"
-                />
-                <button
-                  type="button"
-                  className="otp-send-btn"
-                  onClick={generateResetCode}
-                  disabled={isSendingOtp}
-                >
-                  {isSendingOtp ? (
-                    <>
-                      <Loader2 size={13} className="spin-icon" /> Sending...
-                    </>
-                  ) : (
-                    "Send Code"
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {generatedOtp && (
-              <div className="password-field-group">
-                <label
-                  className="password-field-label"
-                  htmlFor="reset-otp-input"
-                >
-                  6-Digit Verification Code
-                </label>
-                <div className="otp-verify-row">
-                  <input
-                    id="reset-otp-input"
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    maxLength={6}
-                    className="password-text-input otp-code-input"
-                    placeholder="123456"
-                    value={enteredOtp}
-                    onChange={(event) =>
-                      setEnteredOtp(event.target.value.replace(/\D/g, ""))
-                    }
-                  />
-                  <button
-                    className="otp-verify-btn"
-                    type="button"
-                    onClick={verifyResetCode}
-                    disabled={isVerifyingOtp || enteredOtp.length < 4}
-                  >
-                    {isVerifyingOtp ? (
-                      <>
-                        <Loader2 size={13} className="spin-icon" /> Verifying...
-                      </>
-                    ) : (
-                      "Verify Code"
-                    )}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+          )}
+        </div>
 
         {/* NEW PASSWORD FIELD */}
-        <div className="password-field-group">
+        <div className="password-field-group pass-field-2">
           <label className="password-field-label" htmlFor="new-password-input">
             New Password <span className="req-star">*</span>
           </label>
@@ -906,7 +694,7 @@ const ChangePassword = () => {
         </div>
 
         {/* CONFIRM PASSWORD FIELD */}
-        <div className="password-field-group">
+        <div className="password-field-group pass-field-3">
           <div className="password-field-header">
             <label
               className="password-field-label"
@@ -966,7 +754,7 @@ const ChangePassword = () => {
         </div>
 
         {/* SUBMIT BUTTON */}
-        <div className="password-form-actions">
+        <div className="password-form-actions pass-field-4">
           <button
             className="password-save-button"
             type="submit"
@@ -974,7 +762,7 @@ const ChangePassword = () => {
               isSubmitting ||
               !isPasswordValid ||
               !isConfirmPasswordMatch ||
-              (!otpVerified && !currentPassword.trim())
+              !currentPassword.trim()
             }
           >
             {isSubmitting ? (
@@ -983,7 +771,7 @@ const ChangePassword = () => {
               </>
             ) : (
               <>
-                <ShieldCheck size={16} />
+                <ShieldCheck size={16} className="save-btn-icon" />
                 <span>Save Password</span>
               </>
             )}

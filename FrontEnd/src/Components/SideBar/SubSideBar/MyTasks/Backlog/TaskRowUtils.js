@@ -14,7 +14,7 @@ export const TYPE_CONFIG = {
 };
 
 export const TEAM_MEMBERS = [
-  { id: 'sivakumar', name: 'Sivakumar', username: 'sivakumar', email: 'sivakumarluxmorchn@gmail.com', avatarBg: '#137333', initial: 'S', role: 'Frontend Lead' },
+  { id: 'sivakumar', name: 'Sivakumar', username: 'sivakumar', email: 'sivakumarluxmorchn@gmail.com', avatarBg: '#137333', initial: 'S', role: 'Frontend' },
   { id: 'luxmor', name: 'Luxmor', username: 'luxmor', email: 'luxmorchn@gmail.com', avatarBg: '#7c3aed', initial: 'L', role: 'Project Admin' },
   { id: 'franklin', name: 'Franklin', username: 'franklin', email: 'franklin@gmail.com', avatarBg: '#059669', initial: 'F', role: 'Backend Engineer' },
   { id: 'jeeva', name: 'Jeeva', username: 'jeeva', email: 'jeeva@gmail.com', avatarBg: '#d97706', initial: 'J', role: 'QA Engineer' },
@@ -22,6 +22,24 @@ export const TEAM_MEMBERS = [
   { id: 'testuser', name: 'Test User', username: 'testuser', email: 'testuser@example.com', avatarBg: '#4b5563', initial: 'T', role: 'Tester' },
 ];
 
+export const isTaskAssignedToPerson = (owner, person) => {
+  if (!person) return false;
+
+  const normalize = (value) => String(value ?? '').trim().toLowerCase();
+  const personValues = [person.id, person.name, person.username, person.email];
+  if (normalize(person.id) === 'sivakumar') personValues.push('siva');
+
+  const ownerValues =
+    typeof owner === 'object' && owner !== null
+      ? [owner.id, owner.name, owner.username, owner.email]
+      : [owner];
+  const normalizedPersonValues = personValues.map(normalize).filter(Boolean);
+
+  return ownerValues
+    .map(normalize)
+    .filter(Boolean)
+    .some((value) => normalizedPersonValues.includes(value));
+};
 
 export const parseTaskId = (taskId) => {
   if (!taskId || typeof taskId !== 'string') return null;
@@ -158,83 +176,4 @@ export const isTaskPastDueAndIncomplete = (task) => {
   if (!isTaskIncomplete(task.status)) return false;
   const dateVal = task.dueDate || task.due_date || task.endDate || task.end_date;
   return isPastDate(dateVal);
-};
-
-/**
- * Extract all normalized identity strings for a user
- */
-export const getUserIdentifiers = (user, profileName = '') => {
-  const identities = new Set();
-  let resolvedUser = user;
-  if (!resolvedUser && typeof window !== 'undefined') {
-    try {
-      const stored = sessionStorage.getItem('user');
-      if (stored) resolvedUser = JSON.parse(stored);
-    } catch {
-      // ignore
-    }
-  }
-
-  [
-    resolvedUser?.id,
-    resolvedUser?._id,
-    resolvedUser?.username,
-    resolvedUser?.name,
-    resolvedUser?.firstName,
-    resolvedUser?.lastName,
-    resolvedUser?.email,
-    resolvedUser?.email ? resolvedUser.email.split('@')[0] : null,
-    profileName,
-  ]
-    .filter(Boolean)
-    .forEach((val) => {
-      const s = String(val).trim().toLowerCase();
-      if (s) {
-        identities.add(s);
-        const stripped = s.replace(/[^a-z0-9]/g, '');
-        if (stripped) identities.add(stripped);
-      }
-    });
-
-  // Alias sivakumar <-> siva
-  if (identities.has('sivakumar') || identities.has('siva')) {
-    identities.add('sivakumar');
-    identities.add('siva');
-  }
-
-  return identities;
-};
-
-/**
- * Check if a task is assigned to the specified user
- */
-export const isTaskAssignedToUser = (task, user, profileName = '') => {
-  if (!task) return false;
-  const userIdentities = getUserIdentifiers(user, profileName);
-  if (userIdentities.size === 0) return true; // fallback if no user context
-
-  const rawOwners = [
-    task.owner?.id,
-    task.owner?._id,
-    task.owner?.username,
-    task.owner?.name,
-    task.owner?.email,
-    task.owner?.email ? task.owner.email.split('@')[0] : null,
-    typeof task.owner === 'string' ? task.owner : null,
-    task.assignee?.id,
-    task.assignee?.name,
-    task.assignee?.username,
-    typeof task.assignee === 'string' ? task.assignee : null,
-  ]
-    .filter(Boolean)
-    .map((v) => String(v).trim().toLowerCase());
-
-  return rawOwners.some((raw) => {
-    if (userIdentities.has(raw)) return true;
-    const stripped = raw.replace(/[^a-z0-9]/g, '');
-    if (stripped && userIdentities.has(stripped)) return true;
-    if (raw === 'siva' && userIdentities.has('sivakumar')) return true;
-    if (raw === 'sivakumar' && userIdentities.has('siva')) return true;
-    return false;
-  });
 };

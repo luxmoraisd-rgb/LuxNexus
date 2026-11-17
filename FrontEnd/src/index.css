@@ -153,6 +153,11 @@ button {
   outline: none;
 }
 
+.app :focus-visible {
+  outline: 2px solid var(--brand-primary, #6366f1);
+  outline-offset: 2px;
+}
+
 
 ::-webkit-scrollbar {
   width: 7px;

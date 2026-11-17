@@ -965,11 +965,6 @@ class TaskCreateListView(RoleProtectedAPIView):
                 data[sprint_field] = None
 
         # Jira & Monday.com style: If a task has a past due date and is incomplete, automatically route to Backlog
-        start_val = data.get('startDate') or data.get('start_date')
-        if start_val:
-            data['start_date'] = start_val
-            data['startDate'] = start_val
-
         due_val = data.get('dueDate') or data.get('due_date')
         status_val = data.get('status', 'Ready to start')
         if due_val and str(status_val).strip().lower() != 'done':

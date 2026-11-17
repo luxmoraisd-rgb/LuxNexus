@@ -138,6 +138,43 @@
   color: #f3f4f6;
 }
 
+.icon-btn[aria-pressed="true"] {
+  background-color: rgba(59, 130, 246, 0.15);
+}
+
+.icon-btn[data-tooltip] {
+  position: relative;
+}
+
+.icon-btn[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 50%;
+  padding: 5px 8px;
+  border: 1px solid #383a42;
+  border-radius: 4px;
+  background-color: #202226;
+  color: #f3f4f6;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, -2px);
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+}
+
+.icon-btn[data-tooltip]:hover::after,
+.icon-btn[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+
 .close-panel-btn {
   color: #9ca3af;
 }
@@ -338,6 +375,18 @@
   padding: 3px 6px;
   border-radius: 4px;
   font-size: 13px;
+}
+
+.goal-due-date-editor {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.goal-due-date-error {
+  color: #f87171;
+  font-size: 12px;
 }
 
 .feedback-row {
@@ -606,6 +655,119 @@
   color: #ffffff;
 }
 
+.comment-tool-btn.active {
+  color: #fbbf24;
+  background-color: rgba(251, 191, 36, 0.12);
+}
+
+.comment-tool-menu-wrapper {
+  position: relative;
+}
+
+.comment-tool-popover {
+  position: absolute;
+  z-index: 20;
+  bottom: calc(100% + 8px);
+  left: 0;
+  padding: 6px;
+  border: 1px solid #34363d;
+  border-radius: 8px;
+  background: #1b1c20;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.emoji-picker {
+  display: grid;
+  grid-template-columns: repeat(4, 32px);
+  gap: 2px;
+}
+
+.emoji-option,
+.mention-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 5px;
+  color: #e5e7eb;
+  background: transparent;
+  cursor: pointer;
+}
+
+.emoji-option {
+  width: 32px;
+  height: 32px;
+  font-size: 18px;
+}
+
+.emoji-option:hover,
+.mention-option:hover {
+  background: #2a2c32;
+}
+
+.mention-picker {
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+}
+
+.mention-option {
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  text-align: left;
+}
+
+.comment-file-input {
+  display: none;
+}
+
+.comment-selected-attachment,
+.comment-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 7px;
+  border: 1px solid #34363d;
+  border-radius: 5px;
+  color: #cbd5e1;
+  background: #1b1c20;
+  font-size: 11px;
+}
+
+.comment-selected-attachment {
+  align-self: flex-start;
+}
+
+.comment-selected-attachment-name,
+.comment-attachment span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comment-remove-attachment {
+  border: 0;
+  color: #9ca3af;
+  background: transparent;
+  cursor: pointer;
+}
+
+.comment-remove-attachment:hover {
+  color: #ffffff;
+}
+
+.comment-appreciation {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 5px;
+  color: #fbbf24;
+  font-size: 11px;
+}
+
 .comment-submit-btn {
   display: inline-flex;
   align-items: center;
@@ -699,8 +861,185 @@
   color: #0f172a;
 }
 
+[data-theme="light"] .btn-share-pill {
+  background-color: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #334155;
+}
+
+[data-theme="light"] .btn-share-pill:hover,
+[data-theme="light"] .btn-share-pill:focus-visible {
+  background-color: #e2e8f0;
+  color: #0f172a;
+}
+
+[data-theme="light"] .icon-btn:hover,
+[data-theme="light"] .icon-btn:focus-visible,
+[data-theme="light"] .icon-btn:active,
+[data-theme="light"] .icon-btn[aria-pressed="true"] {
+  background-color: #ffffff;
+  color: #334155;
+}
+
+[data-theme="light"] .icon-btn[data-tooltip]::after {
+  background-color: #ffffff;
+  border-color: #e2e8f0;
+  color: #334155;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+}
+
+[data-theme="light"] .avatar-add-icon {
+  background-color: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #64748b;
+}
+
+[data-theme="light"] .goal-icon-badge {
+  background-color: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #64748b;
+}
+
 [data-theme="light"] .goal-title-input {
   color: #0f172a;
+}
+
+[data-theme="light"] .panel-goal-title {
+  color: #0f172a;
+}
+
+[data-theme="light"] .meta-label {
+  color: #64748b;
+}
+
+[data-theme="light"] .meta-value,
+[data-theme="light"] .meta-value-text,
+[data-theme="light"] .owner-name-text {
+  color: #334155;
+}
+
+[data-theme="light"] .meta-value-text.placeholder {
+  color: #64748b;
+}
+
+[data-theme="light"] .owner-meta-btn:hover,
+[data-theme="light"] .team-meta-btn:hover,
+[data-theme="light"] .meta-value-text.clickable:hover {
+  background-color: #f1f5f9;
+}
+
+[data-theme="light"] .meta-popover {
+  background-color: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.12);
+}
+
+[data-theme="light"] .popover-heading {
+  color: #64748b;
+}
+
+[data-theme="light"] .popover-item {
+  color: #334155;
+}
+
+[data-theme="light"] .popover-item:hover,
+[data-theme="light"] .popover-item:focus-visible {
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+[data-theme="light"] .status-section-title {
+  color: #0f172a;
+}
+
+[data-theme="light"] .btn-update-status {
+  background-color: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #334155;
+}
+
+[data-theme="light"] .btn-update-status:hover,
+[data-theme="light"] .btn-update-status:focus-visible {
+  background-color: #e2e8f0;
+  color: #0f172a;
+}
+
+[data-theme="light"] .status-card {
+  background-color: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .mini-view-goal-pill {
+  background-color: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #334155;
+}
+
+[data-theme="light"] .status-summary-text {
+  color: #0f172a;
+}
+
+[data-theme="light"] .status-summary-text:hover {
+  background-color: #f1f5f9;
+}
+
+[data-theme="light"] .status-summary-input {
+  background-color: #ffffff;
+  color: #0f172a;
+}
+
+[data-theme="light"] .comment-box-container {
+  background-color: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .comment-textarea {
+  color: #0f172a;
+}
+
+[data-theme="light"] .status-card .comment-textarea {
+  background-color: #ffffff;
+}
+
+[data-theme="light"] .comment-textarea::placeholder {
+  color: #64748b;
+}
+
+[data-theme="light"] .comment-tool-btn:hover {
+  background-color: #f1f5f9;
+  color: #334155;
+}
+
+[data-theme="light"] .comment-tool-popover {
+  background-color: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+[data-theme="light"] .emoji-option,
+[data-theme="light"] .mention-option {
+  color: #334155;
+}
+
+[data-theme="light"] .emoji-option:hover,
+[data-theme="light"] .mention-option:hover {
+  background-color: #f1f5f9;
+}
+
+[data-theme="light"] .comment-selected-attachment,
+[data-theme="light"] .comment-attachment {
+  background-color: #f8fafc;
+  border-color: #e2e8f0;
+  color: #334155;
+}
+
+[data-theme="light"] .comment-remove-attachment:hover {
+  color: #0f172a;
+}
+
+[data-theme="light"] .comment-submit-btn:not(.active) {
+  background-color: #f1f5f9;
+  color: #64748b;
 }
 
 [data-theme="light"] .metadata-card {

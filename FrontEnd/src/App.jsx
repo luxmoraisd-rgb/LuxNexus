@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import Navbar from "./Components/NavBar/Navbar/navbar";
@@ -12,20 +12,18 @@ import Dashboard from "./Components/SideBar/SubSideBar/HomePage/DashBoard/dashbo
 import Inbox from "./Components/SideBar/SubSideBar/Inbox/inbox";
 import { SprintOverviewPage } from "./Components/SideBar/SubSideBar/MyTasks/TaskHeader/SprintOverview/sprintoverview";
 import "./App.css";
-
-const Reporting = lazy(() => import("./Components/SideBar/SubSideBar/Reporting/reporting"));
 const Resourcing = lazy(() => import("./Components/SideBar/SubSideBar/Resourcing/resourcing"));
 const Backlog = lazy(() => import("./Components/SideBar/SubSideBar/MyTasks/Backlog/Backlog"));
 const MyTasksScreen = lazy(() => import("./Components/SideBar/SubSideBar/MyTasks/MyTasksScreen"));
 const Projects = lazy(() => import("./Components/SideBar/SubSideBar/Projects/projects"));
 const Portfolios = lazy(() => import("./Components/SideBar/SubSideBar/Portfolios/Portfolios"));
-const MeetingsPage = lazy(() => import("./Components/SideBar/SubSideBar/Knowledge/MeetingsPage"));
+const MeetingsPage = lazy(() => import("./Components/SideBar/SubSideBar/Meetings/MeetingsPage"));
+const Reports = lazy(() => import("./Components/SideBar/SubSideBar/Report/Reports"));
 const ProfilePage = lazy(() => import("./Components/NavBar/Profile/profilepage"));
 const Signin = lazy(() => import("./Components/Auth/SignIn/signin"));
 const Signup = lazy(() => import("./Components/Auth/SignUp/signup"));
 const ForgotPassword = lazy(() => import("./Components/Auth/ForgotPass/forgotpassword"));
 const AcceptInvite = lazy(() => import("./Components/Auth/AcceptInvite"));
-const AllSprintsPage = lazy(() => import("./Components/SideBar/SubSideBar/MyTasks/AllSprints/AllSprintsPage"));
 const GoalsPage = lazy(() => import("./Components/SideBar/SubSideBar/Goals/GoalsPage"));
 import PeoplePage from "./Components/SideBar/SubSideBar/People/people";
 
@@ -63,6 +61,7 @@ const PeopleRouteWrapper = ({ theme, currentUser, onTabChange }) => {
 const App = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const normalizedPath = location.pathname.replace(/\/+$/, "") || "/";
   const [theme, setTheme] = useState(() => {
     try {
       const saved = window.localStorage.getItem("nexus-theme");
@@ -131,30 +130,37 @@ const App = () => {
   const [trackerView, setTrackerView] = useState("Goals");
   const [peopleTab, setPeopleTab] = useState("members");
 
-  const [currentView, setCurrentView] = useState(() => {
-    if (typeof window !== "undefined") {
-      const p = window.location.pathname.toLowerCase();
-      if (p.startsWith("/profile")) return "profile";
-      if (p.startsWith("/settings")) return "settings";
+  const currentView = (() => {
+    const pathname = location.pathname.toLowerCase();
+    if (pathname.startsWith("/profile")) return "profile";
+    if (pathname.startsWith("/settings")) return "settings";
+    if (pathname === "/" || pathname === "/home") {
       const saved = sessionStorage.getItem("current_view");
       if (saved === "profile" || saved === "settings") return saved;
     }
     return "dashboard";
-  });
-  const [profileTab, setProfileTab] = useState(() => {
-    if (typeof window !== "undefined") {
-      const p = window.location.pathname.toLowerCase();
-      if (p.includes("/session")) return "session";
-      if (p.includes("/password")) return "password";
-      if (p.includes("/language")) return "language";
-      if (p.includes("/notifications")) return "notifications";
-      if (p.includes("/basic") || p === "/settings") return "basic";
-      if (p === "/profile" || p.includes("/personal")) return "personal";
-      const saved = sessionStorage.getItem("profile_tab");
-      if (saved) return saved;
+  })();
+  const profileTab = (() => {
+    const path = location.pathname.toLowerCase();
+    const profileTabs = ["personal", "basic", "notifications", "language", "password", "session"];
+    const routeTab = path.split("/").filter(Boolean)[1];
+
+    if (path.startsWith("/settings")) {
+      return profileTabs.includes(routeTab) ? routeTab : "basic";
     }
-    return "personal";
-  });
+    if (path.startsWith("/profile")) {
+      return profileTabs.includes(routeTab)
+        ? routeTab
+        : sessionStorage.getItem("profile_tab") || "personal";
+    }
+    if (path === "/" || path === "/home") {
+      const savedView = sessionStorage.getItem("current_view");
+      if (savedView === "profile" || savedView === "settings") {
+        return sessionStorage.getItem("profile_tab") || (savedView === "settings" ? "basic" : "personal");
+      }
+    }
+    return sessionStorage.getItem("profile_tab") || "personal";
+  })();
   const [profileName, setProfileName] = useState(() => {
     try {
       const stored = sessionStorage.getItem("user");
@@ -229,39 +235,22 @@ const App = () => {
 
   useEffect(() => {
     if (location.pathname.startsWith("/profile")) {
-      setCurrentView("profile");
       sessionStorage.setItem("current_view", "profile");
       const parts = location.pathname.split("/").filter(Boolean);
       const sub = parts[1];
       if (sub && ["personal", "basic", "notifications", "language", "password", "session"].includes(sub)) {
-        setProfileTab(sub);
         sessionStorage.setItem("profile_tab", sub);
       }
     } else if (location.pathname.startsWith("/settings")) {
-      setCurrentView("settings");
       sessionStorage.setItem("current_view", "settings");
       const parts = location.pathname.split("/").filter(Boolean);
       const sub = parts[1];
       if (sub && ["personal", "basic", "notifications", "language", "password", "session"].includes(sub)) {
-        setProfileTab(sub);
         sessionStorage.setItem("profile_tab", sub);
       } else {
-        setProfileTab("basic");
         sessionStorage.setItem("profile_tab", "basic");
       }
-    } else if (location.pathname === "/" || location.pathname === "/home") {
-      const savedView = sessionStorage.getItem("current_view");
-      if (savedView === "profile" || savedView === "settings") {
-        setCurrentView(savedView);
-        const savedTab = sessionStorage.getItem("profile_tab") || (savedView === "settings" ? "basic" : "personal");
-        setProfileTab(savedTab);
-      } else {
-        setCurrentView("dashboard");
-        setActiveItem("work");
-        setActiveSubItem("home");
-      }
-    } else {
-      setCurrentView("dashboard");
+    } else if (location.pathname !== "/" && location.pathname !== "/home") {
       sessionStorage.removeItem("current_view");
       sessionStorage.removeItem("profile_tab");
     }
@@ -280,14 +269,15 @@ const App = () => {
   const isGoalsRoute = location.pathname === "/strategy/goals" || location.pathname === "/goals";
   const isStrategyMapRoute = location.pathname === "/strategy/strategy-map" || location.pathname === "/strategy-map";
   const isTeamGoalsRoute = location.pathname === "/strategy/team-goals" || location.pathname === "/team-goals";
-  const isReportingRoute = location.pathname === "/strategy/reporting" || location.pathname === "/reporting";
+  const isReportsRoute = location.pathname === "/strategy/reports" || location.pathname === "/reports" || location.pathname === "/strategy/reporting" || location.pathname === "/reporting";
   const isResourcingRoute = location.pathname === "/strategy/resourcing" || location.pathname === "/resourcing";
   const isPeopleRoute = location.pathname.startsWith("/people");
-  const isKnowledgeRoute = location.pathname === "/knowledge" || location.pathname === "/meetings";
+  const isKnowledgeRoute = normalizedPath === "/knowledge" || normalizedPath === "/meetings";
 
   const isWorkSubRoute = isTasksRoute || isBacklogRoute || isActiveSprintRoute || isAllSprintsRoute || isSprintOverviewRoute || isInboxRoute || isProjectsRoute || isPortfoliosRoute;
-  const isStrategySubRoute = isGoalsRoute || isStrategyMapRoute || isTeamGoalsRoute || isReportingRoute || isResourcingRoute;
-  const selectedActiveItem = isWorkSubRoute ? "work" : isStrategySubRoute ? "strategy" : isPeopleRoute ? "people" : isKnowledgeRoute ? "knowledge" : activeItem;
+  const isStrategySubRoute = isGoalsRoute || isStrategyMapRoute || isTeamGoalsRoute || isReportsRoute || isResourcingRoute;
+  const isHomeRoute = normalizedPath === "/" || normalizedPath === "/home";
+  const selectedActiveItem = isWorkSubRoute ? "work" : isStrategySubRoute ? "strategy" : isPeopleRoute ? "people" : isKnowledgeRoute ? "knowledge" : isHomeRoute && currentView === "dashboard" ? "work" : activeItem;
   const selectedActiveSubItem = isInboxRoute
     ? "inbox"
     : isProjectsRoute
@@ -302,13 +292,15 @@ const App = () => {
               ? "backlog"
               : isTasksRoute || isSprintOverviewRoute
                 ? "tasks"
+              : isHomeRoute && currentView === "dashboard"
+                ? "home"
                 : activeSubItem;
 
   const handleMainItemSelect = (item) => {
     setActiveItem(item);
     if (item === "work") {
       // Determine target work route based on current state or activeSubItem
-      const targetSub = activeSubItem || "home";
+      const targetSub = selectedActiveSubItem || "home";
       if (targetSub === "projects" || isProjectsRoute) {
         navigate("/work/projects");
       } else if (targetSub === "portfolios" || isPortfoliosRoute) {
@@ -329,8 +321,8 @@ const App = () => {
       }
     } else if (item === "strategy") {
       // Determine target strategy route based on current state or trackerView
-      if (trackerView === "Reporting" || isReportingRoute) {
-        navigate("/strategy/reporting");
+      if (trackerView === "Reports" || isReportsRoute) {
+        navigate("/strategy/reports");
       } else if (trackerView === "Resourcing" || isResourcingRoute) {
         navigate("/strategy/resourcing");
       } else {
@@ -357,7 +349,6 @@ const App = () => {
   };
 
   const handleHomeClick = () => {
-    setCurrentView("dashboard");
     sessionStorage.removeItem("current_view");
     sessionStorage.removeItem("profile_tab");
     setActiveItem("work");
@@ -410,14 +401,12 @@ const App = () => {
     setCurrentUser(null);
     setRolePermissions(null);
     setProfileName("");
-    setCurrentView("dashboard");
     setActiveItem("work");
     setActiveSubItem("home");
     navigate("/signin");
   };
 
   const handleSelectSuggestion = (suggestion) => {
-    setCurrentView("dashboard");
     sessionStorage.removeItem("current_view");
     sessionStorage.removeItem("profile_tab");
     const s = (suggestion || "").toLowerCase();
@@ -433,10 +422,13 @@ const App = () => {
       setActiveItem("work");
       setActiveSubItem("inbox");
       navigate("/work/inbox");
-    } else if (s.includes("reporting")) {
+    } else if (s.includes("knowledge") || s.includes("doc") || s.includes("meeting")) {
+      setActiveItem("knowledge");
+      navigate("/knowledge");
+    } else if (s.includes("report") || s.includes("reporting")) {
       setActiveItem("strategy");
-      setTrackerView("Reporting");
-      navigate("/strategy/reporting");
+      setTrackerView("Reports");
+      navigate("/strategy/reports");
     } else if (s.includes("resourcing")) {
       setActiveItem("strategy");
       setTrackerView("Resourcing");
@@ -455,6 +447,7 @@ const App = () => {
       navigate("/work/portfolios");
     } else if (s.includes("people") || s.includes("member") || s.includes("team")) {
       setActiveItem("people");
+      setPeopleTab("members");
       navigate("/people");
     } else {
       setActiveItem("work");
@@ -464,7 +457,6 @@ const App = () => {
   };
 
   const handleCreateClick = () => {
-    setCurrentView("dashboard");
     sessionStorage.removeItem("current_view");
     sessionStorage.removeItem("profile_tab");
     setActiveItem("work");
@@ -490,7 +482,6 @@ const App = () => {
     sessionStorage.removeItem("profile_tab");
     setCurrentUser(user);
     setProfileName(name);
-    setCurrentView("dashboard");
     setActiveItem("work");
     setActiveSubItem("home");
     const invitationToken = new URLSearchParams(location.search).get("invite");
@@ -640,15 +631,11 @@ const App = () => {
           setSidebarOpen(!sidebarOpen)
         }
         onProfileClick={() => {
-          setProfileTab("personal");
-          setCurrentView("profile");
           sessionStorage.setItem("current_view", "profile");
           sessionStorage.setItem("profile_tab", "personal");
           navigate("/profile/personal");
         }}
         onSettingsClick={() => {
-          setProfileTab("basic");
-          setCurrentView("settings");
           sessionStorage.setItem("current_view", "settings");
           sessionStorage.setItem("profile_tab", "basic");
           navigate("/settings/basic");
@@ -667,7 +654,6 @@ const App = () => {
         <Suspense fallback={null}>
           <ProfilePage
             onBack={() => {
-              setCurrentView("dashboard");
               sessionStorage.removeItem("current_view");
               sessionStorage.removeItem("profile_tab");
               setActiveItem("work");
@@ -676,7 +662,6 @@ const App = () => {
             }}
             activeTab={profileTab}
             setActiveTab={(tab) => {
-              setProfileTab(tab);
               sessionStorage.setItem("profile_tab", tab);
               const base = currentView === "settings" ? "/settings" : "/profile";
               navigate(`${base}/${tab}`);
@@ -728,8 +713,8 @@ const App = () => {
             >
               <TrackerSidebar
                 selectedItem={
-                  isReportingRoute
-                    ? "Reporting"
+                  isReportsRoute
+                    ? "Reports"
                     : isResourcingRoute
                       ? "Resourcing"
                       : isGoalsRoute || isStrategyMapRoute || isTeamGoalsRoute
@@ -746,15 +731,15 @@ const App = () => {
                   } else if (item === "Team goals") {
                     setTrackerView("Team goals");
                     navigate("/strategy/team-goals");
-                  } else if (item === "Reporting") {
-                    setTrackerView("Reporting");
-                    navigate("/strategy/reporting");
+                  } else if (item === "Reports") {
+                    setTrackerView("Reports");
+                    navigate("/strategy/reports");
                   } else if (item === "Resourcing") {
                     setTrackerView("Resourcing");
                     navigate("/strategy/resourcing");
                   } else {
-                    setTrackerView("Reporting");
-                    navigate("/strategy/reporting");
+                    setTrackerView("Reports");
+                    navigate("/strategy/reports");
                   }
                 }}
               />
@@ -831,26 +816,13 @@ const App = () => {
               <Route path="/strategy-map" element={<Suspense fallback={<main role="status">Loading Strategy Map...</main>}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="Strategy map" /></Suspense>} />
               <Route path="/strategy/team-goals" element={<Suspense fallback={<main role="status">Loading Team Goals...</main>}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="Team goals" /></Suspense>} />
               <Route path="/team-goals" element={<Suspense fallback={<main role="status">Loading Team Goals...</main>}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="Team goals" /></Suspense>} />
-              <Route path="/strategy/reporting" element={<Suspense fallback={<main role="status">Loading Reporting...</main>}><Reporting currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>} />
-              <Route path="/reporting" element={<Suspense fallback={<main role="status">Loading Reporting...</main>}><Reporting currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>} />
+              <Route path="/strategy/reports" element={<Suspense fallback={<main role="status">Loading Reports...</main>}><Reports currentUser={currentUser} /></Suspense>} />
+              <Route path="/strategy/reporting" element={<Navigate to="/strategy/reports" replace />} />
+              <Route path="/reporting" element={<Navigate to="/strategy/reports" replace />} />
               <Route path="/strategy/resourcing" element={<Suspense fallback={<main role="status">Loading Resourcing...</main>}><Resourcing currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>} />
               <Route path="/resourcing" element={<Suspense fallback={<main role="status">Loading Resourcing...</main>}><Resourcing currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>} />
               <Route
-                path="/people"
-                element={
-                  <PeoplePage
-                    theme={theme}
-                    currentUser={currentUser}
-                    activeTab="members"
-                    onTabChange={(tab) => {
-                      setPeopleTab(tab);
-                      navigate(tab === "members" ? "/people" : `/people/${tab}`);
-                    }}
-                  />
-                }
-              />
-              <Route
-                path="/people/:subTab"
+                path="/people/:subTab?"
                 element={
                   <PeopleRouteWrapper
                     theme={theme}
@@ -864,6 +836,8 @@ const App = () => {
               />
               <Route path="/knowledge" element={<Suspense fallback={<main role="status">Loading Knowledge...</main>}><MeetingsPage currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>} />
               <Route path="/meetings" element={<Suspense fallback={<main role="status">Loading Meetings...</main>}><MeetingsPage currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>} />
+              <Route path="/knowledge/reports" element={<Navigate to="/strategy/reports" replace />} />
+              <Route path="/reports" element={<Suspense fallback={<main role="status">Loading Reports...</main>}><Reports currentUser={currentUser} /></Suspense>} />
               <Route
                 path="*"
                 element={activeItem === "work" && activeSubItem === "inbox" ? (
@@ -878,8 +852,8 @@ const App = () => {
                   <Suspense fallback={<main role="status">Loading Team Goals...</main>}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="Team goals" /></Suspense>
                 ) : activeItem === "strategy" && trackerView === "Goals" ? (
                   <Suspense fallback={<main role="status">Loading Goals...</main>}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="My goals" /></Suspense>
-                ) : activeItem === "strategy" && trackerView === "Reporting" ? (
-                  <Suspense fallback={<main role="status">Loading Reporting...</main>}><Reporting currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>
+                ) : activeItem === "strategy" && trackerView === "Reports" ? (
+                  <Suspense fallback={<main role="status">Loading Reports...</main>}><Reports currentUser={currentUser} /></Suspense>
                 ) : activeItem === "strategy" && trackerView === "Resourcing" ? (
                   <Suspense fallback={<main role="status">Loading Resourcing...</main>}><Resourcing currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>
                 ) : selectedActiveItem === "people" ? (

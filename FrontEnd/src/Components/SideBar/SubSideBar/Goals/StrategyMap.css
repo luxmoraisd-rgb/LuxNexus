@@ -12,6 +12,38 @@
   overflow-y: auto;
 }
 
+.strategy-goal-details-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(0, 0, 0, 0.48);
+}
+
+.strategy-goal-details-panel {
+  position: relative;
+  width: min(580px, 100%);
+  height: 100%;
+  overflow: hidden;
+  box-shadow: -8px 0 28px rgba(0, 0, 0, 0.35);
+}
+
+.strategy-goal-save-status {
+  position: absolute;
+  top: 54px;
+  right: 16px;
+  color: #9ca3af;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+@media (max-width: 600px) {
+  .strategy-goal-details-panel {
+    width: 100%;
+  }
+}
+
 /* KPI Banner */
 .strategy-kpi-banner {
   display: grid;

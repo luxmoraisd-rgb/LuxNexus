@@ -1,6 +1,9 @@
 from datetime import datetime, timezone
 from bson import ObjectId
+from bson.errors import InvalidId
+from pymongo import ReturnDocument
 from rest_framework import status
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -91,6 +94,11 @@ class TeamGoalsView(APIView):
     @property
     def goals_collection(self):
         return db["goals"]
+
+    def get_permissions(self):
+        if self.request.method == "PATCH":
+            return [IsAuthenticated()]
+        return [AllowAny()]
 
     def get(self, request):
         cursor = list(self.goals_collection.find({}))
@@ -231,3 +239,165 @@ class TeamGoalsView(APIView):
         new_goal.pop("_id", None)
 
         return Response(new_goal, status=status.HTTP_201_CREATED)
+
+    def patch(self, request, pk):
+        user_email = str(getattr(request.user, "email", "")).strip().lower()
+        if user_email != "franklin@gmail.com":
+            return Response(
+                {"error": "Only Franklin can edit team goals."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        allowed_fields = {
+            "name",
+            "status",
+            "progress",
+            "timePeriod",
+            "time_period",
+            "dueDate",
+            "due_date",
+            "owner",
+        }
+        unsupported_fields = set(request.data) - allowed_fields
+        if unsupported_fields:
+            return Response(
+                {"error": "Only title, status, progress, period, due date, and owner can be edited."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        updates = {}
+        if "name" in request.data:
+            name = str(request.data["name"]).strip()
+            if not name or len(name) > 255:
+                return Response(
+                    {"error": "Goal title must contain 1–255 characters."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            updates["name"] = name
+
+        if "status" in request.data:
+            goal_status = str(request.data["status"]).strip().lower()
+            if goal_status not in {"on track", "at risk", "off track", "achieved"}:
+                return Response(
+                    {"error": "Invalid goal status."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            updates["status"] = goal_status
+
+        if "progress" in request.data:
+            raw_progress = request.data["progress"]
+            is_integer = (
+                isinstance(raw_progress, int)
+                and not isinstance(raw_progress, bool)
+            ) or (
+                isinstance(raw_progress, float)
+                and raw_progress.is_integer()
+            ) or (
+                isinstance(raw_progress, str)
+                and raw_progress.strip().lstrip("+-").isdigit()
+            )
+            try:
+                progress = int(raw_progress)
+            except (TypeError, ValueError):
+                is_integer = False
+                progress = -1
+            if not is_integer:
+                return Response(
+                    {"error": "Progress must be an integer from 0 to 100."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not 0 <= progress <= 100:
+                return Response(
+                    {"error": "Progress must be an integer from 0 to 100."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            updates["progress"] = progress
+
+        if "timePeriod" in request.data or "time_period" in request.data:
+            period = request.data.get("timePeriod", request.data.get("time_period"))
+            if not isinstance(period, str):
+                return Response(
+                    {"error": "Period must be text."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            updates["timePeriod"] = period
+            updates["time_period"] = period
+
+        if "dueDate" in request.data or "due_date" in request.data:
+            due_date = request.data.get("dueDate", request.data.get("due_date"))
+            if not isinstance(due_date, str):
+                return Response(
+                    {"error": "Due date must be text."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            updates["dueDate"] = due_date
+            updates["due_date"] = due_date
+
+        if "owner" in request.data:
+            owner = request.data["owner"]
+            if owner is None:
+                updates["owner"] = None
+            elif isinstance(owner, str):
+                owner_name = owner.strip()
+                updates["owner"] = (
+                    {
+                        "name": owner_name,
+                        "initials": owner_name[:2].upper(),
+                    }
+                    if owner_name
+                    else None
+                )
+            elif isinstance(owner, dict):
+                owner_name = str(owner.get("name", "")).strip()
+                if not owner_name:
+                    return Response(
+                        {"error": "Owner name cannot be blank."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                updates["owner"] = {
+                    **owner,
+                    "name": owner_name,
+                    "initials": str(owner.get("initials") or owner_name[:2].upper()),
+                }
+            else:
+                return Response(
+                    {"error": "Owner must be a name or owner object."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        if not updates:
+            return Response(
+                {"error": "At least one editable field is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            object_id = ObjectId(pk)
+        except (InvalidId, TypeError):
+            object_id = None
+
+        lookup_ids = [pk]
+        if object_id is not None:
+            lookup_ids.insert(0, object_id)
+        existing = None
+        for goal_id in lookup_ids:
+            existing = self.goals_collection.find_one({"_id": goal_id})
+            if existing:
+                break
+
+        if not existing:
+            return Response(
+                {"error": "Goal not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        updates["updated_at"] = datetime.now(timezone.utc)
+        updated = self.goals_collection.find_one_and_update(
+            {"_id": existing["_id"]},
+            {"$set": updates},
+            return_document=ReturnDocument.AFTER,
+        )
+        updated["id"] = str(updated.pop("_id"))
+        updated["timePeriod"] = updated.get("timePeriod") or updated.get("time_period", "")
+        updated["dueDate"] = updated.get("dueDate") or updated.get("due_date", "")
+        return Response(updated, status=status.HTTP_200_OK)

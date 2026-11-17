@@ -7,7 +7,7 @@ import {
   Download,
   Layers,
 } from 'lucide-react';
-import { STATUS_CONFIG, TYPE_CONFIG, isTaskAssignedToUser } from '../Backlog/TaskRowUtils';
+import { STATUS_CONFIG, TYPE_CONFIG, isTaskAssignedToPerson } from '../Backlog/TaskRowUtils';
 import './KanbanBoard.css';
 
 const DEFAULT_COLUMNS = [
@@ -19,7 +19,6 @@ const DEFAULT_COLUMNS = [
 
 const KanbanBoard = ({
   allTasks = [],
-  currentUser,
   statusConfig = STATUS_CONFIG,
   typeConfig = TYPE_CONFIG,
   onUpdateTaskStatus,
@@ -31,8 +30,8 @@ const KanbanBoard = ({
   searchQuery = '',
   selectedPersonFilter = 'all',
   personFilterMembers = [],
-  typeFilter = 'all',
-  statusFilter = 'all',
+  typeFilter = [],
+  statusFilter = [],
   sortBy = null,
 }) => {
   // Drag and drop state
@@ -51,40 +50,21 @@ const KanbanBoard = ({
         if (!matchesTitle && !matchesKey && !matchesEpic) return false;
       }
       // Person filter
-      if (selectedPersonFilter === 'my-tasks') {
-        if (!isTaskAssignedToUser(task, currentUser)) return false;
-      } else if (selectedPersonFilter !== 'all') {
+      if (selectedPersonFilter !== 'all') {
         const selectedPerson = personFilterMembers.find(
           (member) => String(member.id) === String(selectedPersonFilter)
         );
-        const ownerValues = [
-          task.owner?.id,
-          task.owner?.username,
-          task.owner?.name,
-          task.owner?.email,
-          typeof task.owner === 'string' ? task.owner : '',
-        ]
-          .filter(Boolean)
-          .map((value) => String(value).trim().toLowerCase());
-        const selectedValues = [
-          selectedPerson?.id,
-          selectedPerson?.username,
-          selectedPerson?.name,
-          selectedPerson?.email,
-          selectedPersonFilter,
-        ]
-          .filter(Boolean)
-          .map((value) => String(value).trim().toLowerCase());
-        if (!ownerValues.some((owner) => selectedValues.includes(owner))) return false;
+        if (!isTaskAssignedToPerson(task.owner, selectedPerson || { id: selectedPersonFilter })) return false;
       }
       // Type filter
-      if (typeFilter !== 'all') {
-        if (task.type?.toLowerCase() !== typeFilter.toLowerCase()) return false;
+      if (typeFilter.length > 0) {
+        const taskType = task.type?.toLowerCase() || '';
+        if (!typeFilter.some((type) => taskType === type.toLowerCase())) return false;
       }
       // Status filter
-      if (statusFilter !== 'all') {
-        const status = task.status || 'Ready to start';
-        if (status.toLowerCase() !== statusFilter.toLowerCase()) return false;
+      if (statusFilter.length > 0) {
+        const status = (task.status || 'Ready to start').toLowerCase();
+        if (!statusFilter.some((selectedStatus) => status === selectedStatus.toLowerCase())) return false;
       }
       return true;
     });
