@@ -360,6 +360,35 @@ const Signin = ({
   const [fieldErrors, setFieldErrors] = useState({});
   const [authError, setAuthError] = useState('');
   const [authSuccess, setAuthSuccess] = useState('');
+  const [lockoutExpiresAt, setLockoutExpiresAt] = useState(null);
+  const [lockoutIdentifier, setLockoutIdentifier] = useState('');
+  const [lockoutSeconds, setLockoutSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!lockoutExpiresAt) {
+      return undefined;
+    }
+
+    const updateRemainingTime = () => {
+      const remaining = Math.max(0, Math.ceil((lockoutExpiresAt - Date.now()) / 1000));
+      setLockoutSeconds(remaining);
+      if (remaining === 0) {
+        window.clearInterval(intervalId);
+      }
+    };
+    const intervalId = window.setInterval(updateRemainingTime, 1000);
+    updateRemainingTime();
+
+    return () => window.clearInterval(intervalId);
+  }, [lockoutExpiresAt]);
+
+  const isCurrentIdentifierLocked =
+    lockoutSeconds > 0 &&
+    email.trim().toLowerCase() === lockoutIdentifier;
+  const isCurrentIdentifierUnlocked =
+    Boolean(lockoutIdentifier) &&
+    lockoutSeconds === 0 &&
+    email.trim().toLowerCase() === lockoutIdentifier;
 
   const handleRememberMeChange = (e) => {
     setRememberMe(e.target.checked);
@@ -388,6 +417,9 @@ const Signin = ({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isCurrentIdentifierLocked) {
+      return;
+    }
     setAuthError('');
     setAuthSuccess('');
 
@@ -415,6 +447,9 @@ const Signin = ({
       });
 
       const data = response.data;
+      setLockoutExpiresAt(null);
+      setLockoutIdentifier('');
+      setLockoutSeconds(0);
       const token = data.token || data.accessToken || data.jwt || 'active-session-token';
       const user = data.user || data.data?.user || { email: email.trim(), name: email.trim().split('@')[0] };
 
@@ -459,6 +494,15 @@ const Signin = ({
           : 'Login failed. Please check your credentials.');
 
       setAuthError(errorMessage);
+      if (err.response?.status === 429) {
+        const retryAfter = Number(
+          resData?.retry_after_seconds || err.response.headers?.['retry-after'] || 300
+        );
+        const lockoutDuration = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 300;
+        setLockoutIdentifier(email.trim().toLowerCase());
+        setLockoutSeconds(lockoutDuration);
+        setLockoutExpiresAt(Date.now() + lockoutDuration * 1000);
+      }
 
       if (
         resData?.email ||
@@ -686,10 +730,19 @@ const Signin = ({
             </div>
 
           {/* Error Banner */}
-          {authError && (
-            <div className="auth-alert-box auth-alert-danger" role="alert">
+          {(authError || isCurrentIdentifierLocked || isCurrentIdentifierUnlocked) && (
+            <div
+              className={`auth-alert-box ${isCurrentIdentifierUnlocked ? 'auth-alert-success' : 'auth-alert-danger'}`}
+              role={isCurrentIdentifierUnlocked ? 'status' : 'alert'}
+            >
               <AlertCircleIcon />
-              <span>{authError}</span>
+              <span>
+                {isCurrentIdentifierLocked
+                  ? `Your id is blocked. Try again after 5 minutes. (${String(Math.floor(lockoutSeconds / 60)).padStart(2, '0')}:${String(lockoutSeconds % 60).padStart(2, '0')} remaining)`
+                  : isCurrentIdentifierUnlocked
+                    ? 'Login now'
+                    : authError}
+              </span>
             </div>
           )}
 
@@ -719,6 +772,7 @@ const Signin = ({
                   value={email}
                   onChange={(e) => {
                     setEmail(e.target.value);
+                    setAuthError('');
                     if (fieldErrors.email) {
                       setFieldErrors((prev) => ({ ...prev, email: '' }));
                     }
@@ -806,7 +860,7 @@ const Signin = ({
                 id="auth-signin-submit-btn"
                 type="submit"
                 className="auth-btn-primary"
-                disabled={isLoading}
+                disabled={isLoading || isCurrentIdentifierLocked}
               >
                 <span className="auth-btn-shimmer" aria-hidden="true" />
                 {isLoading ? (
@@ -816,7 +870,7 @@ const Signin = ({
                   </>
                 ) : (
                   <>
-                    <span>Log in</span>
+                    <span>{isCurrentIdentifierUnlocked ? 'Login now' : 'Log in'}</span>
                     <span className="auth-btn-arrow" aria-hidden="true">→</span>
                   </>
                 )}

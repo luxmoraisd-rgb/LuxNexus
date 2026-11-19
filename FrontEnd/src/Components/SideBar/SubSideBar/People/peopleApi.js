@@ -29,13 +29,8 @@ peopleClient.interceptors.request.use(
 
 export const peopleApi = {
   getMembers: async (params = {}) => {
-    try {
-      const response = await peopleClient.get("/people/", { params });
-      return response.data || [];
-    } catch (err) {
-      console.warn("[PeopleApi] Error fetching members:", err);
-      return [];
-    }
+    const response = await peopleClient.get("/people/", { params });
+    return response.data || [];
   },
 
   getMember: async (userId) => {
@@ -59,17 +54,20 @@ export const peopleApi = {
   },
 
   getTeams: async () => {
-    try {
-      const response = await peopleClient.get("/people/teams/");
-      return response.data || [];
-    } catch (err) {
-      console.warn("[PeopleApi] Error fetching teams:", err);
-      return [];
-    }
+    const response = await peopleClient.get("/people/teams/");
+    return response.data || [];
   },
 
   createTeam: async (payload) => {
     const response = await peopleClient.post("/people/teams/", payload);
+    return response.data;
+  },
+
+  updateTeam: async (teamId, payload) => {
+    const response = await peopleClient.put(
+      `/people/teams/${teamId}/`,
+      payload
+    );
     return response.data;
   },
 
@@ -79,13 +77,8 @@ export const peopleApi = {
   },
 
   getInvitations: async () => {
-    try {
-      const response = await peopleClient.get("/people/invitations/");
-      return response.data || [];
-    } catch (err) {
-      console.warn("[PeopleApi] Error fetching invitations:", err);
-      return [];
-    }
+    const response = await peopleClient.get("/people/invitations/");
+    return response.data || [];
   },
 
   sendInvitation: async (payload) => {
@@ -101,24 +94,15 @@ export const peopleApi = {
   },
 
   getStats: async () => {
-    try {
-      const response = await peopleClient.get("/people/stats/");
-      return (
-        response.data || {
-          totalMembers: 4,
-          activeNow: 4,
-          totalTeams: 4,
-          pendingInvitations: 0,
-        }
-      );
-    } catch {
-      return {
+    const response = await peopleClient.get("/people/stats/");
+    return (
+      response.data || {
         totalMembers: 4,
         activeNow: 4,
         totalTeams: 4,
         pendingInvitations: 0,
-      };
-    }
+      }
+    );
   },
 };
 

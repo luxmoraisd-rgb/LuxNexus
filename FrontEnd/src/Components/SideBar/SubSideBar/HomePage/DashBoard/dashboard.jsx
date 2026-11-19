@@ -67,11 +67,27 @@ function getCurrentOwnerId(currentUser, profileName) {
   })?.id || "";
 }
 
-function getGreeting() {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Good morning";
-  if (hour < 17) return "Good afternoon";
-  return "Good evening";
+function getGreeting(date = new Date()) {
+  const hour = date.getHours();
+  if (hour < 12) return "Good Morning";
+  if (hour < 17) return "Good Afternoon";
+  return "Good Evening";
+}
+
+function getMillisecondsUntilGreetingChange(date = new Date()) {
+  const nextChange = new Date(date);
+  const hour = date.getHours();
+
+  if (hour < 12) {
+    nextChange.setHours(12, 0, 0, 0);
+  } else if (hour < 17) {
+    nextChange.setHours(17, 0, 0, 0);
+  } else {
+    nextChange.setDate(nextChange.getDate() + 1);
+    nextChange.setHours(0, 0, 0, 0);
+  }
+
+  return nextChange.getTime() - date.getTime();
 }
 
 /*
@@ -91,6 +107,7 @@ function DashboardHeader({
   onToggleLayout,
 }) {
   const [timeframeOpen, setTimeframeOpen] = useState(false);
+  const [greeting, setGreeting] = useState(() => getGreeting());
   const dropdownRef = useRef(null);
 
   const todayLabel = new Date().toLocaleDateString("en-US", {
@@ -99,8 +116,6 @@ function DashboardHeader({
     day: "numeric",
     year: "numeric",
   });
-
-  const greeting = getGreeting();
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -115,6 +130,32 @@ function DashboardHeader({
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [timeframeOpen]);
+
+  useEffect(() => {
+    let timeoutId;
+    const updateGreeting = () => {
+      const now = new Date();
+      setGreeting(getGreeting(now));
+      timeoutId = window.setTimeout(
+        updateGreeting,
+        getMillisecondsUntilGreetingChange(now) + 10
+      );
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        window.clearTimeout(timeoutId);
+        updateGreeting();
+      }
+    };
+
+    updateGreeting();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.clearTimeout(timeoutId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
 
   const timeframeOptions = ["This week", "Today", "This month"];
 

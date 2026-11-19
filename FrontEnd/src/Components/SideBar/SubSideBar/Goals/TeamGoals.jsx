@@ -18,6 +18,7 @@ import {
 import Header from "./Header";
 import Tabs from "./Tabs";
 import { goalsApi } from "./goalsApi";
+import { GOAL_TIME_PERIODS } from "./goalFormOptions";
 import "./TeamGoals.css";
 
 const getDateInputValue = (value) => {
@@ -55,8 +56,8 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser }) {
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [newGoal, setNewGoal] = useState({
     name: "",
-    team: "Engineering",
-    timePeriod: "Q1 FY26",
+    team: "",
+    timePeriod: "",
     ownerName: "Franklin",
     ownerInitials: "FR",
     dueDate: "Apr 30, 2026",
@@ -119,7 +120,7 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser }) {
 
   const handleCreateTeamGoal = async (e) => {
     e.preventDefault();
-    if (!newGoal.name.trim()) return;
+    if (!newGoal.name.trim() || !newGoal.team || !newGoal.timePeriod) return;
 
     const payload = {
       name: newGoal.name.trim(),
@@ -163,13 +164,18 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser }) {
     setIsModalOpen(false);
     setNewGoal({
       name: "",
-      team: "Engineering",
-      timePeriod: "Q1 FY26",
+      team: "",
+      timePeriod: "",
       ownerName: "Franklin",
       ownerInitials: "FR",
       dueDate: "Apr 30, 2026",
       statusSummary: "Initiated sprint planning and task breakdowns.",
     });
+  };
+
+  const handleCloseCreateModal = () => {
+    setIsModalOpen(false);
+    setNewGoal((prev) => ({ ...prev, team: "", timePeriod: "" }));
   };
 
   const handleUpdateTeamGoal = async (e) => {
@@ -466,14 +472,14 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser }) {
 
       {/* New Team Goal Modal */}
       {isModalOpen && (
-        <div className="team-modal-backdrop" onClick={() => setIsModalOpen(false)}>
+        <div className="team-modal-backdrop" onClick={handleCloseCreateModal}>
           <div className="team-modal-window" onClick={(e) => e.stopPropagation()}>
             <div className="team-modal-header">
               <h3>Create Team Goal</h3>
               <button
                 type="button"
                 className="modal-close-btn"
-                onClick={() => setIsModalOpen(false)}
+                onClick={handleCloseCreateModal}
               >
                 <X size={18} />
               </button>
@@ -497,7 +503,9 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser }) {
                   <select
                     value={newGoal.team}
                     onChange={(e) => setNewGoal({ ...newGoal, team: e.target.value })}
+                    required
                   >
+                    <option value="" disabled>Select team</option>
                     <option value="Engineering">Engineering</option>
                     <option value="Design">Design</option>
                     <option value="Product">Product</option>
@@ -507,14 +515,21 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser }) {
                 </label>
 
                 <label>
-                  <span>Time Period</span>
-                  <input
-                    type="text"
+                  <span>Time Period *</span>
+                  <select
                     value={newGoal.timePeriod}
                     onChange={(e) =>
                       setNewGoal({ ...newGoal, timePeriod: e.target.value })
                     }
-                  />
+                    required
+                  >
+                    <option value="" disabled>Select time period</option>
+                    {GOAL_TIME_PERIODS.map((period) => (
+                      <option key={period} value={period}>
+                        {period}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               </div>
 
@@ -566,7 +581,7 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser }) {
                 <button
                   type="button"
                   className="modal-cancel-btn"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={handleCloseCreateModal}
                 >
                   Cancel
                 </button>

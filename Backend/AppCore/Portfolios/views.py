@@ -201,22 +201,22 @@ class PortfoliosView(APIView):
             )
 
         now = datetime.now(timezone.utc).isoformat()
-        prefix = "".join([w[0].upper() for w in name.split() if w])[:4] or "PF"
-        key = data.get("key") or f"PORT-{prefix}"
+        key = (data.get("key") or "").strip().upper()
 
         owner = data.get("owner") or {}
         if isinstance(owner, str):
-            owner = {
-                "name": owner,
-                "role": "Portfolio Lead",
-                "initials": "".join([w[0].upper() for w in owner.split() if w])[:2] or "PL",
-            }
-        else:
-            owner_name = owner.get("name") or "You"
+            owner_name = owner.strip()
             owner = {
                 "name": owner_name,
-                "role": owner.get("role") or "Portfolio Lead",
-                "initials": owner.get("initials") or "".join([w[0].upper() for w in owner_name.split() if w])[:2] or "PL",
+                "role": "",
+                "initials": "".join([w[0].upper() for w in owner_name.split() if w])[:2],
+            }
+        else:
+            owner_name = (owner.get("name") or "").strip()
+            owner = {
+                "name": owner_name,
+                "role": (owner.get("role") or "").strip(),
+                "initials": owner.get("initials") or "".join([w[0].upper() for w in owner_name.split() if w])[:2],
             }
 
         raw_projects = data.get("projects") or []
@@ -227,26 +227,26 @@ class PortfoliosView(APIView):
                     "id": f"p-{datetime.now().timestamp()}-{i}",
                     "name": prj.strip(),
                     "progress": 0,
-                    "status": "on track",
+                    "status": "",
                 })
             elif isinstance(prj, dict):
                 projects.append({
                     "id": prj.get("id") or f"p-{datetime.now().timestamp()}-{i}",
                     "name": prj.get("name", "Untitled Project"),
                     "progress": int(prj.get("progress") or 0),
-                    "status": prj.get("status") or "on track",
+                    "status": prj.get("status") or "",
                 })
 
         new_doc = {
             "_id": f"pf-{datetime.now().timestamp()}",
             "name": name,
             "key": key.upper(),
-            "description": data.get("description", "").strip(),
-            "status": data.get("status", "on track").lower(),
+            "description": (data.get("description") or "").strip(),
+            "status": (data.get("status") or "").strip().lower(),
             "progress": int(data.get("progress", 0)),
-            "priority": data.get("priority", "High"),
-            "timeframe": data.get("timeframe", "Full Year 2026"),
-            "budget": data.get("budget", "$150,000"),
+            "priority": data.get("priority") or "",
+            "timeframe": (data.get("timeframe") or "").strip(),
+            "budget": (data.get("budget") or "").strip(),
             "color": data.get("color", "#6366f1"),
             "owner": owner,
             "projects": projects,

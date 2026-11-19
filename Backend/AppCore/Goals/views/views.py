@@ -182,9 +182,12 @@ class GoalViewSet(viewsets.ViewSet):
         period_val = data.get("time_period") or data.get("timePeriod") or ""
         due_date_val = data.get("due_date") or data.get("dueDate") or ""
         status_summary_val = data.get("status_summary") or data.get("statusSummary") or ""
+        start_date = data.get("start_date")
+        end_date = data.get("end_date")
 
         document = {
             "name": data["name"],
+            "description": data.get("description", ""),
             "status": data.get("status", "on track"),
             "progress": data.get("progress", 0),
             "accountable_team": team_val,
@@ -194,6 +197,8 @@ class GoalViewSet(viewsets.ViewSet):
             "owner": data.get("owner", None),
             "due_date": due_date_val,
             "dueDate": due_date_val,
+            "start_date": start_date.isoformat() if start_date else None,
+            "end_date": end_date.isoformat() if end_date else None,
             "status_summary": status_summary_val,
             "statusSummary": status_summary_val,
             "comments": data.get("comments", []),
@@ -238,9 +243,14 @@ class GoalViewSet(viewsets.ViewSet):
         serializer = GoalSerializer(
             data=request.data,
             partial=partial,
+            context={"instance": existing},
         )
         serializer.is_valid(raise_exception=True)
         data = dict(serializer.validated_data)
+
+        for field in ("start_date", "end_date"):
+            if field in data and data[field] is not None:
+                data[field] = data[field].isoformat()
 
         if "parent" in data:
             parent = data["parent"]

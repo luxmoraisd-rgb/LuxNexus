@@ -20,6 +20,7 @@ def get_database():
     database.users.create_index([("username", ASCENDING)], unique=True)
     database.tokens.create_index([("token_hash", ASCENDING)], unique=True)
     database.tokens.create_index("expires_at", expireAfterSeconds=0)
+    database.login_attempts.create_index("updated_at", expireAfterSeconds=2592000)
     database.projects.create_index(
         [("created_by", ASCENDING), ("start_date", ASCENDING), ("name", ASCENDING)]
     )

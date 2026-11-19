@@ -171,7 +171,7 @@ export const authApi = {
   },
 
   /**
-   * Get Active User Sessions
+   * Get recent active and ended user sessions
    * GET /api/auth/sessions/
    */
   getSessions: async () => {

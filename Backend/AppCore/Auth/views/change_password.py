@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 from ...api_utils import validation_error
 from ...db import get_database
 from ..serializers.change_password import ChangePasswordSerializer
-from ..utils import create_token, is_valid_otp
+from ..utils import create_token, end_user_sessions, is_valid_otp
 
 logger = logging.getLogger(__name__)
 
@@ -246,6 +246,12 @@ class ChangePasswordView(APIView):
 
         if active_token:
             curr_hash = hashlib.sha256(active_token.encode("utf-8")).hexdigest()
+            end_user_sessions(
+                database,
+                target_uid,
+                "password_changed",
+                except_token_hash=curr_hash,
+            )
             database.tokens.delete_many({
                 "user_id": target_uid,
                 "token_hash": {"$ne": curr_hash},

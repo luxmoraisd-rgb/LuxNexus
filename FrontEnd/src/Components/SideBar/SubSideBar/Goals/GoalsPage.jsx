@@ -308,6 +308,7 @@ function GoalsPage({ currentUser, rolePermissions, initialTab = "My goals" }) {
       <div className="goals-page-wrapper">
         <StrategyMap
           onSelectTab={handleSelectTab}
+          currentUser={currentUser}
         />
       </div>
     );

@@ -75,7 +75,7 @@ export const PeoplePage = ({
   const [inviteForm, setInviteForm] = useState({
     email: "",
     role: "user",
-    department: "Engineering",
+    department: "",
   });
   const [isInviting, setIsInviting] = useState(false);
 
@@ -165,7 +165,7 @@ export const PeoplePage = ({
       const res = await peopleApi.sendInvitation(inviteForm);
       showToast(res.message || `Invitation sent to ${inviteForm.email}`);
       setShowInviteModal(false);
-      setInviteForm({ email: "", role: "user", department: "Engineering" });
+      setInviteForm({ email: "", role: "user", department: "" });
       loadData(true);
     } catch (err) {
       showToast("Failed to send invitation. Please try again.");
@@ -813,10 +813,8 @@ export const PeoplePage = ({
 
                 <div className="form-group">
                   <label>Department / Squad</label>
-                  <input
-                    type="text"
+                  <select
                     className="form-control"
-                    placeholder="Engineering, Design, DevOps..."
                     value={inviteForm.department}
                     onChange={(e) =>
                       setInviteForm({
@@ -824,7 +822,20 @@ export const PeoplePage = ({
                         department: e.target.value,
                       })
                     }
-                  />
+                  >
+                    <option value="" disabled>Select a department</option>
+                    <option value="Engineering">Engineering</option>
+                    <option value="Software Developer">Software Developer</option>
+                    <option value="Software Testing">Software Testing</option>
+                    <option value="Data Analyst">Data Analyst</option>
+                    <option value="Senior Process Executive">Senior Process Executive</option>
+                    <option value="Front End Developer">Front End Developer</option>
+                    <option value="QA Automation">QA Automation</option>
+                    <option value="Full Stack Developer">Full Stack Developer</option>
+                    <option value="Team Lead">Team Lead</option>
+                    <option value="Business Analyst">Business Analyst</option>
+                    <option value="Python Developer">Python Developer</option>
+                  </select>
                 </div>
               </div>
 

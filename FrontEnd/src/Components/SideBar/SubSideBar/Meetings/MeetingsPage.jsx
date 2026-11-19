@@ -89,7 +89,6 @@ const getMinutesFromTime = (timeValue) => {
 export default function MeetingsPage({ currentUser }) {
   const [meetings, setMeetings] = useState([]);
   const [metrics, setMetrics] = useState({ total: 0, upcoming: 0, recent: 0, hours_recorded: "18.5 hrs" });
-  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("all"); // "all" | "upcoming" | "recent"
   const [searchQuery, setSearchQuery] = useState("");
   
@@ -137,23 +136,18 @@ export default function MeetingsPage({ currentUser }) {
   };
 
   // Load meetings
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const res = await fetchMeetings();
-      if (res && res.success) {
-        setMeetings(res.meetings || []);
-        if (res.metrics) setMetrics(res.metrics);
-      }
-    } catch (err) {
-      console.error("Failed to load meetings:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    loadData();
+    let isActive = true;
+    fetchMeetings()
+      .then((res) => {
+        if (isActive && res && res.success) {
+          setMeetings(res.meetings || []);
+          if (res.metrics) setMetrics(res.metrics);
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to load meetings:", err);
+      });
 
     // Listen to sidebar selection events if any
     const handleOpenMeeting = (e) => {
@@ -162,7 +156,10 @@ export default function MeetingsPage({ currentUser }) {
       }
     };
     window.addEventListener("nexus-open-meeting", handleOpenMeeting);
-    return () => window.removeEventListener("nexus-open-meeting", handleOpenMeeting);
+    return () => {
+      isActive = false;
+      window.removeEventListener("nexus-open-meeting", handleOpenMeeting);
+    };
   }, []);
 
   useEffect(() => {

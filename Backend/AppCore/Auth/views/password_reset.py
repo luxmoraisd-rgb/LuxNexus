@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 from ...api_utils import validation_error
 from ...db import get_database
 from ..serializers import ResetPasswordSerializer
-from ..utils import is_valid_otp, otp_hash
+from ..utils import end_user_sessions, is_valid_otp, otp_hash
 
 
 import logging
@@ -208,6 +208,7 @@ class ResetPasswordView(APIView):
                     }
                 },
             )
+            end_user_sessions(database, str(user["_id"]), "password_reset")
             database.tokens.delete_many({"user_id": str(user["_id"])})
 
         if auth_doc:
@@ -244,4 +245,3 @@ class ResetPasswordView(APIView):
 
 
 from .change_password import ChangePasswordView  # Re-export for backwards compatibility
-

@@ -53,13 +53,8 @@ export const inboxApi = {
    * POST /api/inbox/
    */
   create: async (payload) => {
-    try {
-      const response = await inboxClient.post("/inbox/", payload);
-      return response.data;
-    } catch (err) {
-      console.warn("[inboxApi] create failed:", err);
-      return null;
-    }
+    const response = await inboxClient.post("/inbox/", payload);
+    return response.data;
   },
 
   /**
@@ -106,12 +101,8 @@ export const inboxApi = {
    * PATCH /api/inbox/:id/star/
    */
   toggleStar: async (id, starred) => {
-    try {
-      const response = await inboxClient.patch(`/inbox/${id}/star/`, { starred });
-      return response.data;
-    } catch {
-      return { id, starred };
-    }
+    const response = await inboxClient.patch(`/inbox/${id}/star/`, { starred });
+    return response.data;
   },
 
   /**

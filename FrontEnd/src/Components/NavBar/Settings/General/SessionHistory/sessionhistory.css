@@ -52,13 +52,20 @@
 ========================================================= */
 
 .session-history__count {
-  margin-bottom: 21px;
+  margin-bottom: 5px;
 
   color: var(--app-muted, #9d9fb1);
 
   font-size: calc(16px * var(--font-scale));
 
   line-height: 1.4;
+}
+
+.session-history__retention {
+  margin: 0 0 21px;
+  color: var(--app-muted, #9d9fb1);
+  font-size: calc(13px * var(--font-scale));
+  line-height: 1.5;
 }
 
 
@@ -257,6 +264,13 @@
   gap: 7px;
   color: #10b981;
   font-weight: 500;
+  white-space: nowrap;
+}
+
+.session-ended-badge,
+.session-ended-label {
+  color: var(--app-muted, #9d9fb1);
+  font-size: 13px;
   white-space: nowrap;
 }
 
@@ -652,6 +666,12 @@
 }
 
 [data-theme="light"] .session-history__count {
+  color: var(--app-muted, #64748b);
+}
+
+[data-theme="light"] .session-history__retention,
+[data-theme="light"] .session-ended-badge,
+[data-theme="light"] .session-ended-label {
   color: var(--app-muted, #64748b);
 }
 

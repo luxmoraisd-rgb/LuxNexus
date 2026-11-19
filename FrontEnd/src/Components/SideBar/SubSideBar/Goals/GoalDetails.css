@@ -194,6 +194,32 @@
   gap: 24px;
 }
 
+.goal-description-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid #28292d;
+  border-radius: 8px;
+  background-color: #1e2024;
+}
+
+.goal-description-heading {
+  margin: 0;
+  color: #9ca3af;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.goal-description-text {
+  margin: 0;
+  color: #d1d5db;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 
 .panel-title-section {
   display: flex;

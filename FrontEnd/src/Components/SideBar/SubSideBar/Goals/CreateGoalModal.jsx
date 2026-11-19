@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import "./CreateGoalModel.css";
 import { CloseIcon } from "./Icons";
+import { GOAL_TIME_PERIODS } from "./goalFormOptions";
 
 const OTHER_OWNERS = [
   { id: "2", name: "Sarah Chen", role: "Engineering Lead" },
@@ -25,14 +26,6 @@ const getCurrentOwner = (currentUser) => {
   };
 };
 
-const TIME_PERIODS = [
-  "Q1 FY26",
-  "Q2 FY26",
-  "Q3 FY26",
-  "Q4 FY26",
-  "Full Year 2026",
-];
-
 const TEAMS = [
   "Product",
   "Engineering",
@@ -44,18 +37,34 @@ const TEAMS = [
 
 function CreateGoalModal({ isOpen, onClose, onCreateGoal, currentUser }) {
   const [goalName, setGoalName] = useState("");
-  const [status, setStatus] = useState("on track");
-  const [ownerId, setOwnerId] = useState(() => getCurrentOwner(currentUser).id);
-  const [timePeriod, setTimePeriod] = useState("Q1 FY26");
-  const [team, setTeam] = useState("Engineering");
+  const [description, setDescription] = useState("");
+  const [status, setStatus] = useState("");
+  const [ownerId, setOwnerId] = useState("");
+  const [timePeriod, setTimePeriod] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [dateError, setDateError] = useState("");
+  const [team, setTeam] = useState("");
   const [progress, setProgress] = useState(0);
   const [privacy, setPrivacy] = useState("public");
   const availableOwners = [getCurrentOwner(currentUser), ...OTHER_OWNERS];
 
+  const resetDropdowns = useCallback(() => {
+    setOwnerId("");
+    setTimePeriod("");
+    setTeam("");
+    setStatus("");
+  }, []);
+
+  const handleClose = useCallback(() => {
+    resetDropdowns();
+    onClose();
+  }, [onClose, resetDropdowns]);
+
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === "Escape") {
-        onClose();
+        handleClose();
       }
     };
     if (isOpen) {
@@ -68,24 +77,38 @@ function CreateGoalModal({ isOpen, onClose, onCreateGoal, currentUser }) {
       document.body.style.overflow = "unset";
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, handleClose]);
 
   if (!isOpen) return null;
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!goalName.trim()) return;
+    if (!ownerId || !timePeriod || !team || !status) return;
+    if (!startDate || !endDate) {
+      setDateError("Select both a start date and an end date.");
+      return;
+    }
+    if (endDate < startDate) {
+      setDateError("End date must be on or after the start date.");
+      return;
+    }
+    setDateError("");
 
     const selectedOwner = ownerId
       ? availableOwners.find((owner) => owner.id === ownerId) || null
       : null;
+    if (!selectedOwner) return;
 
     onCreateGoal({
       name: goalName.trim(),
-      status: status || "on track",
+      description: description.trim(),
+      status,
       progress: Number(progress) || 0,
-      timePeriod: timePeriod || "Q1 FY26",
-      team: team || "Engineering",
+      timePeriod,
+      startDate,
+      endDate,
+      team,
       owner: selectedOwner,
       privacy: privacy || "public",
       isPlaceholder: false,
@@ -93,12 +116,13 @@ function CreateGoalModal({ isOpen, onClose, onCreateGoal, currentUser }) {
 
 
     setGoalName("");
+    setDescription("");
     setProgress(0);
-    onClose();
+    handleClose();
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={handleClose}>
       <div
         className="modal-container"
         onClick={(e) => e.stopPropagation()}
@@ -110,7 +134,7 @@ function CreateGoalModal({ isOpen, onClose, onCreateGoal, currentUser }) {
           <button
             type="button"
             className="modal-close-btn"
-            onClick={onClose}
+            onClick={handleClose}
             aria-label="Close modal"
           >
             <CloseIcon size={14} />
@@ -133,18 +157,76 @@ function CreateGoalModal({ isOpen, onClose, onCreateGoal, currentUser }) {
               required/>
           </div>
 
+          <div className="form-group">
+            <label className="form-label" htmlFor="goal-description">
+              Description
+            </label>
+            <textarea
+              id="goal-description"
+              className="form-textarea"
+              placeholder="Describe the goal and the outcome you want to achieve"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+            />
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label" htmlFor="goal-start-date">
+                Start date <span className="required-star">*</span>
+              </label>
+              <input
+                id="goal-start-date"
+                type="date"
+                className="form-input"
+                value={startDate}
+                max={endDate || undefined}
+                onChange={(e) => {
+                  setStartDate(e.target.value);
+                  setDateError("");
+                }}
+                required
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="goal-end-date">
+                End date <span className="required-star">*</span>
+              </label>
+              <input
+                id="goal-end-date"
+                type="date"
+                className="form-input"
+                value={endDate}
+                min={startDate || undefined}
+                onChange={(e) => {
+                  setEndDate(e.target.value);
+                  setDateError("");
+                }}
+                required
+              />
+            </div>
+          </div>
+          {dateError && (
+            <p className="goal-date-error" role="alert">
+              {dateError}
+            </p>
+          )}
+
           <div className="form-row">
             <div className="form-group">
               <label className="form-label" htmlFor="goal-owner">
-                Owner
+                Owner <span className="required-star">*</span>
               </label>
               <div className="select-wrapper">
                 <select
                   id="goal-owner"
                   className="form-select"
                   value={ownerId}
-                  onChange={(e) => setOwnerId(e.target.value)} >
-                  <option value="">Unassigned</option>
+                  onChange={(e) => setOwnerId(e.target.value)}
+                  required
+                >
+                  <option value="" disabled>Select owner</option>
                   {availableOwners.map((owner) => (
                     <option key={owner.id} value={owner.id}>
                       {owner.name} ({owner.role})
@@ -156,15 +238,18 @@ function CreateGoalModal({ isOpen, onClose, onCreateGoal, currentUser }) {
 
             <div className="form-group">
               <label className="form-label" htmlFor="goal-period">
-                Time period
+                Time period <span className="required-star">*</span>
               </label>
               <div className="select-wrapper">
                 <select
                   id="goal-period"
                   className="form-select"
                   value={timePeriod}
-                  onChange={(e) => setTimePeriod(e.target.value)} >
-                  {TIME_PERIODS.map((period) => (
+                  onChange={(e) => setTimePeriod(e.target.value)}
+                  required
+                >
+                  <option value="" disabled>Select time period</option>
+                  {GOAL_TIME_PERIODS.map((period) => (
                     <option key={period} value={period}>
                       {period}
                     </option>
@@ -177,14 +262,17 @@ function CreateGoalModal({ isOpen, onClose, onCreateGoal, currentUser }) {
           <div className="form-row">
             <div className="form-group">
               <label className="form-label" htmlFor="goal-team">
-                Accountable team
+                Accountable team <span className="required-star">*</span>
               </label>
               <div className="select-wrapper">
                 <select
                   id="goal-team"
                   className="form-select"
                   value={team}
-                  onChange={(e) => setTeam(e.target.value)}>
+                  onChange={(e) => setTeam(e.target.value)}
+                  required
+                >
+                  <option value="" disabled>Select team</option>
                   {TEAMS.map((t) => (
                     <option key={t} value={t}>
                       {t}
@@ -196,14 +284,17 @@ function CreateGoalModal({ isOpen, onClose, onCreateGoal, currentUser }) {
 
             <div className="form-group">
               <label className="form-label" htmlFor="goal-status">
-                Initial status
+                Initial status <span className="required-star">*</span>
               </label>
               <div className="select-wrapper">
                 <select
                   id="goal-status"
                   className="form-select"
                   value={status}
-                  onChange={(e) => setStatus(e.target.value)}>
+                  onChange={(e) => setStatus(e.target.value)}
+                  required
+                >
+                  <option value="" disabled>Select status</option>
                   <option value="on track">On track</option>
                   <option value="at risk">At risk</option>
                   <option value="off track">Off track</option>
@@ -266,7 +357,7 @@ function CreateGoalModal({ isOpen, onClose, onCreateGoal, currentUser }) {
             <button
               type="button"
               className="btn-secondary"
-              onClick={onClose}>
+              onClick={handleClose}>
               Cancel
             </button>
             <button

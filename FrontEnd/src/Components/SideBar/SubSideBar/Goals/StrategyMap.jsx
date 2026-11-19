@@ -18,6 +18,7 @@ import Header from "./Header";
 import Tabs from "./Tabs";
 import GoalDetails from "./GoalDetails";
 import { goalsApi } from "./goalsApi";
+import { GOAL_TIME_PERIODS } from "./goalFormOptions";
 import "./StrategyMap.css";
 
 const getTodayDate = () => {
@@ -43,7 +44,7 @@ const formatDueDate = (value) => {
 const getOwnerName = (owner) =>
   typeof owner === "string" ? owner : owner?.name || "Owner";
 
-function StrategyMap({ onSelectTab }) {
+function StrategyMap({ onSelectTab, currentUser }) {
   const [strategyData, setStrategyData] = useState({ pillars: [], metrics: {} });
   const [loading, setLoading] = useState(true);
   const [selectedTag, setSelectedTag] = useState("all");
@@ -54,8 +55,8 @@ function StrategyMap({ onSelectTab }) {
   const [newObjective, setNewObjective] = useState({
     title: "",
     pillarId: "",
-    targetPeriod: "Q2 FY26",
-    owner: "Engineering Lead",
+    targetPeriod: "",
+    owner: "",
     dueDate: getTodayDate(),
   });
 
@@ -77,6 +78,29 @@ function StrategyMap({ onSelectTab }) {
 
   const pillars = strategyData.pillars || [];
   const metrics = strategyData.metrics || {};
+  const currentUserLead = String(
+    currentUser?.name ||
+      currentUser?.username ||
+      currentUser?.email?.split("@")[0] ||
+      ""
+  )
+    .split("@")[0]
+    .trim();
+  const pillarOwners = pillars.flatMap((pillar) =>
+    (pillar.goals || []).map((goal) => getOwnerName(goal.owner))
+  );
+  const availableLeads = [
+    ...new Set([
+      currentUserLead,
+      "Franklin",
+      "Sarah Chen",
+      "Alex Rivera",
+      "Michael Chang",
+      ...pillarOwners,
+    ]),
+  ]
+    .filter(Boolean)
+    .filter((name) => name !== "Owner");
 
   const filteredPillars = useMemo(() => {
     return pillars.map((pillar) => {
@@ -99,9 +123,16 @@ function StrategyMap({ onSelectTab }) {
 
   const handleAddObjective = async (e) => {
     e.preventDefault();
-    if (!newObjective.title.trim()) return;
+    if (
+      !newObjective.title.trim() ||
+      !newObjective.pillarId ||
+      !newObjective.targetPeriod ||
+      !newObjective.owner
+    ) {
+      return;
+    }
 
-    const targetPillar = pillars.find((p) => p.id === newObjective.pillarId) || pillars[0];
+    const targetPillar = pillars.find((p) => p.id === newObjective.pillarId);
     if (!targetPillar) return;
 
     const createdGoal = await goalsApi.createGoal({
@@ -147,10 +178,20 @@ function StrategyMap({ onSelectTab }) {
     setNewObjective({
       title: "",
       pillarId: "",
-      targetPeriod: "Q2 FY26",
-      owner: "Engineering Lead",
+      targetPeriod: "",
+      owner: "",
       dueDate: getTodayDate(),
     });
+  };
+
+  const handleCloseAddModal = () => {
+    setIsAddModalOpen(false);
+    setNewObjective((prev) => ({
+      ...prev,
+      pillarId: "",
+      targetPeriod: "",
+      owner: "",
+    }));
   };
 
   const handleSaveGoal = async (updatedGoal) => {
@@ -439,14 +480,14 @@ function StrategyMap({ onSelectTab }) {
 
       {/* Add Strategic Objective Modal */}
       {isAddModalOpen && (
-        <div className="strategy-modal-backdrop" onClick={() => setIsAddModalOpen(false)}>
+        <div className="strategy-modal-backdrop" onClick={handleCloseAddModal}>
           <div className="strategy-modal-window" onClick={(e) => e.stopPropagation()}>
             <div className="strategy-modal-header">
               <h3>Create Strategic Objective</h3>
               <button
                 type="button"
                 className="modal-close-btn"
-                onClick={() => setIsAddModalOpen(false)}
+                onClick={handleCloseAddModal}
               >
                 <X size={18} />
               </button>
@@ -469,14 +510,16 @@ function StrategyMap({ onSelectTab }) {
               <label>
                 <span>Align with Strategic Pillar *</span>
                 <select
-                  value={newObjective.pillarId || pillars[0]?.id || ""}
+                  value={newObjective.pillarId}
                   onChange={(e) =>
                     setNewObjective({
                       ...newObjective,
                       pillarId: e.target.value,
                     })
                   }
+                  required
                 >
+                  <option value="" disabled>Select a strategic pillar</option>
                   {pillars.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.title} ({p.tag})
@@ -487,9 +530,8 @@ function StrategyMap({ onSelectTab }) {
 
               <div className="form-row-2">
                 <label>
-                  <span>Target Timeframe</span>
-                  <input
-                    type="text"
+                  <span>Target Timeframe *</span>
+                  <select
                     value={newObjective.targetPeriod}
                     onChange={(e) =>
                       setNewObjective({
@@ -497,12 +539,19 @@ function StrategyMap({ onSelectTab }) {
                         targetPeriod: e.target.value,
                       })
                     }
-                  />
+                    required
+                  >
+                    <option value="" disabled>Select time period</option>
+                    {GOAL_TIME_PERIODS.map((period) => (
+                      <option key={period} value={period}>
+                        {period}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <label>
-                  <span>Accountable Lead</span>
-                  <input
-                    type="text"
+                  <span>Accountable Lead *</span>
+                  <select
                     value={newObjective.owner}
                     onChange={(e) =>
                       setNewObjective({
@@ -510,7 +559,15 @@ function StrategyMap({ onSelectTab }) {
                         owner: e.target.value,
                       })
                     }
-                  />
+                    required
+                  >
+                    <option value="" disabled>Select accountable lead</option>
+                    {availableLeads.map((lead) => (
+                      <option key={lead} value={lead}>
+                        {lead}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               </div>
 
@@ -533,7 +590,7 @@ function StrategyMap({ onSelectTab }) {
                 <button
                   type="button"
                   className="modal-cancel-btn"
-                  onClick={() => setIsAddModalOpen(false)}
+                  onClick={handleCloseAddModal}
                 >
                   Cancel
                 </button>

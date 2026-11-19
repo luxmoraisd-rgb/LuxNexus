@@ -4,7 +4,9 @@ from datetime import datetime, timedelta, timezone
 
 from bson import ObjectId
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
+from django.core.validators import validate_email
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -22,6 +24,20 @@ DEFAULT_AVATAR_COLORS = [
     "#06b6d4",
     "#14b8a6",
 ]
+
+INVITE_DEPARTMENT_OPTIONS = {
+    "Engineering",
+    "Software Developer",
+    "Software Testing",
+    "Data Analyst",
+    "Senior Process Executive",
+    "Front End Developer",
+    "QA Automation",
+    "Full Stack Developer",
+    "Team Lead",
+    "Business Analyst",
+    "Python Developer",
+}
 
 DEFAULT_TEAMS = [
     {
@@ -58,6 +74,8 @@ DEFAULT_TEAMS = [
     },
 ]
 
+TEAM_ROLES = ("Team Lead", "Developer", "Admin")
+
 
 def _format_user(doc, index=0):
     user_id = str(doc.get("_id", ""))
@@ -90,6 +108,11 @@ def _format_user(doc, index=0):
         if isinstance(created_at, datetime)
         else "Oct 2026"
     )
+    assigned_teams = profile.get("teams")
+    if not isinstance(assigned_teams, list):
+        legacy_team = profile.get("team")
+        assigned_teams = [legacy_team] if isinstance(legacy_team, str) and legacy_team else []
+    assigned_teams = [team for team in assigned_teams if isinstance(team, str) and team]
 
     return {
         "id": user_id,
@@ -112,11 +135,31 @@ def _format_user(doc, index=0):
         "status": status_state,
         "joinedDate": joined_date,
         "tasksCount": profile.get("tasksCount", 3 + (index * 2) % 7),
-        "teams": profile.get(
-            "teams",
-            ["Core Platform"] if role == "admin" else ["Frontend & UI Experience"],
-        ),
+        "team": assigned_teams[0] if assigned_teams else "",
+        "teams": assigned_teams,
     }
+
+
+def _validated_team_assignments(db, team_names):
+    if not isinstance(team_names, list) or any(
+        not isinstance(name, str) or not name.strip() for name in team_names
+    ):
+        raise ValueError("Teams must be a list of team names.")
+
+    available_teams = {}
+    for team in db.teams.find({}, {"name": 1}):
+        name = team.get("name")
+        if isinstance(name, str) and name.strip():
+            available_teams.setdefault(name.casefold(), name)
+
+    assignments = []
+    for name in team_names:
+        canonical_name = available_teams.get(name.strip().casefold())
+        if canonical_name is None:
+            raise ValueError("Select only existing teams.")
+        if canonical_name not in assignments:
+            assignments.append(canonical_name)
+    return assignments
 
 
 def _invitation_days_left(expires_at, now):
@@ -179,6 +222,16 @@ class PeopleListView(APIView):
         job_title = data.get("jobTitle", "Team Member")
         location = data.get("location", "Remote")
         bio = data.get("bio", "Nexus collaborator")
+        team_assignment_requested = "teams" in data or "team" in data
+        if team_assignment_requested:
+            requested_teams = data["teams"] if "teams" in data else [data["team"]]
+            try:
+                assigned_teams = _validated_team_assignments(db, requested_teams)
+            except ValueError as error:
+                return Response(
+                    {"teams": [str(error)]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         if not email:
             return Response(
@@ -189,19 +242,20 @@ class PeopleListView(APIView):
         existing = db.users.find_one({"email": email})
         if existing:
             # Update existing profile
-            db.users.update_one(
-                {"_id": existing["_id"]},
-                {
-                    "$set": {
-                        "role": role,
-                        "profile.department": department,
-                        "profile.jobTitle": job_title,
-                        "profile.location": location,
-                        "profile.bio": bio,
-                        "updated_at": datetime.now(timezone.utc),
-                    }
-                },
-            )
+            update_document = {
+                "$set": {
+                    "role": role,
+                    "profile.department": department,
+                    "profile.jobTitle": job_title,
+                    "profile.location": location,
+                    "profile.bio": bio,
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            }
+            if team_assignment_requested:
+                update_document["$set"]["profile.teams"] = assigned_teams
+                update_document["$unset"] = {"profile.team": ""}
+            db.users.update_one({"_id": existing["_id"]}, update_document)
             updated = db.users.find_one({"_id": existing["_id"]})
             return Response(_format_user(updated), status=status.HTTP_200_OK)
 
@@ -226,6 +280,7 @@ class PeopleListView(APIView):
                 "location": location,
                 "bio": bio,
                 "status": "active",
+                "teams": assigned_teams if team_assignment_requested else [],
             },
         }
         res = db.users.insert_one(new_doc)
@@ -283,8 +338,24 @@ class PeopleDetailView(APIView):
             if key in data:
                 profile_updates[f"profile.{key}"] = data[key]
 
+        team_assignment_requested = "teams" in data or "team" in data
+        if team_assignment_requested:
+            requested_teams = data["teams"] if "teams" in data else [data["team"]]
+            try:
+                profile_updates["profile.teams"] = _validated_team_assignments(
+                    db, requested_teams
+                )
+            except ValueError as error:
+                return Response(
+                    {"teams": [str(error)]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         update_fields.update(profile_updates)
-        db.users.update_one(target, {"$set": update_fields})
+        update_document = {"$set": update_fields}
+        if team_assignment_requested:
+            update_document["$unset"] = {"profile.team": ""}
+        db.users.update_one(target, update_document)
 
         updated = db.users.find_one(target)
         return Response(_format_user(updated), status=status.HTTP_200_OK)
@@ -329,15 +400,42 @@ class TeamListView(APIView):
         teams_cursor = db.teams.find({}).sort("name", 1)
         teams_list = []
         for doc in teams_cursor:
+            team_name = doc.get("name")
+            member_count = 0
+            if "users" in db.list_collection_names():
+                for user in db.users.find({}, {"profile.teams": 1, "profile.team": 1}):
+                    profile = user.get("profile") or {}
+                    assigned = profile.get("teams")
+                    if not isinstance(assigned, list):
+                        legacy_team = profile.get("team")
+                        assigned = [legacy_team] if legacy_team else []
+                    if any(
+                        isinstance(name, str)
+                        and name.strip().casefold() == str(team_name).strip().casefold()
+                        for name in assigned
+                    ):
+                        member_count += 1
+
+            created_at = doc.get("created_at")
+            created_date = None
+            if isinstance(created_at, datetime):
+                month_names = (
+                    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+                )
+                created_date = f"{month_names[created_at.month - 1]} {created_at.day}, {created_at.year}"
+
             teams_list.append(
                 {
                     "id": str(doc.get("_id", "")),
-                    "name": doc.get("name"),
+                    "name": team_name,
                     "description": doc.get("description", ""),
                     "department": doc.get("department", "Engineering"),
                     "lead": doc.get("lead", "Team Lead"),
-                    "memberCount": doc.get("member_count", 3),
+                    "role": doc.get("role", "Team Lead"),
+                    "memberCount": member_count or doc.get("member_count", 0),
                     "tags": doc.get("tags", []),
+                    "createdDate": created_date,
                 }
             )
         return Response(teams_list, status=status.HTTP_200_OK)
@@ -345,10 +443,28 @@ class TeamListView(APIView):
     def post(self, request):
         db = get_database()
         data = request.data or {}
-        name = data.get("name", "").strip()
+        raw_name = data.get("name", "")
+        if not isinstance(raw_name, str):
+            return Response(
+                {"error": "Team name must be text."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        name = raw_name.strip()
         if not name:
             return Response(
                 {"error": "Team name is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if "@" in name:
+            return Response(
+                {"error": "Email addresses are not allowed in team names."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        role = data.get("role", "Team Lead")
+        if role not in TEAM_ROLES:
+            return Response(
+                {"error": "Select a valid team role."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -357,6 +473,7 @@ class TeamListView(APIView):
             "description": data.get("description", "Nexus operational squad."),
             "department": data.get("department", "Engineering"),
             "lead": data.get("lead", "Team Lead"),
+            "role": role,
             "member_count": int(data.get("memberCount", 1)),
             "tags": data.get("tags", ["Active"]),
             "created_at": datetime.now(timezone.utc),
@@ -373,6 +490,84 @@ class TeamDetailView(APIView):
     PUT /api/people/teams/<team_id>/
     DELETE /api/people/teams/<team_id>/
     """
+
+    def put(self, request, team_id):
+        db = get_database()
+        data = request.data or {}
+        raw_name = data.get("name", "")
+        if not isinstance(raw_name, str):
+            return Response(
+                {"error": "Team name must be text."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        name = raw_name.strip()
+        if not name:
+            return Response(
+                {"error": "Team name is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if "@" in name:
+            return Response(
+                {"error": "Email addresses are not allowed in team names."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        for field in ("description", "department", "lead", "role"):
+            if field in data and not isinstance(data[field], str):
+                return Response(
+                    {"error": f"{field.capitalize()} must be text."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        role = data.get("role", "Team Lead")
+        if role not in TEAM_ROLES:
+            return Response(
+                {"error": "Select a valid team role."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        tags = data.get("tags", [])
+        if not isinstance(tags, list) or any(
+            not isinstance(tag, str) for tag in tags
+        ):
+            return Response(
+                {"error": "Tags must be a list of text values."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        target = (
+            {"_id": ObjectId(team_id)}
+            if ObjectId.is_valid(team_id)
+            else {"name": team_id}
+        )
+        update_fields = {
+            "name": name,
+            "description": data.get("description", ""),
+            "department": data.get("department", "Engineering"),
+            "role": role,
+            "tags": tags,
+        }
+        result = db.teams.update_one(target, {"$set": update_fields})
+        if result.matched_count == 0:
+            return Response(
+                {"error": "Team not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        updated_team = db.teams.find_one(target)
+        return Response(
+            {
+                "id": str(updated_team.get("_id", "")),
+                "name": updated_team.get("name"),
+                "description": updated_team.get("description", ""),
+                "department": updated_team.get("department", "Engineering"),
+                "lead": updated_team.get("lead", "Team Lead"),
+                "role": updated_team.get("role", "Team Lead"),
+                "memberCount": updated_team.get("member_count", 0),
+                "tags": updated_team.get("tags", []),
+            },
+            status=status.HTTP_200_OK,
+        )
 
     def delete(self, request, team_id):
         db = get_database()
@@ -415,6 +610,10 @@ class PeopleInvitationsView(APIView):
                     "email": inv.get("email"),
                     "role": inv.get("role", "user"),
                     "department": inv.get("department", "Engineering"),
+                    "teams": inv.get(
+                        "teams",
+                        [inv["team"]] if inv.get("team") else [],
+                    ),
                     "createdAt": inv.get("created_at").strftime("%b %d, %Y")
                     if isinstance(inv.get("created_at"), datetime)
                     else "Recent",
@@ -428,13 +627,48 @@ class PeopleInvitationsView(APIView):
     def post(self, request):
         db = get_database()
         data = request.data or {}
-        email = data.get("email", "").strip().lower()
+        email = str(data.get("email", "")).strip().lower()
         role = data.get("role", "user")
-        department = data.get("department", "Engineering")
+        department = str(data.get("department", "")).strip()
+        requested_teams = data.get("teams")
+        if requested_teams is None and "team" in data:
+            requested_teams = [data["team"]]
 
         if not email:
             return Response(
                 {"error": "Email is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if department not in INVITE_DEPARTMENT_OPTIONS:
+            return Response(
+                {"error": "Select a valid department"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            validate_email(email)
+        except ValidationError:
+            return Response(
+                {"error": "Invalid Email"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if email.rsplit("@", 1)[-1] not in {"gmail.com", "gmaail.com"}:
+            return Response(
+                {"error": "Invalid Email"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        db = get_database()
+        try:
+            assigned_teams = _validated_team_assignments(db, requested_teams)
+        except ValueError as error:
+            return Response(
+                {"teams": [str(error)]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not assigned_teams:
+            return Response(
+                {"teams": ["Select at least one team or squad."]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -445,6 +679,7 @@ class PeopleInvitationsView(APIView):
             "email": email,
             "role": role,
             "department": department,
+            "teams": assigned_teams,
             "token_hash": secrets.token_hex(16),
             "created_at": now,
             "expires_at": expires_at,
@@ -461,6 +696,7 @@ class PeopleInvitationsView(APIView):
                 "email": email,
                 "role": role,
                 "department": department,
+                "teams": assigned_teams,
                 "expiresIn": f"{_invitation_days_left(expires_at, now)} days left",
                 "expiresAt": expires_at.isoformat(),
                 "status": "pending",

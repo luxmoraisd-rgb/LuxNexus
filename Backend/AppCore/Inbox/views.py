@@ -53,6 +53,188 @@ def _notification_filter(request, notification_id):
     return {**_user_filter(request), "_id": {"$in": id_condition}}
 
 
+def _notification_mentions_user(notification, request):
+    user = request.user
+    username = str(getattr(user, "username", "") or "").strip()
+    email = str(getattr(user, "email", "") or "").strip().lower()
+    user_id = str(getattr(user, "id", ""))
+
+    if notification.get("mentioned") is True or str(
+        notification.get("type", "")
+    ).lower() == "mention":
+        return True
+
+    user_ids = {user_id}
+    if ObjectId.is_valid(user_id):
+        user_ids.add(str(ObjectId(user_id)))
+    mentioned_user_ids = notification.get("mentioned_user_ids") or []
+    if not isinstance(mentioned_user_ids, (list, tuple, set)):
+        mentioned_user_ids = [mentioned_user_ids]
+    if any(str(mentioned_id) in user_ids for mentioned_id in mentioned_user_ids):
+        return True
+
+    mentions = notification.get("mentions") or []
+    if not isinstance(mentions, (list, tuple, set)):
+        mentions = [mentions]
+    for mention in mentions:
+        if isinstance(mention, dict):
+            mention_ids = (
+                mention.get("id"),
+                mention.get("user_id"),
+                mention.get("userId"),
+            )
+            if any(str(mention_id) in user_ids for mention_id in mention_ids if mention_id):
+                return True
+            mention_username = str(mention.get("username", "")).strip()
+            mention_email = str(mention.get("email", "")).strip().lower()
+            if (username and mention_username.lower() == username.lower()) or (
+                email and mention_email == email
+            ):
+                return True
+        elif str(mention).strip().lower() in {
+            value.lower()
+            for value in (username, email, *user_ids)
+            if value
+        }:
+            return True
+
+    if not username:
+        return False
+    mention_pattern = re.compile(
+        rf"(?<![\w])@{re.escape(username)}(?![\w])", re.IGNORECASE
+    )
+    text_values = [
+        notification.get("title"),
+        notification.get("snippet"),
+        notification.get("description"),
+    ]
+    text_values.extend(
+        reply.get("text")
+        for reply in notification.get("replies", [])
+        if isinstance(reply, dict)
+    )
+    return any(
+        isinstance(value, str) and mention_pattern.search(value)
+        for value in text_values
+    )
+
+
+def _user_mention_query(request):
+    user = request.user
+    username = str(getattr(user, "username", "") or "").strip()
+    email = str(getattr(user, "email", "") or "").strip()
+    user_id = str(getattr(user, "id", ""))
+    user_ids = [user_id]
+    if ObjectId.is_valid(user_id):
+        user_ids.append(ObjectId(user_id))
+
+    branches = [
+        {"mentioned": True},
+        {"type": "mention"},
+        {"mentioned_user_ids": {"$in": user_ids}},
+    ]
+    mention_values = [value for value in (username, email, *user_ids) if value]
+    if mention_values:
+        branches.append({"mentions": {"$in": mention_values}})
+    if user_ids:
+        branches.extend(
+            [
+                {"mentions": {"$elemMatch": {"id": {"$in": user_ids}}}},
+                {"mentions": {"$elemMatch": {"user_id": {"$in": user_ids}}}},
+            ]
+        )
+    if username:
+        mention_pattern = rf"(?<![\w])@{re.escape(username)}(?![\w])"
+        branches.extend(
+            {
+                field: {"$regex": mention_pattern, "$options": "i"}
+            }
+            for field in ("title", "snippet", "description", "replies.text")
+        )
+        branches.append(
+            {
+                "mentions": {
+                    "$elemMatch": {
+                        "username": {
+                            "$regex": f"^{re.escape(username)}$",
+                            "$options": "i",
+                        }
+                    }
+                }
+            }
+        )
+    if email:
+        branches.append(
+            {
+                "mentions": {
+                    "$elemMatch": {
+                        "email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}
+                    }
+                }
+            }
+        )
+    return {"$or": branches}
+
+
+def _notification_counts(collection, user_query):
+    active_query = {
+        **user_query,
+        "archived": {"$ne": True},
+        "deleted": {"$ne": True},
+    }
+    summary = next(
+        iter(
+            collection.aggregate(
+                [
+                    {"$match": active_query},
+                    {
+                        "$group": {
+                            "_id": None,
+                            "total_count": {"$sum": 1},
+                            "read_count": {
+                                "$sum": {
+                                    "$cond": [
+                                        {"$ne": ["$unread", True]},
+                                        1,
+                                        0,
+                                    ]
+                                }
+                            },
+                            "unread_count": {
+                                "$sum": {
+                                    "$cond": [
+                                        {"$eq": ["$unread", True]},
+                                        1,
+                                        0,
+                                    ]
+                                }
+                            },
+                            "starred_count": {
+                                "$sum": {
+                                    "$cond": [
+                                        {"$eq": ["$starred", True]},
+                                        1,
+                                        0,
+                                    ]
+                                }
+                            },
+                        }
+                    },
+                ]
+            )
+        ),
+        None,
+    )
+    if summary is None:
+        return {
+            "total_count": 0,
+            "read_count": 0,
+            "unread_count": 0,
+            "starred_count": 0,
+        }
+    return {key: value for key, value in summary.items() if key != "_id"}
+
+
 def _serialize_reply(reply):
     value = dict(reply)
     attachments = value.get("attachments")

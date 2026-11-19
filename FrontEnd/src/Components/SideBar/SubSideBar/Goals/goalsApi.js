@@ -135,6 +135,8 @@ export const normalizeGoal = (raw) => {
   const team = raw.team || raw.accountable_team || "";
   const status = raw.status || "on track";
   const progress = Math.min(100, Math.max(0, Number(raw.progress) || 0));
+  const startDate = raw.startDate || raw.start_date || "";
+  const endDate = raw.endDate || raw.end_date || "";
   const dueDate = raw.dueDate || raw.due_date || "";
   const statusSummary = raw.statusSummary || raw.status_summary || "";
   const comments = Array.isArray(raw.comments) ? raw.comments : [];
@@ -144,6 +146,7 @@ export const normalizeGoal = (raw) => {
     ...raw,
     id,
     name: raw.name || "Untitled goal",
+    description: raw.description || "",
     status,
     progress,
     timePeriod,
@@ -151,6 +154,10 @@ export const normalizeGoal = (raw) => {
     team,
     accountable_team: team,
     owner,
+    startDate,
+    start_date: startDate,
+    endDate,
+    end_date: endDate,
     dueDate,
     due_date: dueDate,
     statusSummary,
@@ -214,6 +221,7 @@ export const goalsApi = {
   async createGoal(goalData) {
     const payload = {
       name: goalData.name,
+      description: goalData.description || "",
       status: goalData.status || "on track",
       progress: Number(goalData.progress) || 0,
       accountable_team: goalData.team || goalData.accountable_team || "",
@@ -221,6 +229,8 @@ export const goalsApi = {
       time_period: goalData.timePeriod || goalData.time_period || "",
       timePeriod: goalData.timePeriod || goalData.time_period || "",
       owner: goalData.owner || null,
+      start_date: goalData.startDate || goalData.start_date || null,
+      end_date: goalData.endDate || goalData.end_date || null,
       due_date: goalData.dueDate || goalData.due_date || "",
       dueDate: goalData.dueDate || goalData.due_date || "",
       status_summary: goalData.statusSummary || goalData.status_summary || "",

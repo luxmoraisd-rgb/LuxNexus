@@ -5,8 +5,118 @@ import re
 import secrets
 from datetime import datetime, timedelta, timezone
 
+from django.conf import settings
+
 from ..db import get_database
 from ..models import MongoUser
+
+SESSION_HISTORY_LIMIT = getattr(settings, "SESSION_HISTORY_LIMIT", 5)
+
+
+def _as_utc_datetime(value, fallback):
+    if not isinstance(value, datetime):
+        return fallback
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
+
+def _save_session_history(database, token_document, now):
+    created_at = _as_utc_datetime(token_document.get("created_at"), now)
+    last_used_at = _as_utc_datetime(token_document.get("last_used_at"), created_at)
+    expires_at = _as_utc_datetime(token_document.get("expires_at"), now)
+    is_active = expires_at > now
+    values = {
+        "user_id": str(token_document["user_id"]),
+        "device": token_document.get("device") or parse_device(token_document.get("user_agent")),
+        "location": token_document.get("location") or "Current Location",
+        "ip": token_document.get("ip") or "127.0.0.1",
+        "created_at": created_at,
+        "last_used_at": last_used_at,
+        "expires_at": expires_at,
+        "token_hash": token_document.get("token_hash"),
+        "status": "active" if is_active else "ended",
+    }
+    if not is_active:
+        values["ended_at"] = expires_at
+        values["end_reason"] = "expired"
+
+    database.session_history.update_one(
+        {"_id": token_document["_id"]},
+        {"$set": values},
+        upsert=True,
+    )
+
+
+def enforce_session_history_limit(database, user_id):
+    history = list(
+        database.session_history.find({"user_id": str(user_id)}).sort(
+            [("created_at", 1), ("_id", 1)]
+        )
+    )
+    excess = history[:-SESSION_HISTORY_LIMIT]
+    for session in excess:
+        if session.get("status") == "active":
+            database.tokens.delete_one(
+                {"_id": session["_id"], "user_id": str(user_id)}
+            )
+        database.session_history.delete_one(
+            {"_id": session["_id"], "user_id": str(user_id)}
+        )
+
+
+def sync_session_history(database, user_id, now):
+    user_id = str(user_id)
+    tokens = list(
+        database.tokens.find({"user_id": user_id}).sort("created_at", -1)
+    )
+    token_ids = []
+    for token_document in tokens:
+        token_ids.append(token_document["_id"])
+        _save_session_history(database, token_document, now)
+
+    database.session_history.update_many(
+        {
+            "user_id": user_id,
+            "status": "active",
+            "_id": {"$nin": token_ids},
+        },
+        {
+            "$set": {
+                "status": "ended",
+                "ended_at": now,
+                "end_reason": "revoked",
+            }
+        },
+    )
+    enforce_session_history_limit(database, user_id)
+    return list(
+        database.session_history.find({"user_id": user_id}).sort(
+            [("created_at", -1), ("_id", -1)]
+        )
+    )[:SESSION_HISTORY_LIMIT]
+
+
+def end_session(database, token_document, ended_at=None, reason="logout"):
+    now = ended_at or datetime.now(timezone.utc)
+    _save_session_history(database, token_document, now)
+    database.session_history.update_one(
+        {"_id": token_document["_id"], "user_id": str(token_document["user_id"])},
+        {
+            "$set": {
+                "status": "ended",
+                "ended_at": now,
+                "end_reason": reason,
+            }
+        },
+    )
+
+
+def end_user_sessions(database, user_id, reason, except_token_hash=None):
+    query = {"user_id": str(user_id)}
+    if except_token_hash:
+        query["token_hash"] = {"$ne": except_token_hash}
+    now = datetime.now(timezone.utc)
+    for token_document in database.tokens.find(query):
+        end_session(database, token_document, now, reason)
 
 
 def user_payload(user):
@@ -115,7 +225,11 @@ def create_token(
         "device": parsed_device,
         "location": location or "Current Location",
     }
-    database.tokens.insert_one(token_doc)
+    for existing_token in database.tokens.find({"user_id": str(user_id)}):
+        _save_session_history(database, existing_token, created_at)
+    token_doc["_id"] = database.tokens.insert_one(token_doc).inserted_id
+    _save_session_history(database, token_doc, created_at)
+    enforce_session_history_limit(database, user_id)
     return token
 
 

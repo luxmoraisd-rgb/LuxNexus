@@ -5,7 +5,112 @@ from unittest.mock import MagicMock, PropertyMock, patch
 from bson import ObjectId
 from rest_framework.test import APIRequestFactory, force_authenticate
 
+from .views import GoalViewSet
 from .views.team_goals import TeamGoalsView
+
+
+class GoalDateCreationTests(TestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+
+    def test_create_goal_persists_start_and_end_dates(self):
+        goal_id = ObjectId()
+        collection = MagicMock()
+        collection.insert_one.return_value.inserted_id = goal_id
+        request = self.factory.post(
+            "/goals/",
+            {
+                "name": "Launch customer portal",
+                "start_date": "2026-11-20",
+                "end_date": "2026-12-15",
+            },
+            format="json",
+        )
+
+        with patch.object(
+            GoalViewSet,
+            "collection",
+            new_callable=PropertyMock,
+            return_value=collection,
+        ):
+            response = GoalViewSet.as_view({"post": "create"})(request)
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["start_date"], "2026-11-20")
+        self.assertEqual(response.data["end_date"], "2026-12-15")
+        inserted_goal = collection.insert_one.call_args.args[0]
+        self.assertEqual(inserted_goal["start_date"], "2026-11-20")
+        self.assertEqual(inserted_goal["end_date"], "2026-12-15")
+
+    def test_create_goal_rejects_end_date_before_start_date(self):
+        collection = MagicMock()
+        request = self.factory.post(
+            "/goals/",
+            {
+                "name": "Launch customer portal",
+                "start_date": "2026-12-15",
+                "end_date": "2026-11-20",
+            },
+            format="json",
+        )
+
+        with patch.object(
+            GoalViewSet,
+            "collection",
+            new_callable=PropertyMock,
+            return_value=collection,
+        ):
+            response = GoalViewSet.as_view({"post": "create"})(request)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("end_date", response.data)
+        collection.insert_one.assert_not_called()
+
+    def test_create_goal_rejects_incomplete_date_range(self):
+        collection = MagicMock()
+        request = self.factory.post(
+            "/goals/",
+            {
+                "name": "Launch customer portal",
+                "start_date": "2026-11-20",
+            },
+            format="json",
+        )
+
+        with patch.object(
+            GoalViewSet,
+            "collection",
+            new_callable=PropertyMock,
+            return_value=collection,
+        ):
+            response = GoalViewSet.as_view({"post": "create"})(request)
+
+        self.assertEqual(response.status_code, 400)
+        collection.insert_one.assert_not_called()
+
+    def test_create_goal_rejects_invalid_date_format(self):
+        collection = MagicMock()
+        request = self.factory.post(
+            "/goals/",
+            {
+                "name": "Launch customer portal",
+                "start_date": "not-a-date",
+                "end_date": "2026-12-15",
+            },
+            format="json",
+        )
+
+        with patch.object(
+            GoalViewSet,
+            "collection",
+            new_callable=PropertyMock,
+            return_value=collection,
+        ):
+            response = GoalViewSet.as_view({"post": "create"})(request)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("start_date", response.data)
+        collection.insert_one.assert_not_called()
 
 
 class TeamGoalsUpdateTests(TestCase):

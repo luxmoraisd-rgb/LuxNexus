@@ -2,7 +2,7 @@ import base64
 import hashlib
 from datetime import datetime, timezone, timedelta
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from bson import ObjectId
 from django.contrib.auth.hashers import check_password, make_password
@@ -20,12 +20,70 @@ from .Auth.role_permissions import (
     TaskDetailRolePermission,
     has_role_permission,
 )
+from .Auth.utils import SESSION_HISTORY_LIMIT, create_token, enforce_session_history_limit
 from .Auth.views.permissions import RolePermissionsView
+from .Auth.views.login import LOGIN_LOCKOUT_DURATION, LoginView
 from .checks import check_email_configuration
 from .models import MongoUser
-from .People.views import _invitation_days_left
+from .People.views import (
+    PeopleDetailView,
+    PeopleInvitationsView,
+    PeopleListView,
+    _format_user,
+    _invitation_days_left,
+)
 from .Reporting.views.reports import EOD_PATTERN, _aggregate_reports, _eod_comment_reports
 from .serializers.serializers import ProjectInputSerializer
+
+
+class PortfolioCreateDefaultsTests(SimpleTestCase):
+    @patch("AppCore.Portfolios.views.get_portfolios_collection")
+    def test_create_leaves_omitted_optional_fields_empty(self, get_collection):
+        from .Portfolios.views import PortfoliosView
+
+        response = PortfoliosView.as_view()(
+            APIRequestFactory().post(
+                "/api/portfolios/",
+                {"name": "My Portfolio"},
+                format="json",
+            )
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["key"], "")
+        self.assertEqual(response.data["description"], "")
+        self.assertEqual(response.data["status"], "")
+        self.assertEqual(response.data["priority"], "")
+        self.assertEqual(response.data["timeframe"], "")
+        self.assertEqual(response.data["budget"], "")
+        self.assertEqual(response.data["owner"], {"name": "", "role": "", "initials": ""})
+        get_collection.return_value.insert_one.assert_called_once()
+
+    @patch("AppCore.Portfolios.views.get_portfolios_collection")
+    def test_create_preserves_user_entered_optional_fields(self, get_collection):
+        from .Portfolios.views import PortfoliosView
+
+        response = PortfoliosView.as_view()(
+            APIRequestFactory().post(
+                "/api/portfolios/",
+                {
+                    "name": "My Portfolio",
+                    "budget": "$42,000",
+                    "timeframe": "FY27",
+                    "priority": "High",
+                    "owner": {"name": "Taylor", "role": "Program Lead"},
+                },
+                format="json",
+            )
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["budget"], "$42,000")
+        self.assertEqual(response.data["timeframe"], "FY27")
+        self.assertEqual(response.data["priority"], "High")
+        self.assertEqual(response.data["owner"]["name"], "Taylor")
+        self.assertEqual(response.data["owner"]["role"], "Program Lead")
+        get_collection.return_value.insert_one.assert_called_once()
 
 
 class PeopleInvitationExpiryTests(SimpleTestCase):
@@ -38,6 +96,171 @@ class PeopleInvitationExpiryTests(SimpleTestCase):
             _invitation_days_left(expires_at, sent_at + timedelta(days=1)),
             5,
         )
+
+
+class PeopleTeamAssignmentTests(SimpleTestCase):
+    @patch("AppCore.People.views.get_database")
+    def test_patch_saves_multiple_existing_teams(self, get_database):
+        database = get_database.return_value
+        member_id = ObjectId()
+        database.users.find_one.side_effect = [
+            {"_id": member_id, "profile": {}},
+            {
+                "_id": member_id,
+                "profile": {"teams": ["Platform", "Design"]},
+            },
+        ]
+        database.teams.find.return_value = [
+            {"name": "Platform"},
+            {"name": "Design"},
+        ]
+        request = APIRequestFactory().patch(
+            f"/api/people/{member_id}/",
+            {"teams": [" platform ", "Design", "Platform"]},
+            format="json",
+        )
+
+        response = PeopleDetailView.as_view()(request, user_id=str(member_id))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["teams"], ["Platform", "Design"])
+        update = database.users.update_one.call_args.args[1]
+        self.assertEqual(update["$set"]["profile.teams"], ["Platform", "Design"])
+        self.assertIn("profile.team", update["$unset"])
+
+    @patch("AppCore.People.views.get_database")
+    def test_patch_rejects_unknown_team_without_updating_member(self, get_database):
+        database = get_database.return_value
+        member_id = ObjectId()
+        database.users.find_one.return_value = {"_id": member_id, "profile": {}}
+        database.teams.find.return_value = [{"name": "Platform"}]
+        request = APIRequestFactory().patch(
+            f"/api/people/{member_id}/",
+            {"teams": ["Unknown team"]},
+            format="json",
+        )
+
+        response = PeopleDetailView.as_view()(request, user_id=str(member_id))
+
+        self.assertEqual(response.status_code, 400)
+        database.users.update_one.assert_not_called()
+
+    def test_member_response_keeps_legacy_single_team_assignments(self):
+        person = _format_user(
+            {
+                "_id": ObjectId(),
+                "first_name": "Legacy",
+                "email": "legacy@example.com",
+                "profile": {"team": "Platform"},
+            }
+        )
+
+        self.assertEqual(person["team"], "Platform")
+        self.assertEqual(person["teams"], ["Platform"])
+
+    @patch("AppCore.People.views.get_database")
+    def test_create_member_persists_multiple_team_assignments(self, get_database):
+        database = get_database.return_value
+        member_id = ObjectId()
+        database.users.find_one.return_value = None
+        database.users.insert_one.return_value.inserted_id = member_id
+        database.teams.find.return_value = [
+            {"name": "Platform"},
+            {"name": "Design"},
+        ]
+        request = APIRequestFactory().post(
+            "/api/people/",
+            {
+                "email": "new@example.com",
+                "name": "New Member",
+                "teams": ["Platform", "Design"],
+            },
+            format="json",
+        )
+
+        response = PeopleListView.as_view()(request)
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["teams"], ["Platform", "Design"])
+        inserted_member = database.users.insert_one.call_args.args[0]
+        self.assertEqual(inserted_member["profile"]["teams"], ["Platform", "Design"])
+
+    @patch("AppCore.People.views.get_database")
+    def test_invitation_persists_selected_team_assignments(self, get_database):
+        database = get_database.return_value
+        database.teams.find.return_value = [
+            {"name": "Platform"},
+            {"name": "Design"},
+        ]
+        request = APIRequestFactory().post(
+            "/api/people/invitations/",
+            {
+                "email": "INVITE@GMAIL.COM",
+                "teams": ["Platform", "Design"],  
+            },
+            format="json",
+        )
+
+        response = PeopleInvitationsView.as_view()(request)
+
+        self.assertEqual(response.status_code, 201)
+        invitation = database.team_invitations.update_one.call_args.args[1]["$set"]
+        self.assertEqual(invitation["email"], "invite@gmail.com")
+        self.assertEqual(invitation["teams"], ["Platform", "Design"])
+
+    @patch("AppCore.People.views.get_database")
+    def test_invitation_requires_at_least_one_team(self, get_database):
+        database = get_database.return_value
+        database.teams.find.return_value = [{"name": "Platform"}]
+        request = APIRequestFactory().post(
+            "/api/people/invitations/",
+            {"email": "invite@gmail.com", "teams": []},
+            format="json",
+        )
+
+        response = PeopleInvitationsView.as_view()(request)
+
+        self.assertEqual(response.status_code, 400)
+        database.team_invitations.update_one.assert_not_called()
+
+    @patch("AppCore.People.views.get_database")
+    def test_invitation_rejects_non_gmail_or_invalid_addresses(self, get_database):
+        for email in (
+            "invite@gmah.com",
+            "invite@yahoo.com",
+            "invite@gmail.co",
+            "invite..name@gmail.com",
+            "invite name@gmail.com",
+        ):
+            with self.subTest(email=email):
+                request = APIRequestFactory().post(
+                    "/api/people/invitations/",
+                    {"email": email, "teams": ["Platform"]},
+                    format="json",
+                )
+
+                response = PeopleInvitationsView.as_view()(request)
+
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.data["error"], "Invalid Email")
+
+        get_database.assert_not_called()
+
+    @patch("AppCore.People.views.get_database")
+    def test_invitation_accepts_gmaail_domain(self, get_database):
+        database = get_database.return_value
+        database.teams.find.return_value = [{"name": "Platform"}]
+        request = APIRequestFactory().post(
+            "/api/people/invitations/",
+            {"email": "invite@gmaail.com", "teams": ["Platform"]},
+            format="json",
+        )
+
+        response = PeopleInvitationsView.as_view()(request)
+
+        self.assertEqual(response.status_code, 201)
+        invitation = database.team_invitations.update_one.call_args.args[1]["$set"]
+        self.assertEqual(invitation["email"], "invite@gmaail.com")
 
 
 class PeopleInvitationRevokeTests(SimpleTestCase):
@@ -142,6 +365,7 @@ class FrontendApiRouteTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 501)
         self.assertIn("not configured", response.json()["error"])
+
 
     @patch("AppCore.Inbox.views.get_database")
     def test_empty_inbox_returns_success_instead_of_route_not_found(self, get_database):
@@ -414,6 +638,120 @@ class FrontendApiRouteTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["mentions"])
+
+
+class LoginLockoutTests(SimpleTestCase):
+    @patch("AppCore.Auth.views.login.get_database")
+    def test_sixth_failed_attempt_blocks_identifier_for_five_minutes(self, get_database):
+        database = get_database.return_value
+        database.login_attempts.find_one.return_value = None
+        database.users.find_one.return_value = None
+        now = datetime.now(timezone.utc)
+        database.login_attempts.find_one_and_update.side_effect = [
+            {"attempts": count, "blocked_until": None}
+            for count in range(1, 6)
+        ] + [
+            {
+                "attempts": 6,
+                "blocked_until": now + LOGIN_LOCKOUT_DURATION,
+            }
+        ]
+        client = APIClient()
+
+        for _ in range(5):
+            response = client.post(
+                "/api/auth/login/",
+                {"email": "locked@example.com", "password": "incorrect"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, 400)
+
+        response = client.post(
+            "/api/auth/login/",
+            {"email": "locked@example.com", "password": "incorrect"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(
+            response.json()["message"],
+            "Your id is blocked. Try again after 5 minutes.",
+        )
+        self.assertEqual(response.json()["retry_after_seconds"], 300)
+        self.assertEqual(database.login_attempts.find_one_and_update.call_count, 6)
+
+    @patch("AppCore.Auth.views.login.create_token", return_value="new-session-token")
+    @patch("AppCore.Auth.views.login.check_password", return_value=True)
+    @patch("AppCore.Auth.views.login.get_database")
+    def test_successful_login_clears_failed_attempts(
+        self, get_database, _check_password, _create_token
+    ):
+        database = get_database.return_value
+        database.login_attempts.find_one.return_value = {"attempts": 3}
+        database.users.find_one.return_value = {
+            "_id": ObjectId(),
+            "username": "login_user",
+            "email": "login_user@example.com",
+            "password_hash": "hashed-password",
+        }
+        client = APIClient()
+
+        response = client.post(
+            "/api/auth/login/",
+            {"email": "login_user@example.com", "password": "correct-password"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        database.login_attempts.delete_one.assert_called_once()
+
+    @patch("AppCore.Auth.views.login.get_database")
+    def test_blocked_identifier_is_rejected_without_recording_another_attempt(
+        self, get_database
+    ):
+        database = get_database.return_value
+        database.login_attempts.find_one.return_value = {
+            "blocked_until": datetime.now(timezone.utc) + LOGIN_LOCKOUT_DURATION,
+        }
+        database.users.find_one.return_value = None
+        client = APIClient()
+
+        response = client.post(
+            "/api/auth/login/",
+            {"email": "locked@example.com", "password": "anything"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(
+            response.json()["message"],
+            "Your id is blocked. Try again after 5 minutes.",
+        )
+        self.assertEqual(database.users.find_one.call_count, 2)
+        database.login_attempts.find_one_and_update.assert_not_called()
+
+    @patch("AppCore.Auth.views.login.get_database")
+    def test_expired_lockout_allows_attempts_again(self, get_database):
+        database = get_database.return_value
+        database.login_attempts.find_one.return_value = {
+            "blocked_until": datetime.now(timezone.utc) - timedelta(seconds=1),
+        }
+        database.login_attempts.find_one_and_update.return_value = {
+            "attempts": 1,
+            "blocked_until": None,
+        }
+        database.users.find_one.return_value = None
+        client = APIClient()
+
+        response = client.post(
+            "/api/auth/login/",
+            {"email": "locked@example.com", "password": "incorrect"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        database.login_attempts.delete_one.assert_called_once()
+        database.login_attempts.find_one_and_update.assert_called_once()
 
 
 class MongoUserTests(SimpleTestCase):
@@ -1097,15 +1435,92 @@ class ChangePasswordBackendTests(SimpleTestCase):
 
 
 class SessionHistoryViewTests(SimpleTestCase):
+    @patch("AppCore.Auth.utils.secrets.token_urlsafe", return_value="session-token")
+    def test_new_login_session_is_saved_to_history(self, _mock_token):
+        user_id = ObjectId()
+        session_id = ObjectId()
+        now = datetime.now(timezone.utc)
+        database = MagicMock()
+        database.tokens.find.return_value = []
+        database.tokens.insert_one.return_value.inserted_id = session_id
+        database.session_history.find.return_value.sort.return_value = []
+
+        token = create_token(user_id, database, now=now)
+
+        self.assertEqual(token, "session-token")
+        query, update = database.session_history.update_one.call_args.args
+        self.assertEqual(query, {"_id": session_id})
+        self.assertEqual(update["$set"]["status"], "active")
+        self.assertEqual(update["$set"]["user_id"], str(user_id))
+
+    def test_retention_limit_revokes_and_removes_oldest_active_session(self):
+        user_id = str(ObjectId())
+        now = datetime.now(timezone.utc)
+        sessions = [
+            {
+                "_id": ObjectId(),
+                "user_id": user_id,
+                "status": "active" if index == 0 else "ended",
+                "created_at": now - timedelta(days=SESSION_HISTORY_LIMIT - index),
+            }
+            for index in range(SESSION_HISTORY_LIMIT + 1)
+        ]
+        database = MagicMock()
+        database.session_history.find.return_value.sort.return_value = sessions
+
+        enforce_session_history_limit(database, user_id)
+
+        oldest_id = sessions[0]["_id"]
+        database.tokens.delete_one.assert_called_once_with(
+            {"_id": oldest_id, "user_id": user_id}
+        )
+        database.session_history.delete_one.assert_called_once_with(
+            {"_id": oldest_id, "user_id": user_id}
+        )
+
     @patch("AppCore.Auth.views.sessions.get_database")
-    def test_session_history_returns_active_sessions(self, mock_get_database):
+    def test_terminating_session_keeps_an_ended_history_entry(self, mock_get_database):
         mock_db = mock_get_database.return_value
         user_id = ObjectId()
+        session_id = ObjectId()
+        token_document = {
+            "_id": session_id,
+            "user_id": str(user_id),
+            "token_hash": "token-hash",
+            "created_at": datetime.now(timezone.utc),
+            "last_used_at": datetime.now(timezone.utc),
+            "expires_at": datetime.now(timezone.utc) + timedelta(days=14),
+        }
+        mock_db.tokens.find_one.return_value = token_document
+        user = MongoUser.from_document(
+            {"_id": user_id, "username": "siva", "email": "siva@example.com"}
+        )
+        client = APIClient()
+        client.force_authenticate(user=user)
+
+        response = client.delete(f"/api/auth/sessions/{session_id}/")
+
+        self.assertEqual(response.status_code, 200)
+        history_updates = [
+            call.args[1].get("$set", {})
+            for call in mock_db.session_history.update_one.call_args_list
+        ]
+        self.assertTrue(any(update.get("status") == "ended" for update in history_updates))
+        mock_db.tokens.delete_one.assert_called_once_with(
+            {"_id": session_id, "user_id": str(user_id)}
+        )
+
+    @patch("AppCore.Auth.views.sessions.get_database")
+    def test_session_history_returns_active_and_ended_sessions(self, mock_get_database):
+        mock_db = mock_get_database.return_value
+        user_id = ObjectId()
+        active_id = ObjectId()
+        ended_id = ObjectId()
         user = MongoUser.from_document({"_id": user_id, "username": "siva", "email": "siva@example.com"})
 
         mock_db.tokens.find.return_value.sort.return_value = [
             {
-                "_id": ObjectId(),
+                "_id": active_id,
                 "user_id": str(user_id),
                 "token_hash": "hash123",
                 "ip": "192.168.1.100",
@@ -1116,6 +1531,32 @@ class SessionHistoryViewTests(SimpleTestCase):
                 "expires_at": datetime.now(timezone.utc) + timedelta(days=14),
             }
         ]
+        mock_db.session_history.find.return_value.sort.return_value = [
+            {
+                "_id": active_id,
+                "user_id": str(user_id),
+                "token_hash": "hash123",
+                "status": "active",
+                "ip": "192.168.1.100",
+                "device": "Windows Chrome",
+                "location": "Chennai, Tamil Nadu, IN",
+                "created_at": datetime.now(timezone.utc),
+                "last_used_at": datetime.now(timezone.utc),
+                "expires_at": datetime.now(timezone.utc) + timedelta(days=14),
+            },
+            {
+                "_id": ended_id,
+                "user_id": str(user_id),
+                "status": "ended",
+                "ip": "192.168.1.101",
+                "device": "macOS Safari",
+                "location": "Chennai, Tamil Nadu, IN",
+                "created_at": datetime.now(timezone.utc) - timedelta(days=1),
+                "last_used_at": datetime.now(timezone.utc) - timedelta(days=1),
+                "ended_at": datetime.now(timezone.utc) - timedelta(days=1),
+                "expires_at": datetime.now(timezone.utc) + timedelta(days=13),
+            },
+        ]
 
         client = APIClient()
         client.force_authenticate(user=user)
@@ -1123,9 +1564,13 @@ class SessionHistoryViewTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(len(data), 1)
+        self.assertEqual(len(data), 2)
         self.assertEqual(data[0]["ip"], "192.168.1.100")
         self.assertEqual(data[0]["device"], "Windows Chrome")
+        self.assertTrue(data[0]["isActive"])
+        self.assertFalse(data[1]["isActive"])
+        self.assertEqual(data[1]["status"], "ended")
+        self.assertEqual(response["X-Session-History-Limit"], "5")
 
     @patch("AppCore.Auth.views.sessions.get_database")
     def test_current_session_uses_the_request_client_ip(self, mock_get_database):
@@ -1139,6 +1584,19 @@ class SessionHistoryViewTests(SimpleTestCase):
                 "token_hash": hashlib.sha256(token.encode("utf-8")).hexdigest(),
                 "ip": "192.168.1.100",
                 "created_at": datetime.now(timezone.utc),
+                "expires_at": datetime.now(timezone.utc) + timedelta(days=14),
+            }
+        ]
+        session_id = mock_db.tokens.find.return_value.sort.return_value[0]["_id"]
+        mock_db.session_history.find.return_value.sort.return_value = [
+            {
+                "_id": session_id,
+                "user_id": str(user_id),
+                "token_hash": hashlib.sha256(token.encode("utf-8")).hexdigest(),
+                "status": "active",
+                "ip": "192.168.1.100",
+                "created_at": datetime.now(timezone.utc),
+                "last_used_at": datetime.now(timezone.utc),
                 "expires_at": datetime.now(timezone.utc) + timedelta(days=14),
             }
         ]

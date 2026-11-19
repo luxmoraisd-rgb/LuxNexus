@@ -550,6 +550,13 @@ function GoalDetails({ goal, onClose, onSave }) {
           )}
         </div>
 
+        {goal.description && (
+          <section className="goal-description-section">
+            <h2 className="goal-description-heading">Description</h2>
+            <p className="goal-description-text">{goal.description}</p>
+          </section>
+        )}
+
         <div className="panel-meta-table">
           <div className="meta-row">
             <div className="meta-label">Goal owner</div>
@@ -630,6 +637,19 @@ function GoalDetails({ goal, onClose, onSave }) {
               </div>
             </div>
           </div>
+
+          {(goal.startDate || goal.endDate) && (
+            <div className="meta-row">
+              <div className="meta-label">Goal dates</div>
+              <div className="meta-value">
+                <span className="meta-value-text">
+                  {goal.startDate ? formatDueDate(goal.startDate) : "No start date"}
+                  {" - "}
+                  {goal.endDate ? formatDueDate(goal.endDate) : "No end date"}
+                </span>
+              </div>
+            </div>
+          )}
 
           <div className="meta-row">
             <div className="meta-label">Due date</div>

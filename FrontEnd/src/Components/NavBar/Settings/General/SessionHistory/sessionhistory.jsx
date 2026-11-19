@@ -166,10 +166,16 @@ SessionHistory.Header = ({ title }) => {
 |--------------------------------------------------------------------------
 */
 
-SessionHistory.Count = ({ count }) => {
+SessionHistory.Count = ({ count, limit }) => {
   return (
-    <div className="session-history__count">
-      {count} {count === 1 ? "Session" : "Sessions"}
+    <div>
+      <div className="session-history__count">
+        {count} {count === 1 ? "Session" : "Sessions"} (maximum {limit})
+      </div>
+      <p className="session-history__retention">
+        Up to {limit} recent sessions are retained. If the oldest session is
+        still active when this limit is exceeded, it is automatically signed out.
+      </p>
     </div>
   );
 };
@@ -252,24 +258,32 @@ SessionHistory.Row = ({ session, onLogout }) => {
         <td data-label="Time">
           <div className="session-time-cell">
             <span className="session-time-value">{session.time}</span>
-            {session.isCurrent && (
+            {session.isCurrent ? (
               <span className="session-active-badge">
                 <span className="session-pulse-dot" />
                 Active now
               </span>
+            ) : session.isActive ? (
+              <span className="session-active-badge">Active</span>
+            ) : (
+              <span className="session-ended-badge">Ended</span>
             )}
           </div>
         </td>
 
         {/* Action */}
         <td className="session-action">
-          <button
-            className="logout-button"
-            onClick={() => onLogout(session.id)}
-            type="button"
-          >
-            Log out
-          </button>
+          {session.isActive ? (
+            <button
+              className="logout-button"
+              onClick={() => onLogout(session)}
+              type="button"
+            >
+              Log out
+            </button>
+          ) : (
+            <span className="session-ended-label">Ended</span>
+          )}
         </td>
       </tr>
     </tbody>
@@ -294,13 +308,17 @@ SessionHistory.MobileCard = ({
           <strong>{session.device}</strong>
         </div>
 
-        <button
-          className="logout-button"
-          onClick={() => onLogout(session.id)}
-          type="button"
-        >
-          Log out
-        </button>
+        {session.isActive ? (
+          <button
+            className="logout-button"
+            onClick={() => onLogout(session)}
+            type="button"
+          >
+            Log out
+          </button>
+        ) : (
+          <span className="session-ended-label">Ended</span>
+        )}
       </div>
 
       <div className="mobile-session-details">
@@ -334,11 +352,15 @@ SessionHistory.MobileCard = ({
             <small>Time</small>
             <div className="session-time-cell">
               <span className="session-time-value">{session.time}</span>
-              {session.isCurrent && (
+              {session.isCurrent ? (
                 <span className="session-active-badge">
                   <span className="session-pulse-dot" />
                   Active now
                 </span>
+              ) : session.isActive ? (
+                <span className="session-active-badge">Active</span>
+              ) : (
+                <span className="session-ended-badge">Ended</span>
               )}
             </div>
           </div>
@@ -361,10 +383,10 @@ SessionHistory.Empty = () => {
         <Monitor size={30} />
       </div>
 
-      <h2>No active sessions</h2>
+      <h2>No session history</h2>
 
       <p>
-        You are currently not logged in on any other devices.
+        Your recent sessions will appear here.
       </p>
     </div>
   );
@@ -378,6 +400,7 @@ SessionHistory.Empty = () => {
 
 const SessionHistoryPage = ({ onLogout }) => {
   const [sessions, setSessions] = useState([]);
+  const [sessionLimit, setSessionLimit] = useState(5);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -390,7 +413,11 @@ const SessionHistoryPage = ({ onLogout }) => {
 
       try {
         const res = await authApi.getSessions();
-        if (isMounted && res?.data && Array.isArray(res.data) && res.data.length > 0) {
+        if (isMounted && Array.isArray(res?.data)) {
+          const configuredLimit = Number(res.headers?.["x-session-history-limit"]);
+          if (Number.isInteger(configuredLimit) && configuredLimit > 0) {
+            setSessionLimit(configuredLimit);
+          }
           const list = res.data.map((item, idx) => {
             const isCurr = Boolean(item.isCurrent);
             const finalIp = item.ip || (isCurr ? sessionIp : null) || "127.0.0.1";
@@ -406,6 +433,7 @@ const SessionHistoryPage = ({ onLogout }) => {
               ip: finalIp,
               lastUsage: formatSessionDate(rawTimestamp, item.lastUsage),
               time: formatSessionTime(rawTimestamp, item.time),
+              isActive: Boolean(item.isActive ?? item.status === "active"),
               isCurrent: isCurr,
             };
           });
@@ -427,6 +455,7 @@ const SessionHistoryPage = ({ onLogout }) => {
             ip: sessionIp || "127.0.0.1",
             lastUsage: formatSessionDate(loginTime),
             time: formatSessionTime(loginTime),
+            isActive: true,
             isCurrent: true,
           },
         ]);
@@ -441,12 +470,31 @@ const SessionHistoryPage = ({ onLogout }) => {
     };
   }, []);
 
-  const handleLogout = async (sessionId) => {
+  const handleLogout = async (session) => {
     const confirmed = window.confirm(
-      "Are you sure you want to log out this session? This will log you out of your account."
+      session.isCurrent
+        ? "Are you sure you want to log out this session? This will log you out of your account."
+        : "Are you sure you want to log out this session?"
     );
 
     if (!confirmed) {
+      return;
+    }
+
+    if (!session.isCurrent) {
+      try {
+        await authApi.deleteSession(session.id);
+        setSessions((previous) =>
+          previous.map((entry) =>
+            entry.id === session.id
+              ? { ...entry, isActive: false, isCurrent: false }
+              : entry
+          )
+        );
+      } catch (err) {
+        console.error("[SessionHistory] Could not terminate session:", err);
+        window.alert("Could not terminate this session. Please try again.");
+      }
       return;
     }
 
@@ -478,6 +526,7 @@ const SessionHistoryPage = ({ onLogout }) => {
 
       <SessionHistory.Count
         count={sessions.length}
+        limit={sessionLimit}
       />
 
       {!isLoading && sessions.length === 0 ? (

@@ -23,7 +23,7 @@ import {
 import { portfoliosApi } from "./portfoliosApi";
 import "./Portfolios.css";
 
-export default function Portfolios({ currentUser, rolePermissions }) {
+export default function Portfolios() {
   const [portfolios, setPortfolios] = useState([]);
   const [metrics, setMetrics] = useState({
     totalPortfolios: 0,
@@ -39,18 +39,19 @@ export default function Portfolios({ currentUser, rolePermissions }) {
   const [viewMode, setViewMode] = useState("grid"); // "grid" | "table"
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activePortfolio, setActivePortfolio] = useState(null);
+  const [formErrors, setFormErrors] = useState({});
 
   const [formData, setFormData] = useState({
     name: "",
     key: "",
     description: "",
-    status: "on track",
-    progress: 10,
-    priority: "High",
-    timeframe: "Full Year 2026",
-    budget: "$200,000",
-    ownerName: currentUser?.name || currentUser?.username || "You",
-    ownerRole: currentUser?.role || "Portfolio Lead",
+    status: "",
+    progress: 0,
+    priority: "",
+    timeframe: "",
+    budget: "",
+    ownerName: "",
+    ownerRole: "",
     projectsInput: "",
   });
 
@@ -80,26 +81,43 @@ export default function Portfolios({ currentUser, rolePermissions }) {
   }, [loadData]);
 
   const handleOpenCreateModal = () => {
-    const currentUserName = currentUser?.name || currentUser?.username || "You";
     setFormData({
       name: "",
       key: "",
       description: "",
-      status: "on track",
-      progress: 10,
-      priority: "High",
-      timeframe: "Q1 - Q4 FY26",
-      budget: "$250,000",
-      ownerName: currentUserName,
-      ownerRole: currentUser?.role || "Portfolio Lead",
+      status: "",
+      progress: 0,
+      priority: "",
+      timeframe: "",
+      budget: "",
+      ownerName: "",
+      ownerRole: "",
       projectsInput: "",
     });
+    setFormErrors({});
     setIsModalOpen(true);
   };
 
   const handleSavePortfolio = async (e) => {
     e.preventDefault();
-    if (!formData.name.trim()) return;
+    const requiredFields = {
+      name: "Portfolio Name",
+      status: "Status",
+      timeframe: "Target Timeframe",
+      budget: "Allocated Budget",
+      ownerName: "Lead/Owner Name",
+      ownerRole: "Role",
+    };
+    const errors = {};
+
+    Object.entries(requiredFields).forEach(([field, label]) => {
+      if (!String(formData[field] || "").trim()) {
+        errors[field] = `${label} is required.`;
+      }
+    });
+
+    setFormErrors(errors);
+    if (Object.keys(errors).length > 0) return;
 
     const projectNames = formData.projectsInput
       .split(",")
@@ -116,9 +134,9 @@ export default function Portfolios({ currentUser, rolePermissions }) {
       timeframe: formData.timeframe,
       budget: formData.budget,
       owner: {
-        name: formData.ownerName,
-        role: formData.ownerRole,
-        initials: (formData.ownerName || "PL").slice(0, 2).toUpperCase(),
+        name: formData.ownerName.trim(),
+        role: formData.ownerRole.trim(),
+        initials: formData.ownerName.trim().slice(0, 2).toUpperCase(),
       },
       projects: projectNames.map((name, idx) => ({
         id: `prj-${Date.now()}-${idx}`,
@@ -165,6 +183,17 @@ export default function Portfolios({ currentUser, rolePermissions }) {
       setActivePortfolio(updated);
     }
     await portfoliosApi.updatePortfolio(portfolio.id, { progress: newProgress });
+  };
+
+  const handleFormChange = (field, value) => {
+    setFormData((current) => ({ ...current, [field]: value }));
+    if (formErrors[field] && String(value || "").trim()) {
+      setFormErrors((current) => {
+        const next = { ...current };
+        delete next[field];
+        return next;
+      });
+    }
   };
 
   const getProgressColorClass = (progress, status) => {
@@ -541,19 +570,19 @@ export default function Portfolios({ currentUser, rolePermissions }) {
               </button>
             </div>
 
-            <form onSubmit={handleSavePortfolio}>
+            <form onSubmit={handleSavePortfolio} noValidate>
               <div className="portfolio-modal-body">
                 <div className="form-group">
                   <label>Portfolio Name *</label>
                   <input
                     type="text"
-                    className="form-input"
+                    className={`form-input ${formErrors.name ? "field-invalid" : ""}`}
                     placeholder="e.g. Next-Gen Enterprise Platform"
                     value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    required
+                    onChange={(e) => handleFormChange("name", e.target.value)}
                     autoFocus
                   />
+                  {formErrors.name && <span className="field-error">{formErrors.name}</span>}
                 </div>
 
                 <div className="form-row">
@@ -575,6 +604,7 @@ export default function Portfolios({ currentUser, rolePermissions }) {
                       value={formData.priority}
                       onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
                     >
+                      <option value="">Select priority</option>
                       <option value="Urgent">Urgent</option>
                       <option value="High">High</option>
                       <option value="Medium">Medium</option>
@@ -596,76 +626,83 @@ export default function Portfolios({ currentUser, rolePermissions }) {
 
                 <div className="form-row">
                   <div className="form-group">
-                    <label>Status</label>
+                    <label>Status *</label>
                     <select
-                      className={`form-select status-select ${formData.status.replace(/\s+/g, "-")}`}
+                      className={`form-select status-select ${formData.status.replace(/\s+/g, "-")} ${formErrors.status ? "field-invalid" : ""}`}
                       value={formData.status}
-                      onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                      onChange={(e) => handleFormChange("status", e.target.value)}
                     >
+                      <option value="">Select Status</option>
                       <option value="on track">On Track</option>
                       <option value="at risk">At Risk</option>
                       <option value="off track">Off Track</option>
                     </select>
+                    {formErrors.status && <span className="field-error">{formErrors.status}</span>}
                   </div>
 
                   <div className="form-group">
-                    <label>Initial Progress ({formData.progress}%)</label>
+                    <label>Initial Progress (%)</label>
                     <input
                       type="range"
                       min="0"
                       max="100"
+                      className="form-range"
                       value={formData.progress}
-                      onChange={(e) => setFormData({ ...formData, progress: Number(e.target.value) })}
-                      style={{ marginTop: 8 }}
+                      onChange={(e) => setFormData({ ...formData, progress: e.target.value })}
                     />
+                    <span className="progress-value">{formData.progress}%</span>
                   </div>
                 </div>
 
                 <div className="form-row">
                   <div className="form-group">
-                    <label>Target Timeframe</label>
+                    <label>Target Timeframe *</label>
                     <input
                       type="text"
-                      className="form-input"
+                      className={`form-input ${formErrors.timeframe ? "field-invalid" : ""}`}
                       placeholder="e.g. Q1 - Q4 FY26"
                       value={formData.timeframe}
-                      onChange={(e) => setFormData({ ...formData, timeframe: e.target.value })}
+                      onChange={(e) => handleFormChange("timeframe", e.target.value.toUpperCase())}
                     />
+                    {formErrors.timeframe && <span className="field-error">{formErrors.timeframe}</span>}
                   </div>
 
                   <div className="form-group">
-                    <label>Allocated Budget</label>
+                    <label>Allocated Budget *</label>
                     <input
                       type="text"
-                      className="form-input"
+                      className={`form-input ${formErrors.budget ? "field-invalid" : ""}`}
                       placeholder="e.g. $250,000"
                       value={formData.budget}
-                      onChange={(e) => setFormData({ ...formData, budget: e.target.value })}
+                      onChange={(e) => handleFormChange("budget", e.target.value)}
                     />
+                    {formErrors.budget && <span className="field-error">{formErrors.budget}</span>}
                   </div>
                 </div>
 
                 <div className="form-row">
                   <div className="form-group">
-                    <label>Lead / Owner Name</label>
+                    <label>Lead/Owner Name *</label>
                     <input
                       type="text"
-                      className="form-input"
+                      className={`form-input ${formErrors.ownerName ? "field-invalid" : ""}`}
                       placeholder="Leader name"
                       value={formData.ownerName}
-                      onChange={(e) => setFormData({ ...formData, ownerName: e.target.value })}
+                      onChange={(e) => handleFormChange("ownerName", e.target.value)}
                     />
+                    {formErrors.ownerName && <span className="field-error">{formErrors.ownerName}</span>}
                   </div>
 
                   <div className="form-group">
-                    <label>Lead Role</label>
+                    <label>Role *</label>
                     <input
                       type="text"
-                      className="form-input"
+                      className={`form-input ${formErrors.ownerRole ? "field-invalid" : ""}`}
                       placeholder="e.g. VP of Product"
                       value={formData.ownerRole}
-                      onChange={(e) => setFormData({ ...formData, ownerRole: e.target.value })}
+                      onChange={(e) => handleFormChange("ownerRole", e.target.value)}
                     />
+                    {formErrors.ownerRole && <span className="field-error">{formErrors.ownerRole}</span>}
                   </div>
                 </div>
 
@@ -692,7 +729,6 @@ export default function Portfolios({ currentUser, rolePermissions }) {
                 <button
                   type="submit"
                   className="modal-submit-btn"
-                  disabled={!formData.name.trim()}
                 >
                   Create Portfolio
                 </button>

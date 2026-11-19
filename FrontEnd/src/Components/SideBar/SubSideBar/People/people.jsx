@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   ChevronDown,
   Users,
@@ -12,17 +12,22 @@ import {
   Layers,
   Clock,
   CheckCircle,
+  AlertCircle,
   LayoutGrid,
   List,
   Plus,
   Trash2,
   Edit,
   Send,
+  Reply,
+  Forward,
   X,
   ExternalLink,
   Loader2,
   RefreshCw,
   ShieldCheck,
+  ArrowLeft,
+  CalendarDays,
 } from "lucide-react";
 import peopleApi from "./peopleApi";
 import "./people.css";
@@ -45,7 +50,205 @@ const getInvitationExpiryLabel = (expiresAt, currentDate) => {
   return daysLeft > 0 ? `${daysLeft} days left` : "Expiring soon";
 };
 
-const ScrollableSelect = ({ ariaLabel, options, value, onChange }) => {
+const getInvitationMailto = (invitation, action) => {
+  const isReply = action === "reply";
+  const subject = isReply
+    ? "Re: Nexus workspace invitation"
+    : "Fwd: Nexus workspace invitation";
+  const body = isReply
+    ? "Hi,\n\nI'm following up regarding your Nexus workspace invitation.\n\n"
+    : [
+        "Nexus workspace invitation details:",
+        `Email: ${invitation.email || "Not available"}`,
+        `Role: ${invitation.role || "Member"}`,
+        `Department: ${invitation.department || "Not specified"}`,
+        `Teams / Squads: ${getMemberTeams(invitation).join(", ") || "None"}`,
+        `Status: ${invitation.status || "Pending"}`,
+        `Sent on: ${invitation.createdAt || "Not available"}`,
+        `Expires on: ${invitation.expiresAt || invitation.expiresIn || "Not available"}`,
+      ].join("\n");
+  const query = new URLSearchParams({ subject, body });
+  const recipient = isReply ? invitation.email : "";
+  return `mailto:${recipient}?${query.toString()}`;
+};
+
+const getMemberTeams = (member) =>
+  Array.isArray(member?.teams) ? member.teams : member?.team ? [member.team] : [];
+
+const INVITE_DEPARTMENT_OPTIONS = [
+  "Engineering",
+  "Software Developer",
+  "Software Testing",
+  "Data Analyst",
+  "Senior Process Executive",
+  "Front End Developer",
+  "QA Automation",
+  "Full Stack Developer",
+  "Team Lead",
+  "Business Analyst",
+  "Python Developer",
+];
+
+const TEAM_DEPARTMENT_OPTIONS = [
+  { value: "Frontend", label: "Frontend" },
+  { value: "Backend", label: "Backend" },
+  { value: "Data Analyst", label: "Data Analyst" },
+  { value: "DevOps", label: "DevOps" },
+  { value: "Engineering", label: "Engineering" },
+];
+
+const TEAM_ROLE_OPTIONS = [
+  { value: "Team Lead", label: "Team Lead" },
+  { value: "Developer", label: "Developer" },
+  { value: "Admin", label: "Admin" },
+];
+
+const createEmptyInviteForm = () => ({
+  email: "",
+  role: "user",
+  department: "",
+  teams: [],
+});
+
+const isValidInviteEmail = (email) => {
+  const normalizedEmail = email.trim();
+  const [localPart] = normalizedEmail.split("@");
+  return (
+    /^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@(gmail\.com|gmaail\.com)$/i.test(
+      normalizedEmail
+    ) &&
+    !localPart.startsWith(".") &&
+    !localPart.endsWith(".") &&
+    !localPart.includes("..")
+  );
+};
+
+const TeamMultiSelect = ({ options, value, onChange, ariaLabel }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
+  const selectedNames = value
+    .map((name) => options.find((team) => team.name === name)?.name || name)
+    .join(", ");
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const handlePointerDown = (event) => {
+      if (!containerRef.current?.contains(event.target)) setIsOpen(false);
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [isOpen]);
+
+  const closeMenu = () => {
+    setIsOpen(false);
+    triggerRef.current?.focus();
+  };
+
+  const handleTriggerKeyDown = (event) => {
+    if (["ArrowDown", "ArrowUp", "Enter", " "].includes(event.key)) {
+      event.preventDefault();
+      setIsOpen(true);
+    }
+  };
+
+  const handleOptionKeyDown = (event, index) => {
+    let nextIndex;
+    if (event.key === "ArrowDown") nextIndex = Math.min(index + 1, options.length - 1);
+    else if (event.key === "ArrowUp") nextIndex = Math.max(index - 1, 0);
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = options.length - 1;
+    else if (event.key === "Escape") {
+      event.preventDefault();
+      closeMenu();
+    }
+
+    if (nextIndex !== undefined) {
+      event.preventDefault();
+      menuRef.current
+        ?.querySelectorAll('[role="option"]')
+        [nextIndex]?.focus();
+    }
+  };
+
+  const toggleTeam = (teamName) => {
+    onChange(
+      value.includes(teamName)
+        ? value.filter((name) => name !== teamName)
+        : [...value, teamName]
+    );
+    closeMenu();
+  };
+
+  return (
+    <div className="people-scroll-select" ref={containerRef}>
+      <button
+        type="button"
+        className="form-control people-scroll-select-trigger"
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((open) => !open)}
+        onKeyDown={handleTriggerKeyDown}
+        ref={triggerRef}
+      >
+        <span className="people-multiselect-trigger-label">
+          {selectedNames || "Select teams or squads"}
+        </span>
+        <ChevronDown size={16} aria-hidden="true" />
+      </button>
+      {isOpen && (
+        <div
+          className="people-scroll-select-menu"
+          role="listbox"
+          aria-label={ariaLabel}
+          aria-multiselectable="true"
+          ref={menuRef}
+        >
+          {options.map((team, index) => {
+            const isSelected = value.includes(team.name);
+            return (
+              <button
+                type="button"
+                className="people-scroll-select-option people-multiselect-option"
+                role="option"
+                aria-selected={isSelected}
+                key={team.id || team.name}
+                onClick={() => toggleTeam(team.name)}
+                onKeyDown={(event) => handleOptionKeyDown(event, index)}
+              >
+                <span
+                  className="people-multiselect-check"
+                  aria-hidden="true"
+                >
+                  {isSelected ? "✓" : ""}
+                </span>
+                <span>{team.name}</span>
+              </button>
+            );
+          })}
+          {options.length === 0 && (
+            <div className="people-scroll-select-option">
+              No teams or squads available
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const ScrollableSelect = ({
+  ariaLabel,
+  options,
+  value,
+  onChange,
+  placeholder = "Select an option",
+  showCheckmark = false,
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
   const triggerRef = useRef(null);
@@ -109,7 +312,7 @@ const ScrollableSelect = ({ ariaLabel, options, value, onChange }) => {
         onKeyDown={handleTriggerKeyDown}
         ref={triggerRef}
       >
-        <span>{selectedOption?.label || "Select an option"}</span>
+        <span>{selectedOption?.label || placeholder}</span>
         <ChevronDown size={16} aria-hidden="true" />
       </button>
       {isOpen && (
@@ -122,7 +325,7 @@ const ScrollableSelect = ({ ariaLabel, options, value, onChange }) => {
           {options.map((option, index) => (
             <button
               type="button"
-              className="people-scroll-select-option"
+              className={`people-scroll-select-option ${showCheckmark ? "people-scroll-select-check-option" : ""}`}
               role="option"
               aria-selected={option.value === value}
               key={option.value}
@@ -132,6 +335,14 @@ const ScrollableSelect = ({ ariaLabel, options, value, onChange }) => {
               }}
               onKeyDown={(event) => handleOptionKeyDown(event, index)}
             >
+              {showCheckmark && (
+                <span
+                  className="people-select-checkmark"
+                  aria-hidden="true"
+                >
+                  {option.value === value ? "✓" : ""}
+                </span>
+              )}
               {option.label}
             </button>
           ))}
@@ -148,6 +359,7 @@ export const PeoplePage = ({
   onTabChange,
 }) => {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const sanitizeTab = (tab) => (tab === "workspace" ? "members" : tab || "members");
   const [internalTab, setInternalTab] = useState(sanitizeTab(activeTab));
@@ -177,13 +389,24 @@ export const PeoplePage = ({
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [deptFilter, setDeptFilter] = useState("all");
+  const [memberStatusFilter, setMemberStatusFilter] = useState("all");
   const [viewMode, setViewMode] = useState("grid"); // 'grid' | 'table'
+  const [roleMenuOpen, setRoleMenuOpen] = useState(false);
+  const [departmentMenuOpen, setDepartmentMenuOpen] = useState(false);
+  const roleMenuRef = useRef(null);
+  const departmentMenuRef = useRef(null);
 
   // Modals & Drawers
   const [selectedMember, setSelectedMember] = useState(null);
+  const [selectedInvitation, setSelectedInvitation] = useState(null);
+  const [selectedTeams, setSelectedTeams] = useState([]);
+  const [isSavingTeams, setIsSavingTeams] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
+  const [editingTeam, setEditingTeam] = useState(null);
+  const [selectedTeam, setSelectedTeam] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
+  const [toastType, setToastType] = useState("success");
 
   // Resolve logged-in user from prop or sessionStorage
   const resolvedCurrentUser = useMemo(() => {
@@ -235,12 +458,7 @@ export const PeoplePage = ({
   }, [resolvedCurrentUser, members]);
 
   // Invite Form
-  const [inviteForm, setInviteForm] = useState({
-    email: "",
-    role: "user",
-    department: "Engineering",
-    team: "Frontend & UI Experience",
-  });
+  const [inviteForm, setInviteForm] = useState(createEmptyInviteForm);
   const [isInviting, setIsInviting] = useState(false);
 
   // Team Form
@@ -248,13 +466,14 @@ export const PeoplePage = ({
     name: "",
     description: "",
     department: "Engineering",
-    lead: "Team Lead",
+    role: "Team Lead",
     tags: "Full-Stack, Sprints",
   });
   const [isCreatingTeam, setIsCreatingTeam] = useState(false);
 
-  const showToast = (msg) => {
+  const showToast = (msg, type = "success") => {
     setToastMessage(msg);
+    setToastType(type);
     setTimeout(() => setToastMessage(null), 3500);
   };
 
@@ -264,19 +483,54 @@ export const PeoplePage = ({
     try {
       const viewerRole = isAdmin ? "admin" : (resolvedCurrentUser?.role || "user");
       const viewerTeam = currentUserTeam || "";
-      const [membersData, teamsData, invitesData, statsData] =
-        await Promise.all([
-          peopleApi.getMembers({ viewer_role: viewerRole, viewer_team: viewerTeam }),
-          peopleApi.getTeams(),
-          peopleApi.getInvitations(),
-          peopleApi.getStats(),
-        ]);
-      setMembers(membersData);
-      setTeams(teamsData);
-      setInvitations(invitesData);
-      setStats(statsData);
+      const results = await Promise.allSettled([
+        peopleApi.getMembers({ viewer_role: viewerRole, viewer_team: viewerTeam }),
+        peopleApi.getTeams(),
+        peopleApi.getInvitations(),
+        peopleApi.getStats(),
+      ]);
+      const failedRequests = [];
+      const [membersResult, teamsResult, invitesResult, statsResult] = results;
+
+      if (membersResult.status === "fulfilled") {
+        setMembers(membersResult.value);
+      } else {
+        failedRequests.push("directory");
+        console.warn("[PeoplePage] Error fetching members:", membersResult.reason);
+      }
+
+      if (teamsResult.status === "fulfilled") {
+        setTeams(teamsResult.value);
+      } else {
+        failedRequests.push("teams");
+        console.warn("[PeoplePage] Error fetching teams:", teamsResult.reason);
+      }
+
+      if (invitesResult.status === "fulfilled") {
+        setInvitations(invitesResult.value);
+      } else {
+        failedRequests.push("invitations");
+        console.warn("[PeoplePage] Error fetching invitations:", invitesResult.reason);
+      }
+
+      if (statsResult.status === "fulfilled") {
+        setStats(statsResult.value);
+      } else {
+        failedRequests.push("stats");
+        console.warn("[PeoplePage] Error fetching stats:", statsResult.reason);
+      }
+
+      if (failedRequests.length > 0) {
+        showToast(
+          `Sync incomplete. Could not refresh: ${failedRequests.join(", ")}.`,
+          "error"
+        );
+      } else if (silent) {
+        showToast("People data synced successfully.");
+      }
     } catch (err) {
       console.warn("[PeoplePage] Error fetching data:", err);
+      showToast("Unable to sync people data. Please try again.", "error");
     } finally {
       if (!silent) setIsLoading(false);
       setIsRefreshing(false);
@@ -286,6 +540,43 @@ export const PeoplePage = ({
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    const teamId = new URLSearchParams(location.search).get("team");
+    if (!teamId) {
+      setSelectedTeam(null);
+      return;
+    }
+
+    const team = teams.find((item) => item.id === teamId);
+    if (team) setSelectedTeam(team);
+  }, [location.search, teams]);
+
+  useEffect(() => {
+    if (!roleMenuOpen) return undefined;
+
+    const closeRoleMenu = (event) => {
+      if (!roleMenuRef.current?.contains(event.target)) {
+        setRoleMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", closeRoleMenu);
+    return () => document.removeEventListener("mousedown", closeRoleMenu);
+  }, [roleMenuOpen]);
+
+  useEffect(() => {
+    if (!departmentMenuOpen) return undefined;
+
+    const closeDepartmentMenu = (event) => {
+      if (!departmentMenuRef.current?.contains(event.target)) {
+        setDepartmentMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", closeDepartmentMenu);
+    return () => document.removeEventListener("mousedown", closeDepartmentMenu);
+  }, [departmentMenuOpen]);
 
   useEffect(() => {
     const now = new Date();
@@ -298,8 +589,40 @@ export const PeoplePage = ({
   }, [countdownDate]);
 
   const handleRefresh = () => {
+    if (isRefreshing || isLoading) return;
     setIsRefreshing(true);
     loadData(true);
+  };
+
+  const openMemberSummary = (status = "all") => {
+    setSearchQuery("");
+    setRoleFilter("all");
+    setDeptFilter("all");
+    setMemberStatusFilter(status);
+    handleTabSwitch("members");
+  };
+
+  const openTeamsSummary = () => {
+    setSelectedTeam(null);
+    handleTabSwitch("teams");
+    if (location.pathname === "/people/teams" && location.search) {
+      navigate("/people/teams", { replace: true });
+    }
+  };
+
+  const openTeamDetails = (team) => {
+    setSelectedTeam(team);
+    navigate(`/people/teams?team=${encodeURIComponent(team.id)}`, {
+      state: { fromTeamList: true },
+    });
+  };
+
+  const returnToTeamList = () => {
+    if (location.state?.fromTeamList) {
+      navigate(-1);
+      return;
+    }
+    navigate("/people/teams", { replace: true });
   };
 
   // Filtered members with strict team isolation:
@@ -330,7 +653,7 @@ export const PeoplePage = ({
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const corpus = `${m.name} ${m.username} ${m.email} ${m.jobTitle} ${m.department} ${m.team || ""} ${m.location}`.toLowerCase();
+        const corpus = `${m.name} ${m.username} ${m.email} ${m.jobTitle} ${m.department} ${getMemberTeams(m).join(" ")} ${m.location}`.toLowerCase();
         if (!corpus.includes(q)) return false;
       }
       if (roleFilter !== "all" && m.role?.toLowerCase() !== roleFilter) {
@@ -342,37 +665,99 @@ export const PeoplePage = ({
       ) {
         return false;
       }
+      if (
+        memberStatusFilter !== "all" &&
+        m.status?.toLowerCase() !== memberStatusFilter
+      ) {
+        return false;
+      }
       return true;
     });
-  }, [members, isAdmin, currentUserTeam, resolvedCurrentUser, searchQuery, roleFilter, deptFilter]);
+  }, [
+    members,
+    isAdmin,
+    currentUserTeam,
+    resolvedCurrentUser,
+    searchQuery,
+    roleFilter,
+    deptFilter,
+    memberStatusFilter,
+  ]);
 
   // Unique departments for filter dropdown
   const departments = useMemo(() => {
     const set = new Set();
+    INVITE_DEPARTMENT_OPTIONS.forEach((department) => set.add(department));
     members.forEach((m) => {
       if (m.department) set.add(m.department);
     });
     return Array.from(set);
   }, [members]);
 
+  const resetInviteForm = () => setInviteForm(createEmptyInviteForm());
+  const openInviteModal = () => {
+    resetInviteForm();
+    setShowInviteModal(true);
+  };
+  const closeInviteModal = () => {
+    setShowInviteModal(false);
+    resetInviteForm();
+  };
+
   // Handle Invite Submit
   const handleInviteSubmit = async (e) => {
     e.preventDefault();
     if (!inviteForm.email.trim()) return;
+    if (!isValidInviteEmail(inviteForm.email)) {
+      showToast("Invalid Email");
+      return;
+    }
+    if (inviteForm.teams.length === 0) {
+      showToast("Select at least one team or squad before sending the invitation.");
+      return;
+    }
+    if (!inviteForm.department) {
+      showToast("Select a department before sending the invitation.");
+      return;
+    }
     setIsInviting(true);
     try {
       const res = await peopleApi.sendInvitation(inviteForm);
       showToast(res.message || `Invitation sent to ${inviteForm.email}`);
-      setShowInviteModal(false);
-      setInviteForm({
-        email: "",
-        role: "user",
-        department: "Engineering",
-        team: "Frontend & UI Experience",
-      });
-      loadData(true);
+      const sentInvitation = {
+        ...res,
+        email: res.email || inviteForm.email.trim().toLowerCase(),
+        createdAt:
+          res.createdAt ||
+          new Date().toLocaleDateString("en-US", {
+            month: "short",
+            day: "2-digit",
+            year: "numeric",
+          }),
+      };
+      const alreadyListed = invitations.some(
+        (invitation) => invitation.email?.toLowerCase() === sentInvitation.email.toLowerCase()
+      );
+      setInvitations((current) => [
+        sentInvitation,
+        ...current.filter(
+          (invitation) => invitation.email?.toLowerCase() !== sentInvitation.email.toLowerCase()
+        ),
+      ]);
+      if (!alreadyListed) {
+        setStats((current) => ({
+          ...current,
+          pendingInvitations: (current.pendingInvitations ?? invitations.length) + 1,
+        }));
+      }
+      closeInviteModal();
+      handleTabSwitch("invitations");
     } catch (err) {
-      showToast("Failed to send invitation. Please try again.");
+      showToast(
+        err.response?.data?.error ||
+          err.response?.data?.teams?.[0] ||
+          "Failed to send invitation. Please try again."
+      );
     } finally {
       setIsInviting(false);
     }
@@ -382,28 +767,73 @@ export const PeoplePage = ({
   const handleTeamSubmit = async (e) => {
     e.preventDefault();
     if (!teamForm.name.trim()) return;
+    if (teamForm.name.includes("@")) {
+      showToast("Email addresses are not allowed in team names.");
+      return;
+    }
     setIsCreatingTeam(true);
     try {
       const payload = {
         ...teamForm,
         tags: teamForm.tags.split(",").map((t) => t.trim()).filter(Boolean),
       };
-      await peopleApi.createTeam(payload);
-      showToast(`Team "${teamForm.name}" created successfully`);
+      const savedTeam = editingTeam
+        ? await peopleApi.updateTeam(editingTeam.id, payload)
+        : await peopleApi.createTeam(payload);
+      if (editingTeam) {
+        setSelectedTeam((currentTeam) =>
+          currentTeam?.id === editingTeam.id
+            ? { ...currentTeam, ...savedTeam }
+            : currentTeam
+        );
+        setTeams((currentTeams) =>
+          currentTeams.map((team) =>
+            team.id === editingTeam.id ? { ...team, ...savedTeam } : team
+          )
+        );
+      }
+      showToast(
+        editingTeam
+          ? `Team "${savedTeam.name}" updated successfully`
+          : `Team "${teamForm.name}" created successfully`
+      );
       setShowTeamModal(false);
+      setEditingTeam(null);
       setTeamForm({
         name: "",
         description: "",
         department: "Engineering",
-        lead: "Team Lead",
+        role: "Team Lead",
         tags: "Full-Stack, Sprints",
       });
       loadData(true);
     } catch (err) {
-      showToast("Failed to create team.");
+      showToast(
+        err.response?.data?.error ||
+          (editingTeam ? "Failed to update team." : "Failed to create team.")
+      );
     } finally {
       setIsCreatingTeam(false);
     }
+  };
+
+  const openTeamModal = (team = null) => {
+    setEditingTeam(team);
+    setTeamForm({
+      name: team?.name || "",
+      description: team?.description || "",
+      department: team?.department || "Engineering",
+      role: team?.role || "Team Lead",
+      tags: Array.isArray(team?.tags)
+        ? team.tags.join(", ")
+        : "Full-Stack, Sprints",
+    });
+    setShowTeamModal(true);
+  };
+
+  const closeTeamModal = () => {
+    setShowTeamModal(false);
+    setEditingTeam(null);
   };
 
   const handleTeamModalKeyDown = (event) => {
@@ -461,21 +891,33 @@ export const PeoplePage = ({
     }
   };
 
+  const openMemberDetails = (member) => {
+    setSelectedMember(member);
+    setSelectedTeams(getMemberTeams(member));
+  };
+
   // Update member team assignment (admin only)
-  const handleTeamChange = async (userId, newTeam) => {
+  const handleTeamChange = async (userId) => {
+    setIsSavingTeams(true);
     try {
-      await peopleApi.updateMember(userId, { team: newTeam });
-      showToast(`Assigned squad updated to "${newTeam}"`);
+      const updatedMember = await peopleApi.updateMember(userId, {
+        teams: selectedTeams,
+      });
       setMembers((prev) =>
-        prev.map((m) =>
-          m.id === userId ? { ...m, team: newTeam, teams: [newTeam] } : m
+        prev.map((member) =>
+          member.id === userId ? { ...member, ...updatedMember } : member
         )
       );
-      if (selectedMember && selectedMember.id === userId) {
-        setSelectedMember((prev) => ({ ...prev, team: newTeam, teams: [newTeam] }));
-      }
-    } catch {
-      showToast("Failed to update squad assignment");
+      setSelectedMember((prev) =>
+        prev?.id === userId ? { ...prev, ...updatedMember } : prev
+      );
+      showToast("Team and squad assignments updated");
+    } catch (error) {
+      showToast(
+        error.response?.data?.teams?.[0] || "Failed to update assignments"
+      );
+    } finally {
+      setIsSavingTeams(false);
     }
   };
 
@@ -483,8 +925,12 @@ export const PeoplePage = ({
     <div className="people-page-root" data-theme={theme}>
       {/* Toast Alert */}
       {toastMessage && (
-        <div className="people-toast">
-          <CheckCircle size={16} color="#10b981" />
+        <div className={`people-toast ${toastType === "error" ? "error" : ""}`}>
+          {toastType === "error" ? (
+            <AlertCircle size={16} color="#ef4444" />
+          ) : (
+            <CheckCircle size={16} color="#10b981" />
+          )}
           <span>{toastMessage}</span>
         </div>
       )}
@@ -509,6 +955,8 @@ export const PeoplePage = ({
             className="people-btn people-btn-secondary"
             onClick={handleRefresh}
             title="Refresh directory"
+            disabled={isLoading || isRefreshing}
+            aria-busy={isRefreshing}
           >
             <RefreshCw size={14} className={isRefreshing ? "spinning" : ""} />
             <span>Sync</span>
@@ -518,7 +966,7 @@ export const PeoplePage = ({
             <button
               type="button"
               className="people-btn people-btn-primary"
-              onClick={() => setShowTeamModal(true)}
+              onClick={() => openTeamModal()}
             >
               <Plus size={16} />
               <span>Create Team</span>
@@ -527,7 +975,7 @@ export const PeoplePage = ({
             <button
               type="button"
               className="people-btn people-btn-primary"
-              onClick={() => setShowInviteModal(true)}
+              onClick={openInviteModal}
             >
               <UserPlus size={16} />
               <span>Invite Person</span>
@@ -540,7 +988,12 @@ export const PeoplePage = ({
          2. STATS RIBBON
       ========================================================= */}
       <section className="people-stats-ribbon">
-        <div className="stat-card">
+        <button
+          type="button"
+          className="stat-card people-stat-card-button"
+          onClick={() => openMemberSummary()}
+          aria-label="Open directory showing all colleagues"
+        >
           <div
             className="stat-icon-wrap"
             style={{ background: "rgba(99, 102, 241, 0.12)", color: "#6366f1" }}
@@ -551,9 +1004,14 @@ export const PeoplePage = ({
             <span className="stat-value">{stats.totalMembers || members.length}</span>
             <span className="stat-label">Total Colleagues</span>
           </div>
-        </div>
+        </button>
 
-        <div className="stat-card">
+        <button
+          type="button"
+          className="stat-card people-stat-card-button"
+          onClick={() => openMemberSummary("active")}
+          aria-label="Open directory showing active colleagues"
+        >
           <div
             className="stat-icon-wrap"
             style={{ background: "rgba(16, 185, 129, 0.12)", color: "#10b981" }}
@@ -564,9 +1022,14 @@ export const PeoplePage = ({
             <span className="stat-value">{stats.activeNow || members.length}</span>
             <span className="stat-label">Active on Platform</span>
           </div>
-        </div>
+        </button>
 
-        <div className="stat-card">
+        <button
+          type="button"
+          className="stat-card people-stat-card-button"
+          onClick={openTeamsSummary}
+          aria-label="Open teams and squads"
+        >
           <div
             className="stat-icon-wrap"
             style={{ background: "rgba(245, 158, 11, 0.12)", color: "#f59e0b" }}
@@ -577,9 +1040,14 @@ export const PeoplePage = ({
             <span className="stat-value">{stats.totalTeams || teams.length}</span>
             <span className="stat-label">Functional Teams</span>
           </div>
-        </div>
+        </button>
 
-        <div className="stat-card">
+        <button
+          type="button"
+          className="stat-card people-stat-card-button"
+          onClick={() => handleTabSwitch("invitations")}
+          aria-label="Open pending invitations"
+        >
           <div
             className="stat-icon-wrap"
             style={{ background: "rgba(236, 72, 153, 0.12)", color: "#ec4899" }}
@@ -590,7 +1058,7 @@ export const PeoplePage = ({
             <span className="stat-value">{stats.pendingInvitations ?? invitations.length}</span>
             <span className="stat-label">Pending Invitations</span>
           </div>
-        </div>
+        </button>
       </section>
 
       {/* =========================================================
@@ -654,29 +1122,118 @@ export const PeoplePage = ({
               )}
             </div>
 
-            <select
-              className="people-filter-select"
-              value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value)}
-            >
-              <option value="all">All Roles</option>
-              <option value="admin">Admin</option>
-              <option value="team_lead">Team Lead</option>
-              <option value="user">Member</option>
-            </select>
+            <div className="role-filter" ref={roleMenuRef}>
+              <button
+                type="button"
+                className="people-filter-select role-filter-trigger"
+                aria-haspopup="listbox"
+                aria-expanded={roleMenuOpen}
+                onClick={() => setRoleMenuOpen((open) => !open)}
+              >
+                <span>
+                  {roleFilter === "all"
+                    ? "All Roles"
+                    : roleFilter === "admin"
+                      ? "Admin"
+                      : roleFilter === "team_lead"
+                        ? "Team Lead"
+                        : "Member"}
+                </span>
+                <ChevronDown
+                  size={15}
+                  className={roleMenuOpen ? "role-chevron-open" : ""}
+                />
+              </button>
 
-            <select
-              className="people-filter-select"
-              value={deptFilter}
-              onChange={(e) => setDeptFilter(e.target.value)}
-            >
-              <option value="all">All Departments</option>
-              {departments.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
+              {roleMenuOpen && (
+                <div className="role-filter-menu" role="listbox">
+                  {[
+                    { value: "all", label: "All Roles" },
+                    { value: "admin", label: "Admin" },
+                    { value: "team_lead", label: "Team Lead" },
+                    { value: "user", label: "Member" },
+                  ].map((role) => (
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={roleFilter === role.value}
+                      className={`role-filter-option ${
+                        roleFilter === role.value
+                          ? "role-filter-option-active"
+                          : ""
+                      }`}
+                      key={role.value}
+                      onClick={() => {
+                        setRoleFilter(role.value);
+                        setRoleMenuOpen(false);
+                      }}
+                    >
+                      <span>{role.label}</span>
+                      {roleFilter === role.value && <CheckCircle size={15} />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="department-filter" ref={departmentMenuRef}>
+              <button
+                type="button"
+                className="people-filter-select department-filter-trigger"
+                aria-haspopup="listbox"
+                aria-expanded={departmentMenuOpen}
+                onClick={() => setDepartmentMenuOpen((open) => !open)}
+              >
+                <span>
+                  {deptFilter === "all" ? "All Departments" : deptFilter}
+                </span>
+                <ChevronDown
+                  size={15}
+                  className={departmentMenuOpen ? "department-chevron-open" : ""}
+                />
+              </button>
+
+              {departmentMenuOpen && (
+                <div className="department-filter-menu" role="listbox">
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={deptFilter === "all"}
+                    className={`department-filter-option ${
+                      deptFilter === "all" ? "department-filter-option-active" : ""
+                    }`}
+                    onClick={() => {
+                      setDeptFilter("all");
+                      setDepartmentMenuOpen(false);
+                    }}
+                  >
+                    <span>All Departments</span>
+                    {deptFilter === "all" && <CheckCircle size={15} />}
+                  </button>
+
+                  {departments.map((department) => (
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={deptFilter === department}
+                      className={`department-filter-option ${
+                        deptFilter === department
+                          ? "department-filter-option-active"
+                          : ""
+                      }`}
+                      key={department}
+                      onClick={() => {
+                        setDeptFilter(department);
+                        setDepartmentMenuOpen(false);
+                      }}
+                    >
+                      <span>{department}</span>
+                      {deptFilter === department && <CheckCircle size={15} />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <div className="view-mode-toggle">
               <button
@@ -744,11 +1301,11 @@ export const PeoplePage = ({
                   className="member-card"
                   role="button"
                   tabIndex={0}
-                  onClick={() => setSelectedMember(member)}
+                  onClick={() => openMemberDetails(member)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
-                      setSelectedMember(member);
+                      openMemberDetails(member);
                     }
                   }}
                 >
@@ -773,9 +1330,9 @@ export const PeoplePage = ({
                     <p className="card-title">{member.jobTitle}</p>
                   </div>
 
-                  <div className="card-team-badge" title={`Team: ${member.team || "Core Platform Engineering"}`}>
+                  <div className="card-team-badge" title={`Teams / Squads: ${getMemberTeams(member).join(", ") || "None"}`}>
                     <Layers size={12} className="team-badge-icon" />
-                    <span className="team-badge-text">{member.team || "Core Platform Engineering"}</span>
+                    <span className="team-badge-text">{getMemberTeams(member).join(", ") || "No team assigned"}</span>
                   </div>
 
                   <div className="card-meta-list">
@@ -814,7 +1371,7 @@ export const PeoplePage = ({
                   {filteredMembers.map((member) => (
                     <tr
                       key={member.id}
-                      onClick={() => setSelectedMember(member)}
+                      onClick={() => openMemberDetails(member)}
                       style={{ cursor: "pointer" }}
                     >
                       <td>
@@ -834,7 +1391,7 @@ export const PeoplePage = ({
                       <td>
                         <div className="table-team-badge">
                           <Layers size={12} />
-                          <span>{member.team || "Core Platform Engineering"}</span>
+                          <span>{getMemberTeams(member).join(", ") || "No team assigned"}</span>
                         </div>
                       </td>
                       <td>
@@ -864,25 +1421,160 @@ export const PeoplePage = ({
       ========================================================= */}
       {currentTab === "teams" && (
         <div className="tab-pane-content">
-          <div className="teams-grid">
-            {teams.map((team) => (
-              <div key={team.id} className="team-card">
-                <div className="team-card-header">
-                  <h3 className="team-name">{team.name}</h3>
-                  <span className="footer-dept-tag">{team.department}</span>
-                </div>
-                <p className="team-desc">{team.description}</p>
-                <div className="team-details-row">
-                  <div>
-                    <strong>Lead:</strong> {team.lead}
+          {selectedTeam ? (
+            <div className="team-detail-layout">
+              <div className="team-detail-main">
+                <button
+                  type="button"
+                  className="team-back-btn"
+                  onClick={returnToTeamList}
+                >
+                  <ArrowLeft size={18} />
+                  <span>Back to Teams & Squads</span>
+                </button>
+
+                <div className="team-detail-hero">
+                  <div className="team-detail-icon">
+                    <Users size={30} />
                   </div>
-                  <div>
-                    <strong>{team.memberCount} Members</strong>
+                  <div className="team-detail-heading">
+                    <div className="team-detail-title-row">
+                      <h2>{selectedTeam.name}</h2>
+                      <span className="footer-dept-tag">{selectedTeam.department}</span>
+                    </div>
+                    <span className="team-active-status">
+                      <span className="team-active-dot" />
+                      Active
+                    </span>
+                    <p>{selectedTeam.description}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="team-edit-btn"
+                    onClick={() => openTeamModal(selectedTeam)}
+                  >
+                    <Edit size={15} />
+                    <span>Edit Team</span>
+                  </button>
+                </div>
+
+                <div className="team-detail-stats">
+                  <div className="team-detail-stat">
+                    <Users size={22} />
+                    <div>
+                      <span>Role</span>
+                      <strong>{selectedTeam.role || "Team Lead"}</strong>
+                    </div>
+                  </div>
+                  <div className="team-detail-stat">
+                    <Layers size={22} />
+                    <div>
+                      <span>Total Members</span>
+                      <strong>
+                        {members.filter((member) =>
+                          getMemberTeams(member).some(
+                            (name) => name.toLowerCase() === selectedTeam.name.toLowerCase()
+                          )
+                        ).length} Members
+                      </strong>
+                    </div>
+                  </div>
+                  <div className="team-detail-stat">
+                    <CalendarDays size={22} />
+                    <div>
+                      <span>Created Date</span>
+                      <strong>{selectedTeam.createdDate || "Not available"}</strong>
+                    </div>
                   </div>
                 </div>
+
+                <section className="assigned-members-section">
+                  <h3>
+                    <Users size={21} />
+                    <span>
+                      Assigned Members (
+                      {members.filter((member) =>
+                        getMemberTeams(member).some(
+                          (name) => name.toLowerCase() === selectedTeam.name.toLowerCase()
+                        )
+                      ).length}
+                      )
+                    </span>
+                  </h3>
+
+                  <div className="assigned-members-list">
+                    {members
+                      .filter((member) =>
+                        getMemberTeams(member).some(
+                          (name) => name.toLowerCase() === selectedTeam.name.toLowerCase()
+                        )
+                      )
+                      .map((member) => (
+                        <button
+                          type="button"
+                          className="assigned-member-row"
+                          key={member.id}
+                          onClick={() => openMemberDetails(member)}
+                        >
+                          <div
+                            className="assigned-member-avatar"
+                            style={{ backgroundColor: member.avatarColor }}
+                          >
+                            {member.avatar || member.name.slice(0, 1).toUpperCase()}
+                          </div>
+                          <strong>{member.name}</strong>
+                          <span className="assigned-member-role">
+                            {member.role === "team_lead"
+                              ? "Team Lead"
+                              : member.role === "admin"
+                                ? "Admin"
+                                : "Developer"}
+                          </span>
+                        </button>
+                      ))}
+                  </div>
+                </section>
               </div>
-            ))}
-          </div>
+            </div>
+          ) : (
+            <div className="teams-grid">
+              {teams.map((team) => (
+                <div
+                  key={team.id}
+                  className="team-card"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openTeamDetails(team)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openTeamDetails(team);
+                    }
+                  }}
+                >
+                  <div className="team-card-header">
+                    <h3 className="team-name">{team.name}</h3>
+                    <span className="footer-dept-tag">{team.department}</span>
+                  </div>
+                  <p className="team-desc">{team.description}</p>
+                  <div className="team-details-row">
+                    <div>
+                      <strong>Role:</strong> {team.role || "Team Lead"}
+                    </div>
+                    <div>
+                      <strong>
+                        {members.filter((member) =>
+                          getMemberTeams(member).some(
+                            (name) => name.toLowerCase() === team.name.toLowerCase()
+                          )
+                        ).length} Members
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -912,15 +1604,20 @@ export const PeoplePage = ({
                   const expiresIn = getInvitationExpiryLabel(inv.expiresAt, countdownDate);
                   return (
                     <div key={inv.id || inv.email} className="invite-row">
-                      <div className="invite-left">
+                      <button
+                        type="button"
+                        className="invite-details-button"
+                        aria-label={`View invitation details for ${inv.email}`}
+                        onClick={() => setSelectedInvitation(inv)}
+                      >
                         <Mail size={18} color="#6366f1" />
-                        <div>
+                        <div className="invite-details-summary">
                           <div className="invite-email">{inv.email}</div>
                           <div className="invite-meta">
                             Invited as {inv.role} • {inv.department} • {expiresIn || inv.expiresIn}
                           </div>
                         </div>
-                      </div>
+                      </button>
 
                       <div className="invite-actions">
                         <button
@@ -940,6 +1637,117 @@ export const PeoplePage = ({
         </div>
       )}
 
+      {selectedInvitation && (
+        <div
+          className="people-modal-backdrop"
+          onClick={() => setSelectedInvitation(null)}
+        >
+          <div
+            className="people-modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="invitation-details-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="people-modal-header">
+              <h3 id="invitation-details-title">Invitation Details</h3>
+              <button
+                type="button"
+                className="people-modal-close"
+                aria-label="Close invitation details"
+                onClick={() => setSelectedInvitation(null)}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="people-modal-body">
+              <div className="invitation-details-grid">
+                <div className="form-group">
+                  <label>Email</label>
+                  <span>{selectedInvitation.email || "Not available"}</span>
+                </div>
+                <div className="form-group">
+                  <label>Status</label>
+                  <span className="invitation-status">
+                    {(selectedInvitation.status || "pending").replace(
+                      /^./,
+                      (letter) => letter.toUpperCase()
+                    )}
+                  </span>
+                </div>
+                <div className="form-group">
+                  <label>Workspace Role</label>
+                  <span>
+                    {selectedInvitation.role === "team_lead"
+                      ? "Team Lead"
+                      : selectedInvitation.role === "admin"
+                        ? "Admin"
+                        : selectedInvitation.role === "user"
+                          ? "Member"
+                          : selectedInvitation.role || "Member"}
+                  </span>
+                </div>
+                <div className="form-group">
+                  <label>Department / Function</label>
+                  <span>{selectedInvitation.department || "Not specified"}</span>
+                </div>
+                <div className="form-group">
+                  <label>Assigned Teams / Squads</label>
+                  <span>
+                    {getMemberTeams(selectedInvitation).join(", ") || "None"}
+                  </span>
+                </div>
+                <div className="form-group">
+                  <label>Sent On</label>
+                  <span>{selectedInvitation.createdAt || "Just now"}</span>
+                </div>
+                <div className="form-group">
+                  <label>Expires On</label>
+                  <span>
+                    {selectedInvitation.expiresAt
+                      ? new Date(selectedInvitation.expiresAt).toLocaleString()
+                      : selectedInvitation.expiresIn || "Not available"}
+                  </span>
+                </div>
+                <div className="form-group">
+                  <label>Time Remaining</label>
+                  <span>
+                    {getInvitationExpiryLabel(
+                      selectedInvitation.expiresAt,
+                      countdownDate
+                    ) || selectedInvitation.expiresIn || "Not available"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="people-modal-footer">
+              <a
+                className="people-btn people-btn-secondary"
+                href={getInvitationMailto(selectedInvitation, "reply")}
+              >
+                <Reply size={14} />
+                Reply
+              </a>
+              <a
+                className="people-btn people-btn-secondary"
+                href={getInvitationMailto(selectedInvitation, "forward")}
+              >
+                <Forward size={14} />
+                Forward
+              </a>
+              <button
+                type="button"
+                className="people-btn people-btn-secondary"
+                onClick={() => setSelectedInvitation(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* =========================================================
          MEMBER DETAIL DRAWER / MODAL
@@ -997,10 +1805,10 @@ export const PeoplePage = ({
                   <span style={{ fontSize: 13 }}>{selectedMember.email}</span>
                 </div>
                 <div className="form-group">
-                  <label>Assigned Squad / Team</label>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#818cf8", fontWeight: 600, fontSize: 13 }}>
+                  <label>Assigned Teams / Squads</label>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 6, color: "#818cf8", fontWeight: 600, fontSize: 13 }}>
                     <Layers size={14} />
-                    <span>{selectedMember.team || "Core Platform Engineering"}</span>
+                    <span>{getMemberTeams(selectedMember).join(", ") || "No team assigned"}</span>
                   </div>
                 </div>
                 <div className="form-group">
@@ -1036,22 +1844,22 @@ export const PeoplePage = ({
                     </select>
                   </div>
                   <div className="form-group">
-                    <label>Reassign Squad / Team</label>
-                    <select
-                      className="form-control"
-                      value={selectedMember.team || "Frontend & UI Experience"}
-                      onChange={(e) => handleTeamChange(selectedMember.id, e.target.value)}
+                    <label>Reassign Teams / Squads</label>
+                    <TeamMultiSelect
+                      ariaLabel="Reassign teams and squads"
+                      options={teams}
+                      value={selectedTeams}
+                      onChange={setSelectedTeams}
+                    />
+                    <button
+                      type="button"
+                      className="people-btn people-btn-primary"
+                      style={{ marginTop: 10, alignSelf: "flex-start" }}
+                      disabled={isSavingTeams || teams.length === 0}
+                      onClick={() => handleTeamChange(selectedMember.id)}
                     >
-                      <option value="Frontend & UI Experience">Frontend & UI Experience</option>
-                      <option value="Core Platform Engineering">Core Platform Engineering</option>
-                      <option value="DevOps & Cloud Reliability">DevOps & Cloud Reliability</option>
-                      <option value="Product Strategy & Agile Operations">Product Strategy & Agile Operations</option>
-                      {teams.map((t) => (
-                        !["Frontend & UI Experience", "Core Platform Engineering", "DevOps & Cloud Reliability", "Product Strategy & Agile Operations"].includes(t.name) ? (
-                          <option key={t.id || t.name} value={t.name}>{t.name}</option>
-                        ) : null
-                      ))}
-                    </select>
+                      {isSavingTeams ? "Saving..." : "Save Assignments"}
+                    </button>
                   </div>
                 </div>
               ) : (
@@ -1092,7 +1900,7 @@ export const PeoplePage = ({
       {showInviteModal && (
         <div
           className="people-modal-backdrop"
-          onClick={() => setShowInviteModal(false)}
+          onClick={closeInviteModal}
         >
           <div
             className="people-modal-card"
@@ -1103,7 +1911,7 @@ export const PeoplePage = ({
               <button
                 type="button"
                 className="people-modal-close"
-                onClick={() => setShowInviteModal(false)}
+                onClick={closeInviteModal}
               >
                 ×
               </button>
@@ -1114,10 +1922,12 @@ export const PeoplePage = ({
                 <div className="form-group">
                   <label>Email Address</label>
                   <input
-                    type="email"
+                    type="text"
+                    inputMode="email"
+                    autoComplete="email"
                     required
                     className="form-control"
-                    placeholder="colleague@nexusapp.io"
+                    placeholder="colleague@gmail.com"
                     value={inviteForm.email}
                     onChange={(e) =>
                       setInviteForm({ ...inviteForm, email: e.target.value })
@@ -1142,46 +1952,33 @@ export const PeoplePage = ({
                 </div>
 
                 <div className="form-group">
-                  <label>Assign to Team / Squad</label>
-                  <ScrollableSelect
-                    ariaLabel="Assign to Team / Squad"
-                    value={inviteForm.team}
-                    onChange={(team) =>
-                      setInviteForm({ ...inviteForm, team })
+                  <label>Assign Teams / Squads</label>
+                  <TeamMultiSelect
+                    ariaLabel="Assign teams and squads"
+                    options={teams}
+                    value={inviteForm.teams}
+                    onChange={(selected) =>
+                      setInviteForm({ ...inviteForm, teams: selected })
                     }
-                    options={[
-                      { value: "Frontend & UI Experience", label: "Frontend & UI Experience" },
-                      { value: "Core Platform Engineering", label: "Core Platform Engineering" },
-                      { value: "DevOps & Cloud Reliability", label: "DevOps & Cloud Reliability" },
-                      { value: "Product Strategy & Agile Operations", label: "Product Strategy & Agile Operations" },
-                      ...teams
-                        .filter(
-                          (team) =>
-                            ![
-                              "Frontend & UI Experience",
-                              "Core Platform Engineering",
-                              "DevOps & Cloud Reliability",
-                              "Product Strategy & Agile Operations",
-                            ].includes(team.name)
-                        )
-                        .map((team) => ({ value: team.name, label: team.name })),
-                    ]}
                   />
                 </div>
 
                 <div className="form-group">
                   <label>Department / Function</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    placeholder="Engineering, Design, DevOps..."
+                  <ScrollableSelect
+                    ariaLabel="Department / Function"
+                    placeholder="Select a department"
                     value={inviteForm.department}
-                    onChange={(e) =>
+                    onChange={(department) =>
                       setInviteForm({
                         ...inviteForm,
-                        department: e.target.value,
+                        department,
                       })
                     }
+                    options={INVITE_DEPARTMENT_OPTIONS.map((department) => ({
+                      value: department,
+                      label: department,
+                    }))}
                   />
                 </div>
               </div>
@@ -1190,7 +1987,7 @@ export const PeoplePage = ({
                 <button
                   type="button"
                   className="people-btn people-btn-secondary"
-                  onClick={() => setShowInviteModal(false)}
+                  onClick={closeInviteModal}
                 >
                   Cancel
                 </button>
@@ -1218,10 +2015,10 @@ export const PeoplePage = ({
       {showTeamModal && (
         <div
           className="people-modal-backdrop"
-          onClick={() => setShowTeamModal(false)}
+          onClick={closeTeamModal}
         >
           <div
-            className="people-modal-card"
+            className="people-modal-card people-create-team-modal"
             onClick={(e) => e.stopPropagation()}
             onKeyDown={handleTeamModalKeyDown}
             role="dialog"
@@ -1229,11 +2026,13 @@ export const PeoplePage = ({
             aria-labelledby="create-team-title"
           >
             <div className="people-modal-header">
-              <h3 id="create-team-title">Create New Team / Squad</h3>
+              <h3 id="create-team-title">
+                {editingTeam ? "Edit Team / Squad" : "Create New Team / Squad"}
+              </h3>
               <button
                 type="button"
                 className="people-modal-close"
-                onClick={() => setShowTeamModal(false)}
+                onClick={closeTeamModal}
               >
                 ×
               </button>
@@ -1245,12 +2044,15 @@ export const PeoplePage = ({
                   <label htmlFor="create-team-name">Team Name</label>
                   <input
                     id="create-team-name"
+                    name="team-name"
                     type="text"
                     required
                     className="form-control"
+                    autoComplete={editingTeam ? "off" : "new-password"}
+                    pattern="[^@]+"
+                    title="Enter a team name, not an email address."
                     placeholder="e.g. Mobile Engineering, Growth Squad"
                     value={teamForm.name}
-                    autoFocus
                     onChange={(e) =>
                       setTeamForm({ ...teamForm, name: e.target.value })
                     }
@@ -1260,8 +2062,10 @@ export const PeoplePage = ({
                 <div className="form-group">
                   <label>Mission / Description</label>
                   <textarea
+                    name="team-description"
                     rows={3}
                     className="form-control"
+                    autoComplete="off"
                     placeholder="What does this squad focus on?"
                     value={teamForm.description}
                     onChange={(e) =>
@@ -1270,34 +2074,50 @@ export const PeoplePage = ({
                   />
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div className="team-form-fields-row">
                   <div className="form-group">
                     <label>Department</label>
-                    <input
-                      type="text"
-                      className="form-control"
+                    <ScrollableSelect
+                      ariaLabel="Department"
                       value={teamForm.department}
-                      onChange={(e) =>
-                        setTeamForm({ ...teamForm, department: e.target.value })
+                      onChange={(department) =>
+                        setTeamForm({ ...teamForm, department })
                       }
+                      showCheckmark
+                      options={[
+                        ...TEAM_DEPARTMENT_OPTIONS,
+                        ...(teamForm.department &&
+                        !TEAM_DEPARTMENT_OPTIONS.some(
+                          (option) => option.value === teamForm.department
+                        )
+                          ? [
+                              {
+                                value: teamForm.department,
+                                label: teamForm.department,
+                              },
+                            ]
+                          : []),
+                      ]}
                     />
                   </div>
                   <div className="form-group">
-                    <label>Team Lead</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={teamForm.lead}
-                      onChange={(e) =>
-                        setTeamForm({ ...teamForm, lead: e.target.value })
+                    <label>Role</label>
+                    <ScrollableSelect
+                      ariaLabel="Role"
+                      value={teamForm.role}
+                      onChange={(role) =>
+                        setTeamForm({ ...teamForm, role })
                       }
+                      showCheckmark
+                      options={TEAM_ROLE_OPTIONS}
                     />
                   </div>
                 </div>
 
                 <div className="form-group">
-                  <label>Tags (comma separated)</label>
+                  <label htmlFor="create-team-tags">Tags (comma separated)</label>
                   <input
+                    id="create-team-tags"
                     type="text"
                     className="form-control"
                     placeholder="React, Backend, Sprints"
@@ -1313,7 +2133,7 @@ export const PeoplePage = ({
                 <button
                   type="button"
                   className="people-btn people-btn-secondary"
-                  onClick={() => setShowTeamModal(false)}
+                  onClick={closeTeamModal}
                 >
                   Cancel
                 </button>
@@ -1327,7 +2147,7 @@ export const PeoplePage = ({
                   ) : (
                     <Plus size={14} />
                   )}
-                  <span>Create Team</span>
+                  <span>{editingTeam ? "Save Changes" : "Create Team"}</span>
                 </button>
               </div>
             </form>

@@ -185,6 +185,8 @@ function Inbox({ theme: propTheme }) {
 
   // Main notifications state
   const [notifications, setNotifications] = useState([]);
+  const [updatingStarIds, setUpdatingStarIds] = useState(() => new Set());
+  const starUpdatesInFlight = useRef(new Set());
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const refreshInFlight = useRef(false);
   const refreshToastTimeout = useRef(null);
@@ -415,7 +417,7 @@ function Inbox({ theme: propTheme }) {
     } else if (activeFolder === "sent") {
       list = list.filter((n) => n.isSent && !n.deleted);
     } else {
-      list = list.filter((n) => !n.archived && !n.deleted && !n.isSent);
+      list = list.filter((n) => !n.archived && !n.deleted);
       if (activeFolder === "unread") {
         list = list.filter((n) => n.unread);
       } else if (activeFolder === "starred") {
@@ -536,17 +538,40 @@ function Inbox({ theme: propTheme }) {
 
   const handleToggleStar = async (id, e) => {
     e?.stopPropagation();
+    if (starUpdatesInFlight.current.has(id)) return;
     const item = notifications.find((n) => n.id === id);
     if (!item) return;
     const nextStarred = !item.starred;
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, starred: nextStarred } : n))
-    );
+    starUpdatesInFlight.current.add(id);
+    setUpdatingStarIds((prev) => new Set(prev).add(id));
     try {
-      await inboxApi.toggleStar(id, nextStarred);
-      showToast(nextStarred ? "Conversation starred" : "Star removed");
+      const result = await inboxApi.toggleStar(id, nextStarred);
+      if (result?.starred !== nextStarred) {
+        throw new Error("The server did not confirm the star update.");
+      }
+      inboxFetchSequence.current += 1;
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, starred: result.starred } : n))
+      );
+      if (
+        !nextStarred &&
+        (activeFolder === "starred" || filterType === "starred")
+      ) {
+        setSelectedId((selected) => (selected === id ? null : selected));
+      }
+      showToast(
+        nextStarred ? "Conversation Starred." : "Conversation Unstarred."
+      );
     } catch (err) {
       console.warn("[Inbox] toggleStar error:", err);
+      showToast("Unable to update conversation star. Please try again.", "error");
+    } finally {
+      starUpdatesInFlight.current.delete(id);
+      setUpdatingStarIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
   };
 
@@ -939,14 +964,14 @@ function Inbox({ theme: propTheme }) {
         .filter(Boolean),
       unread: false,
       starred: false,
-      isSent: true,
       created_at: createdAt,
       date: "Today",
     };
 
     try {
       const created = await inboxApi.create(newMsg);
-      const inserted = created || { ...newMsg, id: `msg_${Date.now()}` };
+      if (!created?.id) throw new Error("The server did not return a message ID.");
+      const inserted = created;
       setNotifications((prev) => [inserted, ...prev]);
       handleComposeClose();
       showToast("Message sent successfully");
@@ -1398,6 +1423,7 @@ function Inbox({ theme: propTheme }) {
                           className={`row-star-toggle ${
                             item.starred ? "is-starred" : ""
                           }`}
+                          disabled={updatingStarIds.has(item.id)}
                           onClick={(e) => handleToggleStar(item.id, e)}
                           title={item.starred ? "Unstar" : "Star"}
                         >
@@ -1611,10 +1637,16 @@ function Inbox({ theme: propTheme }) {
                           className={`reading-header-btn ${
                             activeNotification.starred ? "starred-active" : ""
                           }`}
+                          disabled={updatingStarIds.has(activeNotification.id)}
                           onClick={(e) =>
                             handleToggleStar(activeNotification.id, e)
                           }
-                          title="Star conversation"
+                          title={
+                            activeNotification.starred
+                              ? "Unstar conversation"
+                              : "Star conversation"
+                          }
+                          aria-pressed={activeNotification.starred}
                         >
                           <Star
                             size={14}
@@ -1623,7 +1655,7 @@ function Inbox({ theme: propTheme }) {
                             }
                           />
                           <span>
-                            {activeNotification.starred ? "Starred" : "Star"}
+                            {activeNotification.starred ? "Unstar" : "Star"}
                           </span>
                         </button>
 
