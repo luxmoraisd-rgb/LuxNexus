@@ -3,13 +3,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from resourcing.models import ResourceAllocation
-from resourcing.serializers.allocations import ResourceAllocationSerializer
+from AppCore.Resourcing.models import ResourceAllocation
+from AppCore.Resourcing.serializers.allocations import ResourceAllocationSerializer
+from AppCore.Auth.role_permissions import RoleModulePermission
 from .common import valid_object_id
 
 
 class ResourceAllocationListCreateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
 
     def get(self, request):
         allocations = ResourceAllocation.objects.filter(project__created_by=request.user).select_related("project", "user")
@@ -29,7 +30,7 @@ class ResourceAllocationListCreateView(APIView):
 
 
 class ResourceAllocationDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
 
     def get_object(self, allocation_id, user):
         if not valid_object_id(allocation_id):

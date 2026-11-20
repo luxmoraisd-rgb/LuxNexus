@@ -4,10 +4,14 @@ Supports request payloads and nested responses matching the Agile UI specificati
 """
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from AppCore.serializers.serializers import MongoModelSerializer
+from AppCore.serializers.serializers import (
+    MongoModelSerializer,
+    normalize_related_id_alias,
+)
 from ..models import Board, Sprint, BoardView, BoardColumn, Task
 
 User = get_user_model()
+STORY_POINT_VALUES = {1, 2, 3, 5, 7, 9, 10, 12, 13}
 
 
 class UserSerializer(MongoModelSerializer):
@@ -55,7 +59,7 @@ class BoardSerializer(MongoModelSerializer):
 class TaskSerializer(MongoModelSerializer):
     taskId = serializers.CharField(source='task_key', required=False)
     type = serializers.CharField(source='task_type', required=False)
-    sp = serializers.IntegerField(source='estimated_sp', required=False)
+    sp = serializers.IntegerField(source='estimated_sp', required=False, allow_null=True)
     sprintId = serializers.PrimaryKeyRelatedField(
         queryset=Sprint.objects.all(), source='sprint', required=False, allow_null=True
     )
@@ -79,6 +83,7 @@ class TaskSerializer(MongoModelSerializer):
         fields = [
             'id',
             'task_key',
+            'project_id',
             'taskId',
             'title',
             'description',
@@ -104,7 +109,30 @@ class TaskSerializer(MongoModelSerializer):
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
+    def to_internal_value(self, data):
+        data = normalize_related_id_alias(data, "owner", "owner_id")
+        return super().to_internal_value(data)
+
+    def validate_sp(self, value):
+        if value is not None and value not in STORY_POINT_VALUES:
+            raise serializers.ValidationError(
+                "Story points must be one of: 1, 2, 3, 5, 7, 9, 10, 12, 13."
+            )
+        return value
+
+    def validate_estimated_sp(self, value):
+        if value is not None and value not in STORY_POINT_VALUES:
+            raise serializers.ValidationError(
+                "Story points must be one of: 1, 2, 3, 5, 7, 9, 10, 12, 13."
+            )
+        return value
+
     def validate(self, attrs):
+        estimated_sp = attrs.get("estimated_sp")
+        if estimated_sp is not None and estimated_sp not in STORY_POINT_VALUES:
+            raise serializers.ValidationError(
+                {"estimated_sp": "Story points must be one of: 1, 2, 3, 5, 7, 9, 10, 12, 13."}
+            )
         board = attrs.get('board', getattr(self.instance, 'board', None))
         sprint = attrs.get('sprint', getattr(self.instance, 'sprint', None))
         if sprint and board and sprint.board_id != board.id:
@@ -146,6 +174,7 @@ class SprintSerializer(MongoModelSerializer):
             'id',
             'board',
             'board_id',
+            'project_id',
             'name',
             'status',
             'start_date',

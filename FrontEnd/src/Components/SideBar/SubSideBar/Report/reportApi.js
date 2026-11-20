@@ -28,10 +28,6 @@ export const reportApi = {
     const response = await client.post("/reporting/eod-reports/", report);
     return response.data;
   },
-  async addSampleReports() {
-    const response = await client.post("/reporting/eod-reports/sample-data/");
-    return response.data;
-  },
   async updateReport(id, changes) {
     const response = await client.patch(`/reporting/eod-reports/${encodeURIComponent(id)}/`, changes);
     return response.data;

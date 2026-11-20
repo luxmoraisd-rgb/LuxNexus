@@ -3,12 +3,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from resourcing.models import ResourcingProject
-from resourcing.serializers.capacity import CapacityProjectSerializer
+from AppCore.Resourcing.models import ResourcingProject
+from AppCore.Resourcing.serializers.capacity import CapacityProjectSerializer
+from AppCore.Auth.role_permissions import RoleModulePermission
 
 
 class CapacityPlanningView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
 
     def get(self, request):
         start = request.query_params.get("start")

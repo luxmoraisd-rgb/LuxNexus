@@ -14,6 +14,7 @@ from rest_framework.views import APIView
 from gridfs import GridFSBucket
 from gridfs.errors import NoFile
 
+from AppCore.Auth.role_permissions import RoleModulePermission
 from AppCore.db import get_database
 
 
@@ -90,164 +91,12 @@ def _serialize_notification(document):
     return value
 
 
-def seed_initial_notifications_for_user(user_id, username="Alex", email=""):
-    now = datetime.now(timezone.utc)
-    user_key = str(user_id)
-
-    defaults = [
-        {
-            "user_id": user_key,
-            "title": "Sprint 4 Backlog Grooming & Task Estimates",
-            "snippet": "Estimate story points for LUXNEX-20 API Integration before tomorrow's team sync.",
-            "description": "Please review the active backlog stories assigned for Sprint 4. Ensure story point estimates, dependencies, and acceptance criteria are updated before tomorrow's team sync.",
-            "author": "Alex Rivera",
-            "author_email": "alex.rivera@nexusapp.io",
-            "avatar": "AR",
-            "avatarColor": "#8b5cf6",
-            "type": "task",
-            "unread": True,
-            "starred": True,
-            "archived": False,
-            "deleted": False,
-            "mentioned": False,
-            "section": "Today",
-            "tags": ["Sprint", "Backlog", "Frontend"],
-            "time": "10:30 AM",
-            "date": now.strftime("%b %d, %Y"),
-            "tasks": [
-                {
-                    "id": "t1",
-                    "title": "Estimate story points for LUXNEX-20 API Integration",
-                    "date": "Today, 5:00 PM",
-                    "color": "purple",
-                    "completed": False,
-                },
-                {
-                    "id": "t2",
-                    "title": "Verify MongoDB 27017 connection with Django backend",
-                    "date": "Today, 6:00 PM",
-                    "color": "green",
-                    "completed": True,
-                },
-                {
-                    "id": "t3",
-                    "title": "Submit PR for review and team approval",
-                    "date": "Tomorrow, 11:00 AM",
-                    "color": "blue",
-                    "completed": False,
-                },
-            ],
-            "replies": [
-                {
-                    "id": str(ObjectId()),
-                    "author": "Alex Rivera",
-                    "text": "Hey, let me know if you need any clarification on the sprint backlog items!",
-                    "time": "10:35 AM",
-                    "date": now.strftime("%b %d, %Y"),
-                    "created_at": now.isoformat(),
-                }
-            ],
-            "created_at": now,
-        },
-        {
-            "user_id": user_key,
-            "title": "Mentioned in #api-architecture channel",
-            "snippet": f"@{username} can you check the MongoDB connection pooling on mongodb://localhost:27017/?",
-            "description": f"@{username} the staging environment has been linked to the local MongoDB instance on mongodb://localhost:27017/. All collections (users, notifications, sprints, tasks) are verified.",
-            "author": "DevOps Lead",
-            "author_email": "devops@nexusapp.io",
-            "avatar": "DL",
-            "avatarColor": "#10b981",
-            "type": "mention",
-            "unread": True,
-            "starred": False,
-            "archived": False,
-            "deleted": False,
-            "mentioned": True,
-            "section": "Today",
-            "tags": ["Mention", "DevOps", "Database"],
-            "time": "09:15 AM",
-            "date": now.strftime("%b %d, %Y"),
-            "tasks": [],
-            "replies": [],
-            "created_at": now,
-        },
-        {
-            "user_id": user_key,
-            "title": "Connected Workspace Integrations Live",
-            "snippet": "Sync commits, pull requests, and real-time alerts straight into your project board.",
-            "description": "Your Nexus Workspace is fully configured with real-time database synchronization on mongodb://localhost:27017/. All inbox actions, star flags, archive status, and replies persist instantly to the database.",
-            "author": "Hynux",
-            "author_email": "notifications@hynux.io",
-            "avatar": "HN",
-            "avatarColor": "#6366f1",
-            "type": "message",
-            "unread": False,
-            "starred": False,
-            "archived": False,
-            "deleted": False,
-            "mentioned": False,
-            "section": "Yesterday",
-            "tags": ["System", "Integrations"],
-            "time": "Yesterday",
-            "date": "Yesterday",
-            "tasks": [],
-            "replies": [
-                {
-                    "id": str(ObjectId()),
-                    "author": "Hynux Bot",
-                    "text": "Try submitting a reply in this thread to test database persistence!",
-                    "time": "04:20 PM",
-                    "date": "Yesterday",
-                    "created_at": now.isoformat(),
-                }
-            ],
-            "created_at": now,
-        },
-        {
-            "user_id": user_key,
-            "title": "Sprint 3 Completion Report & Velocity Stats",
-            "snippet": "Sprint 3 closed with 94% story point delivery. Archived for record keeping.",
-            "description": "Congratulations to the team! Sprint 3 concluded with 47 of 50 planned story points delivered. Quality metrics: 0 critical regressions, full test coverage on auth and data layers.",
-            "author": "Scrum Master",
-            "author_email": "scrum@nexusapp.io",
-            "avatar": "SM",
-            "avatarColor": "#ec4899",
-            "type": "message",
-            "unread": False,
-            "starred": False,
-            "archived": True,
-            "deleted": False,
-            "mentioned": False,
-            "section": "Earlier this month",
-            "tags": ["Report", "Sprint 3"],
-            "time": "Oct 10",
-            "date": "Oct 10, 2026",
-            "tasks": [],
-            "replies": [],
-            "created_at": now,
-        },
-    ]
-
-    collection = get_database().notifications
-    collection.insert_many(defaults)
-
-
 class InboxView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
 
     def get(self, request):
         collection = get_database().notifications
         user_query = _user_filter(request)
-
-        # Check if the user has any notifications; if 0, auto-seed default notifications once
-        has_any = collection.count_documents(user_query)
-        if has_any == 0:
-            seed_initial_notifications_for_user(
-                user_id=request.user.id,
-                username=getattr(request.user, "username", "Team Member"),
-                email=getattr(request.user, "email", ""),
-            )
 
         query = _user_filter(request)
         folder = request.query_params.get("folder")
@@ -323,7 +172,7 @@ class InboxView(APIView):
 
 
 class NotificationDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
 
     def get(self, request, notification_id):
         query = _notification_filter(request, notification_id)
@@ -345,7 +194,7 @@ class NotificationDetailView(APIView):
 
 
 class NotificationFlagView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
     flag_name = ""
 
     def patch(self, request, notification_id):
@@ -390,7 +239,7 @@ class NotificationArchiveView(NotificationFlagView):
 
 
 class MarkAllReadView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
 
     def post(self, request):
         result = get_database().notifications.update_many(
@@ -401,7 +250,7 @@ class MarkAllReadView(APIView):
 
 
 class NotificationBulkView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
     flag_actions = {
         "read": ("unread", False),
         "unread": ("unread", True),
@@ -436,7 +285,7 @@ class NotificationBulkView(APIView):
 
 
 class NotificationTaskView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
 
     def patch(self, request, notification_id, task_id):
         query = _notification_filter(request, notification_id)
@@ -461,7 +310,7 @@ class NotificationTaskView(APIView):
 
 
 class NotificationRepliesView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     max_file_size = 25 * 1024 * 1024
     max_total_size = 100 * 1024 * 1024
@@ -554,7 +403,7 @@ class NotificationRepliesView(APIView):
 
 
 class NotificationReplyAttachmentView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
 
     def get(self, request, notification_id, reply_id, attachment_id):
         query = _notification_filter(request, notification_id)
@@ -608,7 +457,7 @@ class NotificationReplyAttachmentView(APIView):
 
 
 class NotificationSettingsView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
 
     def get(self, request):
         document = get_database().notification_settings.find_one(_user_filter(request))

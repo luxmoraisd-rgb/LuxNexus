@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from django.contrib.auth.hashers import make_password
+from django.conf import settings
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 from rest_framework import status
@@ -42,6 +43,11 @@ class SignupView(APIView):
             if invitation is None or invitation["email"].lower() != email:
                 return Response(
                     {"invitation_token": ["This invitation is invalid, expired, or addressed to a different email."]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if invitation["role"] == "admin" and email not in settings.NEXUS_ADMIN_EMAILS:
+                return Response(
+                    {"invitation_token": ["This invitation is not valid for a configured Admin identity."]},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 

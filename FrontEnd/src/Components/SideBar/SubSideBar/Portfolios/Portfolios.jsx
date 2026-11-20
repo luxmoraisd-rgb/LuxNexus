@@ -10,7 +10,6 @@ import {
   AlertTriangle,
   Clock,
   CalendarDays,
-  DollarSign,
   TrendingUp,
   FolderKanban,
   Edit2,
@@ -45,12 +44,11 @@ export default function Portfolios({ currentUser, rolePermissions }) {
     key: "",
     description: "",
     status: "on track",
-    progress: 10,
+    progress: 0,
     priority: "High",
-    timeframe: "Full Year 2026",
-    budget: "$200,000",
-    ownerName: currentUser?.name || currentUser?.username || "You",
-    ownerRole: currentUser?.role || "Portfolio Lead",
+    timeframe: "",
+    ownerName: currentUser?.name || currentUser?.username || "",
+    ownerRole: currentUser?.role || "",
     projectsInput: "",
   });
 
@@ -80,18 +78,17 @@ export default function Portfolios({ currentUser, rolePermissions }) {
   }, [loadData]);
 
   const handleOpenCreateModal = () => {
-    const currentUserName = currentUser?.name || currentUser?.username || "You";
+    const currentUserName = currentUser?.name || currentUser?.username || "";
     setFormData({
       name: "",
       key: "",
       description: "",
       status: "on track",
-      progress: 10,
+      progress: 0,
       priority: "High",
-      timeframe: "Q1 - Q4 FY26",
-      budget: "$250,000",
+      timeframe: "",
       ownerName: currentUserName,
-      ownerRole: currentUser?.role || "Portfolio Lead",
+      ownerRole: currentUser?.role || "",
       projectsInput: "",
     });
     setIsModalOpen(true);
@@ -114,17 +111,19 @@ export default function Portfolios({ currentUser, rolePermissions }) {
       progress: Number(formData.progress) || 0,
       priority: formData.priority,
       timeframe: formData.timeframe,
-      budget: formData.budget,
       owner: {
         name: formData.ownerName,
         role: formData.ownerRole,
-        initials: (formData.ownerName || "PL").slice(0, 2).toUpperCase(),
+        initials: formData.ownerName
+          .split(/\s+/)
+          .map((part) => part[0] || "")
+          .slice(0, 2)
+          .join("")
+          .toUpperCase(),
       },
       projects: projectNames.map((name, idx) => ({
         id: `prj-${Date.now()}-${idx}`,
         name,
-        progress: Math.floor(Math.random() * 40) + 40,
-        status: formData.status,
       })),
     };
 
@@ -621,7 +620,7 @@ export default function Portfolios({ currentUser, rolePermissions }) {
                   </div>
                 </div>
 
-                <div className="form-row">
+                <div className="form-row portfolio-timeframe-row">
                   <div className="form-group">
                     <label>Target Timeframe</label>
                     <input
@@ -630,17 +629,6 @@ export default function Portfolios({ currentUser, rolePermissions }) {
                       placeholder="e.g. Q1 - Q4 FY26"
                       value={formData.timeframe}
                       onChange={(e) => setFormData({ ...formData, timeframe: e.target.value })}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>Allocated Budget</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="e.g. $250,000"
-                      value={formData.budget}
-                      onChange={(e) => setFormData({ ...formData, budget: e.target.value })}
                     />
                   </div>
                 </div>
@@ -793,8 +781,7 @@ export default function Portfolios({ currentUser, rolePermissions }) {
                 </div>
                 <div>
                   <span className="drawer-meta-label">Allocated Budget: </span>
-
-                  <strong>{activePortfolio.budget || "$250,000"}</strong>
+                  <strong>{activePortfolio.budget || "—"}</strong>
                 </div>
                 <div>
                   <span style={{ color: "var(--text-secondary)" }}>Portfolio Lead: </span>

@@ -20,17 +20,16 @@ import TaskRow from './TaskRow';
 import {
   STATUS_CONFIG,
   TYPE_CONFIG,
-  TEAM_MEMBERS,
   parseTaskId,
   getNextJiraTaskId,
   isTaskAssignedToPerson,
-  isPastDate,
   isTaskPastDueAndIncomplete,
 } from './TaskRowUtils';
 import BacklogBatchBar from './BacklogBatchBar';
 import { useCustomColumns } from './customColumns';
 import KanbanBoard from '../Kanban/KanbanBoard';
 import {
+  backlogClient,
   sprintApi,
   taskApi,
   projectKeyApi,
@@ -45,9 +44,6 @@ const BacklogModals = lazy(() => import('./BacklogModals'));
 const ActiveSprint = lazy(() => import('../ActiveSprint/ActiveSprint'));
 const AllSprints = lazy(() => import('../AllSprints/AllSprints'));
 
-const BOARD_MEMBERS_STORAGE_KEY = 'nexus-board-members';
-const INVITATIONS_STORAGE_KEY = 'nexus-invitations';
-
 const getTaskCreationErrorMessage = (error) => {
   const responseData = error.response?.data;
   if (responseData && typeof responseData === 'object') {
@@ -60,49 +56,6 @@ const getTaskCreationErrorMessage = (error) => {
     if (details) return details;
   }
   return error.message || 'Please try again.';
-};
-
-const getBoardPeople = () => {
-  try {
-    const storedPeople = [BOARD_MEMBERS_STORAGE_KEY, INVITATIONS_STORAGE_KEY]
-      .flatMap((key) => {
-        const raw = localStorage.getItem(key);
-        if (!raw) return [];
-
-        try {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) return parsed;
-          console.warn(`[MyTasks] Ignoring invalid people data in ${key}.`);
-          return [];
-        } catch (error) {
-          console.warn(`[MyTasks] Ignoring malformed people data in ${key}.`, error);
-          return [];
-        }
-      })
-      .filter((person) => person && typeof person.name === 'string' && person.name.trim());
-
-    const uniquePeople = new Map();
-    storedPeople.forEach((person) => {
-      const email = typeof person.email === 'string' ? person.email.trim().toLowerCase() : '';
-      const id = person.id ?? (email || person.name.trim().toLowerCase());
-      const key = email || String(id);
-      if (!uniquePeople.has(key)) {
-        uniquePeople.set(key, {
-          ...person,
-          id: String(id),
-          name: person.name.trim(),
-          email,
-          initial: person.initial || person.avatar || person.name.trim()[0].toUpperCase(),
-          avatarBg: person.avatarBg || '#6366f1',
-        });
-      }
-    });
-
-    return { members: Array.from(uniquePeople.values()), error: null };
-  } catch (error) {
-    console.error('[MyTasks] Unable to load board people.', error);
-    return { members: [], error };
-  }
 };
 
 const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
@@ -306,29 +259,10 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
   }, [handleOpenModal, statusFilter, typeFilter]);
 
   const handleOpenPersonFilter = useCallback((event) => {
-    if (activeTab === 'Kanban') {
-      const result = getBoardPeople();
-      const membersByIdentity = new Map();
-      [...TEAM_MEMBERS, ...result.members].forEach((person) => {
-        const key = (person.email || String(person.id || person.name)).trim().toLowerCase();
-        membersByIdentity.set(key, person);
-      });
-      const availablePeople = Array.from(membersByIdentity.values());
-      setPersonFilterMembers(availablePeople);
-      if (result.error) {
-        showToast('Unable to load board people from browser storage', 'error');
-      }
-      if (
-        selectedPersonFilter !== 'all' &&
-        !availablePeople.some((person) => String(person.id) === String(selectedPersonFilter))
-      ) {
-        setSelectedPersonFilter('all');
-      }
-    }
     handleOpenModal('personFilter', null, event);
-  }, [activeTab, handleOpenModal, selectedPersonFilter, showToast]);
+  }, [handleOpenModal]);
 
-  const activePersonFilterMembers = activeTab === 'Kanban' ? personFilterMembers : TEAM_MEMBERS;
+  const activePersonFilterMembers = personFilterMembers;
   const personFilterTitle = 'Filter by Person';
 
   const handleCloseModal = useCallback(() => {
@@ -355,73 +289,28 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
   // ALL TASKS: Pure in-memory React state (populated from API database only - NO browser storage)
   const [allTasks, setAllTasks] = useState(() => getStoredTasks() || []);
   // Role-based admin restrictions removed: open access to all tasks and board capabilities
-  const canManageTasks = rolePermissions ? rolePermissions.manage_tasks !== false : true;
+  const effectiveRole = rolePermissions?.current_role || currentUser?.role || 'user';
+  const isElevatedTaskRole = effectiveRole === 'admin' || effectiveRole === 'team_lead';
+  const canManageTasks = isElevatedTaskRole && (
+    rolePermissions ? rolePermissions.manage_tasks !== false : true
+  );
   const canManageTeam = rolePermissions ? rolePermissions.manage_team !== false : true;
-  const canManageSprints = rolePermissions ? rolePermissions.manage_sprints !== false : true;
+  const canManageSprints = isElevatedTaskRole && (
+    rolePermissions ? rolePermissions.manage_sprints !== false : true
+  );
   const canManageBoard = rolePermissions ? rolePermissions.manage_board !== false : true;
-  const canEditTask = useCallback((_taskId) => true, []);
-
-  /**
-   * Load all tasks, sprints and configuration from backend API database
-   */
-  const loadApiData = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const [apiSprints, apiTasks, apiKey] = await Promise.allSettled([
-        sprintApi.getAll(),
-        taskApi.getAll(),
-        projectKeyApi.get(),
-      ]);
-
-      if (apiSprints.status === 'fulfilled' && Array.isArray(apiSprints.value)) {
-        setSprints(apiSprints.value);
-      }
-      if (apiTasks.status === 'fulfilled' && Array.isArray(apiTasks.value)) {
-        setAllTasks(
-          apiTasks.value.map((t) => {
-            let item = t.status === 'Stuck' ? { ...t, status: 'Ready to start' } : t;
-            if (item.type === 'Task') {
-              item = { ...item, type: 'Frontend' };
-            }
-            return item;
-          })
-        );
-      }
-      if (apiKey.status === 'fulfilled' && apiKey.value && apiKey.value !== 'TMYT') {
-        setProjectKey(apiKey.value);
-      }
-
-      const isLive = apiSprints.status === 'fulfilled' || apiTasks.status === 'fulfilled';
-      setApiStatus({
-        isConnected: Boolean(isLive),
-        isPreparing: !isLive,
-        message: isLive
-          ? 'Connected to Backlog API database'
-          : 'Backlog API is under preparation on backend. Frontend ready for database integration.',
-        lastChecked: new Date(),
-      });
-    } catch (err) {
-      console.info('[Backlog] Backend API preparing phase notice:', err?.message);
-      setApiStatus({
-        isConnected: false,
-        isPreparing: true,
-        message: 'Backend endpoint /api/backlog is in preparation phase.',
-        lastChecked: new Date(),
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+  const canEditTask = useCallback(() => true, []);
 
   useEffect(() => {
     let isSubscribed = true;
 
     const initData = async () => {
       try {
-        const [apiSprints, apiTasks, apiKey] = await Promise.allSettled([
+        const [apiSprints, apiTasks, apiKey, apiAssignees] = await Promise.allSettled([
           sprintApi.getAll(),
           taskApi.getAll(),
           projectKeyApi.get(),
+          backlogClient.get('/backlog/users/'),
         ]);
 
         if (!isSubscribed) return;
@@ -445,6 +334,11 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
         }
         if (apiKey.status === 'fulfilled' && apiKey.value && apiKey.value !== 'TMYT') {
           setProjectKey(apiKey.value);
+        }
+        if (apiAssignees.status === 'fulfilled' && Array.isArray(apiAssignees.value.data)) {
+          setPersonFilterMembers(apiAssignees.value.data);
+        } else if (apiAssignees.status === 'rejected') {
+          console.error('[MyTasks] Unable to load people for task assignments.', apiAssignees.reason);
         }
       } catch (err) {
         console.info('[Backlog] API database load notice:', err?.message);
@@ -517,7 +411,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
     }
 
     if (selectedPersonFilter !== 'all') {
-      const selectedPerson = TEAM_MEMBERS.find(
+      const selectedPerson = personFilterMembers.find(
         (person) => String(person.id) === String(selectedPersonFilter)
       ) || { id: selectedPersonFilter };
       result = result.filter((task) => isTaskAssignedToPerson(task.owner, selectedPerson));
@@ -546,7 +440,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
     }
 
     return result;
-  }, [deferredSearchQuery, selectedPersonFilter, statusFilter, typeFilter, sortBy]);
+  }, [deferredSearchQuery, selectedPersonFilter, personFilterMembers, statusFilter, typeFilter, sortBy]);
 
   const processedTasks = useMemo(() => processTasks(allTasks), [processTasks, allTasks]);
 
@@ -694,6 +588,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
       status,
       startDate,
       dueDate,
+      owner,
     } = taskInput;
     const sprint = taskInput.sprint ?? taskInput.sprintId;
     const customTaskId = taskInput.customTaskId ?? taskInput.taskId;
@@ -722,7 +617,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
     const newTask = {
       id: `task-${Date.now()}`,
       title,
-      owner: 'siva',
+      owner: owner || '',
       status: status || 'Ready to start',
       type: type || 'Frontend',
       taskId: finalTaskId,
@@ -929,10 +824,10 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
     setAllTasks((prev) => prev.map((t) => (String(t.id) === String(taskId) ? { ...t, owner: newOwner } : t)));
     setActiveTaskTarget((prev) => (prev && String(prev.id) === String(taskId) ? { ...prev, owner: newOwner } : prev));
     setActiveModal((prev) => (prev === 'ownerPicker' ? null : prev));
-    const member = TEAM_MEMBERS.find((m) => m.id === newOwner);
+    const member = personFilterMembers.find((m) => m.id === newOwner);
     showToast(`Assigned to ${member ? member.name : newOwner}`, 'info');
     await taskApi.update(taskId, { owner: newOwner });
-  }, [canManageTasks, requirePermission, showToast]);
+  }, [canManageTasks, personFilterMembers, requirePermission, showToast]);
 
   const handleSPChange = useCallback(async (taskId, newSP) => {
     if (!requirePermission(canEditTask(taskId), 'You can only update tasks assigned to you.')) return;
@@ -998,21 +893,29 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
     [navigate, showToast]
   );
 
-  const handlePostComment = useCallback(async (taskId, text, authorName = 'Sivakumar') => {
+  const currentUserName =
+    currentUser?.name ||
+    currentUser?.username ||
+    currentUser?.email?.split('@')[0] ||
+    'You';
+  const handlePostComment = useCallback(async (taskId, text, authorName = currentUserName) => {
     if (!requirePermission(canEditTask(taskId), 'You can only comment on tasks assigned to you.')) return;
-    const member = TEAM_MEMBERS.find((m) => m.name === authorName) || {
-      name: authorName || 'Sivakumar',
-      role: 'Developer',
+    const member = personFilterMembers.find((m) => m.name === authorName) || {
+      name: authorName || currentUserName,
+      role: currentUser?.role || 'Member',
       avatarBg: '#0052cc',
-      initial: (authorName || 'S')[0],
+      initial: (authorName || currentUserName)[0],
     };
 
     const newComment = {
       id: Date.now(),
       author: member.name,
-      role: member.role || 'Developer',
-      avatarBg: member.avatarBg || '#0052cc',
-      initial: member.initial || member.name[0],
+      role: member.role || currentUser?.role || 'Member',
+      avatarBg: member.avatarBg || member.avatarColor || '#6366f1',
+      avatar: member.avatar,
+      avatarUrl: member.avatarUrl,
+      photo: member.photo,
+      initial: member.initial || member.initials || member.name[0],
       text,
       time: 'Just now',
       likes: 0,
@@ -1029,9 +932,9 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
     setActiveTaskTarget((prev) =>
       prev && prev.id === taskId ? { ...prev, comments: [...(prev.comments || []), newComment] } : prev
     );
-    showToast('Developer comment posted! (API Dispatched)', 'success');
+    showToast('Comment posted', 'success');
     await taskApi.addComment(taskId, newComment);
-  }, [canEditTask, requirePermission, showToast]);
+  }, [canEditTask, currentUser?.role, currentUserName, personFilterMembers, requirePermission, showToast]);
 
   const handleToggleCommentLike = useCallback((taskId, commentId) => {
     if (!requirePermission(canEditTask(taskId), 'You can only react to comments on tasks assigned to you.')) return;
@@ -1512,7 +1415,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
                 <span>
                   {selectedPersonFilter === 'all'
                     ? 'Person'
-                    : TEAM_MEMBERS.find((m) => m.id === selectedPersonFilter)?.name || 'Person'}
+                    : personFilterMembers.find((m) => m.id === selectedPersonFilter)?.name || 'Person'}
                 </span>
                 {selectedPersonFilter !== 'all' && (
                   <span
@@ -1598,6 +1501,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
             <ActiveSprint
               sprints={sprints}
               allTasks={allTasks}
+              teamMembers={personFilterMembers}
               processedTasks={processedTasks}
               selectedTaskIds={selectedTaskIds}
               statusConfig={statusConfig}
@@ -1631,6 +1535,9 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
             <AllSprints
               sprints={sprints}
               allTasks={allTasks}
+              rolePermissions={rolePermissions}
+              currentUser={currentUser}
+              teamMembers={personFilterMembers}
               processedTasks={processedTasks}
               selectedTaskIds={selectedTaskIds}
               statusConfig={statusConfig}
@@ -1763,7 +1670,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
                         <div className="backlog-standup-indicator" />
                       </div>
 
-                      {!sprint.isStarted ? (
+                      {canManageSprints && (!sprint.isStarted ? (
                         <button
                           type="button"
                           className="backlog-btn-start-sprint"
@@ -1783,7 +1690,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
                           <CheckIcon size={13} />
                           <span>Complete sprint</span>
                         </button>
-                      )}
+                      ))}
 
                       <button
                         type="button"
@@ -1886,6 +1793,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
                               onRemoveEpic={handleRemoveEpic}
                               showToast={showToast}
                               customColumns={customColumns}
+                              teamMembers={personFilterMembers}
                             />
                           ))}
 
@@ -2083,6 +1991,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
                           onRemoveEpic={handleRemoveEpic}
                           showToast={showToast}
                           customColumns={customColumns}
+                          teamMembers={personFilterMembers}
                         />
                       ))}
 
@@ -2162,6 +2071,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
         <Suspense fallback={null}>
           <BacklogModals
             activeModal={activeModal}
+            currentUser={currentUser}
             onClose={handleCloseModal}
             anchorRect={anchorRect}
             activeTaskTarget={activeTaskTarget}

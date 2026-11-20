@@ -52,14 +52,10 @@ export const normalizeSprint = (rawSprint) => {
   if (!dates && rawSprint.start_date && rawSprint.end_date) {
     dates = `${rawSprint.start_date} - ${rawSprint.end_date}`;
   }
-  if (!dates) {
-    dates = 'Add Sprint dates';
-  }
-
   return {
     id: String(id),
-    name: rawSprint.name || 'Sprint',
-    status: rawSprint.status || (isCompleted ? 'completed' : isStarted ? 'active' : 'future'),
+    name: rawSprint.name || '',
+    status: rawSprint.status || (isCompleted ? 'completed' : isStarted ? 'active' : ''),
     isStarted,
     isCompleted,
     dates,
@@ -85,12 +81,12 @@ export const normalizeSprint = (rawSprint) => {
 export const normalizeTask = (rawTask) => {
   if (!rawTask) return null;
   const id = rawTask.id || rawTask._id || String(rawTask.pk || '');
-  const taskId = rawTask.task_key || rawTask.taskId || rawTask.task_id || `LUX-${id}`;
+  const taskId = rawTask.task_key || rawTask.taskId || rawTask.task_id || '';
   let sprintId = rawTask.sprint?.id || rawTask.sprint_id || rawTask.sprintId || 'backlog';
-  const owner = rawTask.owner?.name || rawTask.owner?.username || rawTask.owner || 'Alex Rivera';
-  const type = rawTask.task_type || rawTask.type || 'Feature';
+  const owner = rawTask.owner?.name || rawTask.owner?.username || rawTask.owner || '';
+  const type = rawTask.task_type || rawTask.type || '';
   const sp = rawTask.estimated_sp ?? rawTask.sp ?? null;
-  const status = rawTask.status || 'Ready to start';
+  const status = rawTask.status || '';
   const dueDate = rawTask.dueDate || rawTask.due_date || '';
 
   if (isTaskPastDueAndIncomplete({ dueDate, status })) {
@@ -100,12 +96,12 @@ export const normalizeTask = (rawTask) => {
   return {
     id: String(id),
     taskId: String(taskId),
-    title: rawTask.title || 'Untitled task',
+    title: rawTask.title || '',
     description: rawTask.description || '',
     status,
     type: String(type),
     sp: sp !== null && sp !== undefined ? Number(sp) : null,
-    owner: typeof owner === 'object' ? (owner.name || owner.username || 'Alex Rivera') : String(owner),
+    owner: typeof owner === 'object' ? (owner.name || owner.username || '') : String(owner),
     ownerDetails: typeof rawTask.owner === 'object' ? rawTask.owner : null,
     epic: rawTask.epic || '',
     sprintId: String(sprintId),
@@ -115,7 +111,7 @@ export const normalizeTask = (rawTask) => {
     comments: Array.isArray(rawTask.comments) ? rawTask.comments : [],
     checklist: Array.isArray(rawTask.checklist) ? rawTask.checklist : [],
     dueDate,
-    updatedAt: rawTask.updated_at || rawTask.updatedAt || new Date().toISOString(),
+    updatedAt: rawTask.updated_at || rawTask.updatedAt || '',
   };
 };
 
@@ -144,41 +140,23 @@ export const allSprintsApi = {
    * @param {Object} params - Query filters (e.g. { status, search })
    */
   getOverview: async (params = {}) => {
-    try {
-      const response = await allSprintsClient.get('/all-sprints/', { params });
-      const data = response.data;
-      if (data && typeof data === 'object') {
-        const normalizedSprints = Array.isArray(data.sprints) ? data.sprints.map(normalizeSprint) : [];
-        const normalizedTasks = Array.isArray(data.tasks) ? data.tasks.map(normalizeTask) : [];
-        return {
-          metrics: data.metrics || {
-            total_sprints: normalizedSprints.length,
-            active_sprints: normalizedSprints.filter((s) => s.isStarted).length,
-            planned_sprints: normalizedSprints.filter((s) => !s.isStarted && !s.isCompleted).length,
-            completed_sprints: normalizedSprints.filter((s) => s.isCompleted).length,
-            total_sp: normalizedTasks.reduce((sum, t) => sum + (Number(t.sp) || 0), 0),
-          },
-          sprints: normalizedSprints,
-          tasks: normalizedTasks,
-        };
-      }
-    } catch (error) {
-      console.warn('[AllSprintsApi] GET /all-sprints/ error:', error.message);
+    const response = await allSprintsClient.get('/all-sprints/', { params });
+    const data = response.data;
+    if (!data || typeof data !== 'object') {
+      throw new Error('The sprint overview response is invalid.');
     }
-
-    // Fallback: load via standard sprints endpoint
-    const fallbackSprints = await allSprintsApi.getAllSprints(params);
-    const fallbackTasks = await allSprintsApi.getSprintTasks();
+    const normalizedSprints = Array.isArray(data.sprints) ? data.sprints.map(normalizeSprint) : [];
+    const normalizedTasks = Array.isArray(data.tasks) ? data.tasks.map(normalizeTask) : [];
     return {
-      metrics: {
-        total_sprints: fallbackSprints.length,
-        active_sprints: fallbackSprints.filter((s) => s.isStarted).length,
-        planned_sprints: fallbackSprints.filter((s) => !s.isStarted && !s.isCompleted).length,
-        completed_sprints: fallbackSprints.filter((s) => s.isCompleted).length,
-        total_sp: fallbackTasks.reduce((sum, t) => sum + (Number(t.sp) || 0), 0),
+      metrics: data.metrics || {
+        total_sprints: normalizedSprints.length,
+        active_sprints: normalizedSprints.filter((s) => s.isStarted).length,
+        planned_sprints: normalizedSprints.filter((s) => !s.isStarted && !s.isCompleted).length,
+        completed_sprints: normalizedSprints.filter((s) => s.isCompleted).length,
+        total_sp: normalizedTasks.reduce((sum, t) => sum + (Number(t.sp) || 0), 0),
       },
-      sprints: fallbackSprints,
-      tasks: fallbackTasks,
+      sprints: normalizedSprints,
+      tasks: normalizedTasks,
     };
   },
 
@@ -187,20 +165,13 @@ export const allSprintsApi = {
    * GET /api/all-sprints/sprints/ or /api/sprints/
    */
   getAllSprints: async (params = {}) => {
-    try {
-      const response = await allSprintsClient.get('/sprints/', { params });
-      const data = response.data?.sprints || response.data?.data || response.data;
-      if (Array.isArray(data)) {
-        return data.map(normalizeSprint);
-      }
-    } catch (error) {
-      if (error.response?.status !== 404) {
-        console.warn('[AllSprintsApi] GET /sprints/ error:', error.message);
-      }
+    const response = await allSprintsClient.get('/sprints/', { params });
+    const data = response.data?.sprints || response.data?.data || response.data;
+    if (!Array.isArray(data)) {
+      throw new Error('The sprint response did not contain a list.');
     }
+    return data.map(normalizeSprint);
 
-    const inMem = getStoredSprints();
-    return Array.isArray(inMem) ? inMem.map(normalizeSprint) : [];
   },
 
   /**
@@ -208,20 +179,13 @@ export const allSprintsApi = {
    * GET /api/tasks/?sprint=<sprintId>
    */
   getSprintTasks: async (sprintId = null) => {
-    try {
-      const params = sprintId ? { sprint: sprintId } : {};
-      const response = await allSprintsClient.get('/tasks/', { params });
-      const data = response.data?.tasks || response.data?.data || response.data;
-      if (Array.isArray(data)) {
-        return data.map(normalizeTask);
-      }
-    } catch (error) {
-      console.warn('[AllSprintsApi] GET /tasks/ error:', error.message);
+    const params = sprintId ? { sprint: sprintId } : {};
+    const response = await allSprintsClient.get('/tasks/', { params });
+    const data = response.data?.tasks || response.data?.data || response.data;
+    if (!Array.isArray(data)) {
+      throw new Error('The task response did not contain a list.');
     }
-
-    const inMem = getStoredTasks();
-    if (!sprintId) return inMem.map(normalizeTask);
-    return inMem.filter((t) => String(t.sprintId) === String(sprintId)).map(normalizeTask);
+    return data.map(normalizeTask);
   },
 
   /**

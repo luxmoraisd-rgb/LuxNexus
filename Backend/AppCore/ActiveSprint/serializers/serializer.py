@@ -4,9 +4,11 @@ Supports request payloads and nested responses matching the Agile UI specificati
 """
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from appcore.models import Board, Sprint, BoardView, BoardColumn, Task
+from AppCore.ActiveSprint.models import Board, Sprint, BoardView, BoardColumn, Task
+from AppCore.serializers.serializers import normalize_related_id_alias
 
 User = get_user_model()
+STORY_POINT_VALUES = {1, 2, 3, 5, 7, 9, 10, 12, 13}
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -52,6 +54,7 @@ class TaskSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'task_key',
+            'project_id',
             'title',
             'description',
             'board',
@@ -71,6 +74,25 @@ class TaskSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
+    def to_internal_value(self, data):
+        data = normalize_related_id_alias(data, "owner", "owner_id")
+        return super().to_internal_value(data)
+
+    def validate_estimated_sp(self, value):
+        if value is not None and value not in STORY_POINT_VALUES:
+            raise serializers.ValidationError(
+                "Story points must be one of: 1, 2, 3, 5, 7, 9, 10, 12, 13."
+            )
+        return value
+
+    def validate(self, attrs):
+        estimated_sp = attrs.get("estimated_sp")
+        if estimated_sp is not None and estimated_sp not in STORY_POINT_VALUES:
+            raise serializers.ValidationError(
+                {"estimated_sp": "Story points must be one of: 1, 2, 3, 5, 7, 9, 10, 12, 13."}
+            )
+        return attrs
+
 
 class SprintSerializer(serializers.ModelSerializer):
     board = BoardSerializer(read_only=True)
@@ -87,6 +109,7 @@ class SprintSerializer(serializers.ModelSerializer):
             'id',
             'board',
             'board_id',
+            'project_id',
             'name',
             'status',
             'start_date',

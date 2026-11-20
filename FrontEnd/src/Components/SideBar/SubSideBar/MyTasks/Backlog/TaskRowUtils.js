@@ -13,21 +13,28 @@ export const TYPE_CONFIG = {
   'Quality': { bg: '#f783ac', text: '#202124' },
 };
 
-export const TEAM_MEMBERS = [
-  { id: 'sivakumar', name: 'Sivakumar', username: 'sivakumar', email: 'sivakumarluxmorchn@gmail.com', avatarBg: '#137333', initial: 'S', role: 'Frontend' },
-  { id: 'luxmor', name: 'Luxmor', username: 'luxmor', email: 'luxmorchn@gmail.com', avatarBg: '#7c3aed', initial: 'L', role: 'Project Admin' },
-  { id: 'franklin', name: 'Franklin', username: 'franklin', email: 'franklin@gmail.com', avatarBg: '#059669', initial: 'F', role: 'Backend Engineer' },
-  { id: 'jeeva', name: 'Jeeva', username: 'jeeva', email: 'jeeva@gmail.com', avatarBg: '#d97706', initial: 'J', role: 'QA Engineer' },
-  { id: 'nexus_admin', name: 'Nexus Admin', username: 'nexus_admin', email: 'nexususer2026@test.com', avatarBg: '#dc2626', initial: 'N', role: 'System Admin' },
-  { id: 'testuser', name: 'Test User', username: 'testuser', email: 'testuser@example.com', avatarBg: '#4b5563', initial: 'T', role: 'Tester' },
-];
+export const TEAM_MEMBERS = [];
+
+export const getProfileAvatarUrl = (person) => {
+  const candidates = [
+    person?.photo,
+    person?.avatarUrl,
+    person?.profileImage,
+    person?.profile_image,
+    person?.avatar,
+  ];
+  return candidates.find(
+    (value) =>
+      typeof value === 'string' &&
+      /^(https?:\/\/|data:image\/|blob:|\/)/i.test(value.trim())
+  )?.trim() || '';
+};
 
 export const isTaskAssignedToPerson = (owner, person) => {
   if (!person) return false;
 
   const normalize = (value) => String(value ?? '').trim().toLowerCase();
   const personValues = [person.id, person.name, person.username, person.email];
-  if (normalize(person.id) === 'sivakumar') personValues.push('siva');
 
   const ownerValues =
     typeof owner === 'object' && owner !== null

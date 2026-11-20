@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import "./resourcing.css";
 import {
   getStoredCharts,
-  getStoredProjects,
   getTodayDate,
   resourcingApi,
   saveStoredCharts,
@@ -316,112 +315,16 @@ const ChartCard = ({ chart, selected, onClick }) => (
   </button>
 );
 
-const ChartPreview = ({ type, colors = [] }) => {
-  if (type === "bar") return <BarChart colors={colors} />;
-  if (type === "donut") return <DonutChart colors={colors} />;
-  if (type === "line") return <LineChart colors={colors} />;
-  if (type === "people") return <PeopleChart colors={colors} />;
-  if (type === "number") return <NumberChart />;
-  return null;
-};
-
-const BarChart = ({ colors }) => {
-  const bars = [
-    { height: 32, color: colors[0] || "#16cfa5" },
-    { height: 20, color: colors[1] || "#20cdb1" },
-    { height: 48, color: colors[2] || "#50d9bd" },
-    { height: 30, color: colors[3] || "#64d6c2" },
-  ];
-
-  return (
-    <div className="mini-bar-chart">
-      <div className="chart-baseline" />
-      {bars.map((bar, index) => (
-        <span
-          key={index}
-          className="mini-bar"
-          style={{ height: `${bar.height}px`, background: bar.color }}
-        />
-      ))}
-    </div>
-  );
-};
-
-const DonutChart = ({ colors }) => {
-  const first = colors[0] || "#1ed88d";
-  const second = colors[1] || "#ffc400";
-  const third = colors[2] || "#ef476f";
-
-  return (
-    <div className="donut-wrapper">
-      <div
-        className="donut-chart"
-        style={{
-          background: `conic-gradient(${first} 0deg 190deg, ${second} 190deg 255deg, ${third} 255deg 360deg)`,
-        }}
-      >
-        <div className="donut-hole">
-          <span>−</span>
-        </div>
-      </div>
-
-      <div className="donut-legend">
-        <span><i style={{ background: first }} /></span>
-        <span><i style={{ background: second }} /></span>
-        <span><i style={{ background: third }} /></span>
-      </div>
-    </div>
-  );
-};
-
-const LineChart = ({ colors }) => {
-  const first = colors[0] || "#8f80ff";
-  const second = colors[1] || "#f0b64c";
-
-  return (
-    <svg className="mini-line-chart" viewBox="0 0 150 75" preserveAspectRatio="none">
-      <line x1="0" y1="64" x2="150" y2="64" stroke="#929292" strokeWidth="1" />
-      <polyline points="5,50 38,20 65,55 105,29 142,8" fill="none" stroke={first} strokeWidth="2" />
-      <polyline points="5,68 38,48 65,73 105,34 142,19" fill="none" stroke={second} strokeWidth="2" />
-      <circle cx="5" cy="50" r="3" fill={first} />
-      <circle cx="38" cy="20" r="3" fill={first} />
-      <circle cx="65" cy="55" r="3" fill={first} />
-      <circle cx="105" cy="29" r="3" fill={first} />
-      <circle cx="142" cy="8" r="3" fill={first} />
-    </svg>
-  );
-};
-
-const PeopleChart = ({ colors }) => {
-  const color = colors[0] || "#20b8ef";
-
-  return (
-    <div className="people-chart">
-      <div className="people-baseline" />
-      {[22, 42, 36, 53].map((height, index) => (
-        <div className="person-column" key={index}>
-          <div className="person-line" style={{ height: `${height}px`, background: color }} />
-          <div className="person-dot" style={{ background: color }} />
-          <div className="person-avatar">{index + 1}</div>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-const NumberChart = () => (
-  <div className="number-chart">
-    <strong>133</strong>
-    <span />
-  </div>
+const ChartPreview = () => (
+  <div className="chart-no-data">Data will appear when available.</div>
 );
 
 const Resourcing = () => {
   const [activeTab, setActiveTab] = useState("charts");
   const [showAddChart, setShowAddChart] = useState(false);
   const [charts, setCharts] = useState(() => getStoredCharts());
-  const [projects, setProjects] = useState(() => getStoredProjects());
-  const [loading, setLoading] = useState(false);
+  const [projects, setProjects] = useState([]);
+  const [projectsError, setProjectsError] = useState("");
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [newStartDate, setNewStartDate] = useState("");
@@ -432,17 +335,17 @@ const Resourcing = () => {
 
   useEffect(() => {
     let isCurrent = true;
-    setLoading(true);
     resourcingApi
       .getCapacity()
       .then((data) => {
-        if (isCurrent && data && data.length > 0) {
+        if (isCurrent) {
           setProjects(data);
-          setLoading(false);
         }
       })
-      .catch(() => {
-        if (isCurrent) setLoading(false);
+      .catch((error) => {
+        if (isCurrent) {
+          setProjectsError(error.response?.data?.detail || error.message || "Unable to load projects.");
+        }
       });
     return () => {
       isCurrent = false;
@@ -521,8 +424,12 @@ const Resourcing = () => {
   };
 
   const handleDeleteProject = async (projectId) => {
-    setProjects((prev) => prev.filter((p) => p.id !== projectId));
-    await resourcingApi.deleteProject(projectId);
+    try {
+      await resourcingApi.deleteProject(projectId);
+      setProjects((prev) => prev.filter((p) => p.id !== projectId));
+    } catch (error) {
+      setProjectsError(error.response?.data?.detail || error.message || "Unable to delete project.");
+    }
   };
 
   const totalAllocatedHours = projects.reduce((total, p) => {
@@ -616,6 +523,7 @@ const Resourcing = () => {
           )}
         </div>
       </header>
+      {projectsError && <p role="alert">{projectsError}</p>}
 
       {/* SUMMARY STATS BAR */}
       <section

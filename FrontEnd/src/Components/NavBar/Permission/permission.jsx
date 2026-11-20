@@ -1,21 +1,16 @@
 import { useEffect, useState } from "react";
-import { LockKeyhole, Save, ShieldCheck, X } from "lucide-react";
+import { LockKeyhole, ShieldCheck, X } from "lucide-react";
 import { authClient } from "../../Auth/authApi";
 import "./permission.css";
 
-const Permission = ({ currentUser, onPermissionsUpdated }) => {
+const Permission = ({ currentUser }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [policy, setPolicy] = useState(null);
-  const [savedPolicy, setSavedPolicy] = useState(null);
   const [permissionDefinitions, setPermissionDefinitions] = useState([]);
   const [roles, setRoles] = useState({});
   const [currentRole, setCurrentRole] = useState(currentUser?.role || "user");
   const [isLoading, setIsLoading] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
-
-  const isAdmin = currentRole === "admin";
-  const hasChanges = policy && JSON.stringify(policy) !== JSON.stringify(savedPolicy);
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -34,7 +29,6 @@ const Permission = ({ currentUser, onPermissionsUpdated }) => {
       const response = await authClient.get("/permissions/");
       const data = response.data;
       setPolicy(data.policies);
-      setSavedPolicy(data.policies);
       setPermissionDefinitions(data.permissions);
       setRoles(data.roles);
       setCurrentRole(data.current_role || currentUser?.role || "user");
@@ -48,31 +42,6 @@ const Permission = ({ currentUser, onPermissionsUpdated }) => {
   const openPermissions = () => {
     setIsOpen(true);
     void loadPermissions();
-  };
-
-  const togglePermission = (role, permission) => {
-    setPolicy((previous) => ({
-      ...previous,
-      [role]: {
-        ...previous[role],
-        [permission]: !previous[role][permission],
-      },
-    }));
-  };
-
-  const savePermissions = async () => {
-    setIsSaving(true);
-    setError("");
-    try {
-      const response = await authClient.put("/permissions/", { policies: policy });
-      setPolicy(response.data.policies);
-      setSavedPolicy(response.data.policies);
-      onPermissionsUpdated?.(response.data.policies, response.data.current_role);
-    } catch (saveError) {
-      setError(saveError.response?.data?.detail || "Unable to save role permissions. Please try again.");
-    } finally {
-      setIsSaving(false);
-    }
   };
 
   return (
@@ -107,7 +76,7 @@ const Permission = ({ currentUser, onPermissionsUpdated }) => {
                 <span className="permission-title-icon"><ShieldCheck size={19} /></span>
                 <div>
                   <h2 id="permission-dialog-title">Role permissions</h2>
-                  <p>Manage what each role can access across Nexus.</p>
+                  <p>Access is fixed by the workspace role policy.</p>
                 </div>
               </div>
               <button
@@ -123,7 +92,7 @@ const Permission = ({ currentUser, onPermissionsUpdated }) => {
             <div className="permission-current-role">
               <LockKeyhole size={15} />
               <span>Your role: <strong>{roles[currentRole] || currentRole}</strong></span>
-              {!isAdmin && <span className="permission-readonly-label">Read only</span>}
+              <span className="permission-readonly-label">Read only</span>
             </div>
 
             {error && <p className="permission-error" role="alert">{error}</p>}
@@ -152,17 +121,13 @@ const Permission = ({ currentUser, onPermissionsUpdated }) => {
                           const enabled = Boolean(policy[role]?.[key]);
                           return (
                             <td key={role}>
-                              <button
-                                type="button"
+                              <span
                                 className={`permission-toggle ${enabled ? "is-enabled" : ""}`}
-                                role="switch"
-                                aria-checked={enabled}
-                                aria-label={`${label} for ${roles[role]}`}
-                                disabled={!isAdmin || isSaving}
-                                onClick={() => togglePermission(role, key)}
+                                role="img"
+                                aria-label={`${label} for ${roles[role]}: ${enabled ? "enabled" : "disabled"}`}
                               >
                                 <span />
-                              </button>
+                              </span>
                             </td>
                           );
                         })}
@@ -183,17 +148,6 @@ const Permission = ({ currentUser, onPermissionsUpdated }) => {
               >
                 Close
               </button>
-              {isAdmin && (
-                <button
-                  type="button"
-                  className="permission-save-btn"
-                  disabled={!hasChanges || isSaving || isLoading}
-                  onClick={savePermissions}
-                >
-                  <Save size={15} />
-                  <span>{isSaving ? "Saving…" : "Save changes"}</span>
-                </button>
-              )}
             </footer>
           </section>
         </div>

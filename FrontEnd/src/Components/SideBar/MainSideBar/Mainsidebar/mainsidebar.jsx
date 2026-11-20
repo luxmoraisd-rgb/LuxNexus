@@ -13,7 +13,7 @@ const MainSidebar = ({
   setActiveItem,
 }) => {
 
-  const menuItems = [
+  const allMenuItems = [
     {
       id: "work",
       label: "Work",
@@ -38,7 +38,7 @@ const MainSidebar = ({
       icon: <Users size={21} />,
     },
   ];
-
+  const menuItems = allMenuItems;
 
   return (
     <aside className="main-sidebar">

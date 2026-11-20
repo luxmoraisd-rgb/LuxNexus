@@ -8,6 +8,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { STATUS_CONFIG, TYPE_CONFIG, isTaskAssignedToPerson } from '../Backlog/TaskRowUtils';
+import TaskOwnerAvatar from '../Backlog/TaskOwnerAvatar';
 import './KanbanBoard.css';
 
 const DEFAULT_COLUMNS = [
@@ -310,6 +311,15 @@ const KanbanBoard = ({
                   const ownerName = task.owner?.name || task.owner || 'Unassigned';
                   const ownerInitial = task.owner?.initial || (ownerName ? ownerName[0].toUpperCase() : 'U');
                   const ownerBg = task.owner?.avatarBg || '#6366f1';
+                  const ownerRecord =
+                    (typeof task.owner === 'object' && task.owner) ||
+                    personFilterMembers.find(
+                      (person) =>
+                        String(person.id) === String(task.owner) ||
+                        person.name?.toLowerCase() === String(task.owner || '').toLowerCase() ||
+                        person.email?.toLowerCase() === String(task.owner || '').toLowerCase()
+                    ) ||
+                    { name: ownerName, initial: ownerInitial, avatarBg: ownerBg };
 
                   return (
                     <article
@@ -353,9 +363,11 @@ const KanbanBoard = ({
                       {/* Footer: Assignee & Quick Actions */}
                       <div className="kanban-card-footer" onClick={(e) => e.stopPropagation()}>
                         <div className="kanban-card-assignee" title={`Assigned to ${ownerName}`}>
-                          <div className="kanban-avatar" style={{ backgroundColor: ownerBg }}>
-                            {ownerInitial}
-                          </div>
+                          <TaskOwnerAvatar
+                            key={ownerRecord.avatar || ownerRecord.avatarUrl || ownerRecord.name}
+                            owner={ownerRecord}
+                            className="kanban-avatar"
+                          />
                           <span className="kanban-assignee-name">{ownerName}</span>
                         </div>
 

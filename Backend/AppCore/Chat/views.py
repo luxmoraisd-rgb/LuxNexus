@@ -2,11 +2,10 @@ from datetime import datetime, timezone
 
 from pymongo import ASCENDING
 from rest_framework import status
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ..Auth.role_permissions import ROLE_LABELS
 from ..db import get_database
 
 
@@ -14,23 +13,8 @@ CONVERSATION_ID = "admin-chat"
 MAX_MESSAGE_LENGTH = 2000
 
 
-class ChatAccessPermission(BasePermission):
-    def has_permission(self, request, view):
-        role = getattr(request.user, "role", None)
-        if request.method in {"GET", "HEAD", "OPTIONS"}:
-            return role in ROLE_LABELS
-        if request.method == "POST":
-            return role == "team_lead"
-        return False
-
-
-class ChatViewerPermission(BasePermission):
-    def has_permission(self, request, view):
-        return getattr(request.user, "role", None) in ROLE_LABELS
-
-
 class AdminChatView(APIView):
-    permission_classes = [IsAuthenticated, ChatAccessPermission]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         query = {"conversation_id": CONVERSATION_ID}
@@ -108,7 +92,7 @@ class AdminChatView(APIView):
 
 
 class AdminChatUnreadView(APIView):
-    permission_classes = [IsAuthenticated, ChatViewerPermission]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         database = get_database()
@@ -119,7 +103,7 @@ class AdminChatUnreadView(APIView):
 
 
 class AdminChatReadView(APIView):
-    permission_classes = [IsAuthenticated, ChatViewerPermission]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         database = get_database()
@@ -144,7 +128,7 @@ def _ensure_conversation(database):
         {
             "$set": {
                 "name": "Chat",
-                "allowed_roles": list(ROLE_LABELS),
+                "allowed_roles": ["admin", "team_lead", "user"],
             },
             "$setOnInsert": {
                 "created_at": datetime.now(timezone.utc),

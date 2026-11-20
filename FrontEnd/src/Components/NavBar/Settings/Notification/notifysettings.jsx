@@ -77,48 +77,6 @@ export const DEFAULT_NOTIFICATION_SETTINGS = [
   },
 ];
 
-export const INITIAL_UNREAD_NOTIFICATIONS = [
-  {
-    id: "unread-1",
-    title: "Sprint 4 Backlog Grooming & Task Estimates",
-    snippet: "Estimate story points for LUXNEX-20 API Integration before tomorrow's team sync.",
-    author: "Alex Rivera",
-    avatar: "AR",
-    avatarColor: "#8b5cf6",
-    type: "task",
-    unread: true,
-    time: "10:30 AM",
-    date: "Today",
-    tags: ["Sprint", "Backlog"],
-  },
-  {
-    id: "unread-2",
-    title: "Mentioned in #api-architecture channel",
-    snippet: "@you can you check the MongoDB connection pooling on mongodb://localhost:27017/?",
-    author: "DevOps Lead",
-    avatar: "DL",
-    avatarColor: "#10b981",
-    type: "mention",
-    unread: true,
-    time: "09:15 AM",
-    date: "Today",
-    tags: ["Mention", "DevOps"],
-  },
-  {
-    id: "unread-3",
-    title: "Review requested on LUXNEX-18",
-    snippet: "Sarah Chen requested your review on Knowledge & Meetings dashboard integration.",
-    author: "Sarah Chen",
-    avatar: "SC",
-    avatarColor: "#06b6d4",
-    type: "review",
-    unread: true,
-    time: "Yesterday",
-    date: "Yesterday",
-    tags: ["GitHub", "Review"],
-  },
-];
-
 const STORAGE_KEYS = {
   SETTINGS: "nexus_notification_settings",
   READ_IDS: "nexus_read_notification_ids",
@@ -282,19 +240,15 @@ const NotificationSettings = ({ theme = "dark" }) => {
 
   const containerRef = useRef(null);
 
-  // Load unread notifications from API or fallback
+  // Load unread notifications from the inbox API.
   const loadNotifications = async () => {
     try {
       const data = await inboxApi.getAll();
-      if (Array.isArray(data) && data.length > 0) {
-        setNotifications(data);
-        return;
-      }
+      setNotifications(Array.isArray(data) ? data : []);
     } catch (err) {
       console.warn("Unable to fetch notifications from inbox API:", err);
+      setNotifications([]);
     }
-    // Fallback unread notifications
-    setNotifications(INITIAL_UNREAD_NOTIFICATIONS);
   };
 
   useEffect(() => {

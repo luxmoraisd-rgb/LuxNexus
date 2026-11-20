@@ -16,6 +16,7 @@ const Resourcing = lazy(() => import("./Components/SideBar/SubSideBar/Resourcing
 const Backlog = lazy(() => import("./Components/SideBar/SubSideBar/MyTasks/Backlog/Backlog"));
 const MyTasksScreen = lazy(() => import("./Components/SideBar/SubSideBar/MyTasks/MyTasksScreen"));
 const Projects = lazy(() => import("./Components/SideBar/SubSideBar/Projects/projects"));
+const ProjectDetails = lazy(() => import("./Components/SideBar/SubSideBar/Projects/ProjectDetails"));
 const Portfolios = lazy(() => import("./Components/SideBar/SubSideBar/Portfolios/Portfolios"));
 const MeetingsPage = lazy(() => import("./Components/SideBar/SubSideBar/Meetings/MeetingsPage"));
 const Reports = lazy(() => import("./Components/SideBar/SubSideBar/Report/Reports"));
@@ -27,22 +28,24 @@ const AcceptInvite = lazy(() => import("./Components/Auth/AcceptInvite"));
 const GoalsPage = lazy(() => import("./Components/SideBar/SubSideBar/Goals/GoalsPage"));
 import PeoplePage from "./Components/SideBar/SubSideBar/People/people";
 
-const FULL_OPEN_PERMISSIONS = Object.freeze({
-  view_tasks: true,
-  manage_tasks: true,
-  update_assigned_tasks: true,
-  manage_sprints: true,
-  manage_team: true,
-  manage_board: true,
-  view_reports: true,
-});
+const isAllowedRouteForRole = (pathname, role) => {
+  const path = pathname.replace(/\/+$/, "") || "/";
+  if (/^\/(profile|settings)(\/|$)/.test(path)) return true;
+  return ["admin", "team_lead", "user"].includes(role);
+};
+
+const getRoleHome = (role) => {
+  if (role === "team_lead") return "/work/portfolios";
+  if (role === "user") return "/strategy/reports";
+  return "/home";
+};
 
 const preloadMyTasks = () => {
   import("./Components/SideBar/SubSideBar/MyTasks/MyTasksScreen");
   import("./Components/SideBar/SubSideBar/MyTasks/Backlog/Backlog");
 };
 
-const PeopleRouteWrapper = ({ theme, currentUser, onTabChange }) => {
+const PeopleRouteWrapper = ({ theme, onTabChange }) => {
   const { subTab } = useParams();
   const validTab =
     subTab === "teams" || subTab === "invitations"
@@ -51,7 +54,6 @@ const PeopleRouteWrapper = ({ theme, currentUser, onTabChange }) => {
   return (
     <PeoplePage
       theme={theme}
-      currentUser={currentUser}
       activeTab={validTab}
       onTabChange={onTabChange}
     />
@@ -63,13 +65,6 @@ const App = () => {
   const navigate = useNavigate();
   const normalizedPath = location.pathname.replace(/\/+$/, "") || "/";
   const [theme, setTheme] = useState(() => {
-    try {
-      const saved = window.localStorage.getItem("nexus-theme");
-      if (saved === "dark") return "dark";
-      if (saved === "light") return "light";
-    } catch (error) {
-      console.warn("Unable to read the saved theme preference.", error);
-    }
     return "dark";
   });
 
@@ -114,11 +109,6 @@ const App = () => {
   );
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem("nexus-theme", theme);
-    } catch (error) {
-      console.warn("Unable to save the theme preference.", error);
-    }
     document.documentElement.setAttribute("data-theme", theme);
     document.body.setAttribute("data-theme", theme);
   }, [theme]);
@@ -142,11 +132,11 @@ const App = () => {
   })();
   const profileTab = (() => {
     const path = location.pathname.toLowerCase();
-    const profileTabs = ["personal", "basic", "notifications", "language", "password", "session"];
+    const profileTabs = ["personal", "notifications", "timezone", "password", "session"];
     const routeTab = path.split("/").filter(Boolean)[1];
 
     if (path.startsWith("/settings")) {
-      return profileTabs.includes(routeTab) ? routeTab : "basic";
+      return profileTabs.includes(routeTab) ? routeTab : "notifications";
     }
     if (path.startsWith("/profile")) {
       return profileTabs.includes(routeTab)
@@ -156,7 +146,7 @@ const App = () => {
     if (path === "/" || path === "/home") {
       const savedView = sessionStorage.getItem("current_view");
       if (savedView === "profile" || savedView === "settings") {
-        return sessionStorage.getItem("profile_tab") || (savedView === "settings" ? "basic" : "personal");
+        return sessionStorage.getItem("profile_tab") || (savedView === "settings" ? "notifications" : "personal");
       }
     }
     return sessionStorage.getItem("profile_tab") || "personal";
@@ -173,10 +163,18 @@ const App = () => {
     }
     return "";
   });
-  const [profilePhoto, setProfilePhoto] = useState("");
-  const [rolePermissions, setRolePermissions] = useState(FULL_OPEN_PERMISSIONS);
+  const [profilePhoto, setProfilePhoto] = useState(() => {
+    try {
+      const stored = sessionStorage.getItem("user");
+      if (!stored) return "";
+      const parsed = JSON.parse(stored);
+      return parsed?.photo || parsed?.avatar || "";
+    } catch {
+      return "";
+    }
+  });
+  const [rolePermissions, setRolePermissions] = useState(null);
   const currentUserId = currentUser?.id;
-  const currentUserRole = currentUser?.role;
 
   useEffect(() => {
     if (!isAuthenticated) return undefined;
@@ -186,21 +184,25 @@ const App = () => {
       authClient.get("/permissions/")
         .then(({ data }) => {
           if (isCurrent) {
-            // Role-based restrictions removed: open full capabilities across the web app
-            const allKeys = (data.permissions || []).map(({ key }) => key);
-            const openPermissions = allKeys.length > 0
-              ? Object.fromEntries(allKeys.map((key) => [key, true]))
-              : FULL_OPEN_PERMISSIONS;
-            setRolePermissions(openPermissions);
-
-            if (data.current_role) {
-              setCurrentUser((user) => user ? { ...user, role: data.current_role } : user);
-            }
+            const role = data.current_role || "user";
+            setRolePermissions({ ...(data.policies?.[role] || {}), current_role: role });
+            setCurrentUser((user) => {
+              if (!user) return user;
+              const updated = { ...user, role };
+              sessionStorage.setItem("user", JSON.stringify(updated));
+              return updated;
+            });
           }
         })
         .catch((error) => {
           console.warn("[Permissions] Unable to load the current role policy.", error);
-          setRolePermissions(FULL_OPEN_PERMISSIONS);
+          setCurrentUser((user) => {
+            if (!user) return user;
+            const updated = { ...user, role: "user" };
+            sessionStorage.setItem("user", JSON.stringify(updated));
+            return updated;
+          });
+          setRolePermissions({ current_role: "user" });
         });
     };
     const refreshWhenVisible = () => {
@@ -215,7 +217,7 @@ const App = () => {
       window.removeEventListener("focus", loadRolePermissions);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [isAuthenticated, currentUserId, currentUserRole]);
+  }, [isAuthenticated, currentUserId]);
 
   const isAuthRoute =
     location.pathname === "/signin" ||
@@ -238,17 +240,17 @@ const App = () => {
       sessionStorage.setItem("current_view", "profile");
       const parts = location.pathname.split("/").filter(Boolean);
       const sub = parts[1];
-      if (sub && ["personal", "basic", "notifications", "language", "password", "session"].includes(sub)) {
+      if (sub && ["personal", "notifications", "timezone", "password", "session"].includes(sub)) {
         sessionStorage.setItem("profile_tab", sub);
       }
     } else if (location.pathname.startsWith("/settings")) {
       sessionStorage.setItem("current_view", "settings");
       const parts = location.pathname.split("/").filter(Boolean);
       const sub = parts[1];
-      if (sub && ["personal", "basic", "notifications", "language", "password", "session"].includes(sub)) {
+      if (sub && ["personal", "notifications", "timezone", "password", "session"].includes(sub)) {
         sessionStorage.setItem("profile_tab", sub);
       } else {
-        sessionStorage.setItem("profile_tab", "basic");
+        sessionStorage.setItem("profile_tab", "notifications");
       }
     } else if (location.pathname !== "/" && location.pathname !== "/home") {
       sessionStorage.removeItem("current_view");
@@ -264,7 +266,10 @@ const App = () => {
   const isAllSprintsRoute = location.pathname === "/work/all-sprints" || location.pathname === "/all-sprints";
   const isSprintOverviewRoute = location.pathname === "/sprint-overview";
   const isInboxRoute = location.pathname === "/work/inbox" || location.pathname === "/inbox";
-  const isProjectsRoute = location.pathname === "/work/projects" || location.pathname === "/projects";
+  const isProjectsRoute = location.pathname === "/work/projects" ||
+    location.pathname.startsWith("/work/projects/") ||
+    location.pathname === "/projects" ||
+    location.pathname.startsWith("/projects/");
   const isPortfoliosRoute = location.pathname === "/work/portfolios" || location.pathname === "/portfolios";
   const isGoalsRoute = location.pathname === "/strategy/goals" || location.pathname === "/goals";
   const isStrategyMapRoute = location.pathname === "/strategy/strategy-map" || location.pathname === "/strategy-map";
@@ -481,6 +486,7 @@ const App = () => {
     sessionStorage.removeItem("current_view");
     sessionStorage.removeItem("profile_tab");
     setCurrentUser(user);
+    setRolePermissions(null);
     setProfileName(name);
     setActiveItem("work");
     setActiveSubItem("home");
@@ -498,6 +504,7 @@ const App = () => {
       sessionStorage.setItem("token", data.token);
       sessionStorage.setItem("user", JSON.stringify(data.user));
       setCurrentUser(data.user);
+      setRolePermissions(null);
       setProfileName(data.user.name || data.user.username || data.user.email || "User");
       navigate("/");
       return;
@@ -518,6 +525,7 @@ const App = () => {
   const handleInvitationAccepted = (user) => {
     sessionStorage.setItem("user", JSON.stringify(user));
     setCurrentUser(user);
+    setRolePermissions(null);
     setProfileName(user.name || user.username || user.email || "User");
     navigate("/");
   };
@@ -538,7 +546,6 @@ const App = () => {
                   onNavigateToForgotPassword={() => navigate("/forgot-password")}
                   onLoginSuccess={handleLoginSuccess}
                   theme={theme}
-                  onThemeToggle={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
                 />
               </Suspense>
             }
@@ -555,7 +562,6 @@ const App = () => {
                   onNavigateToForgotPassword={() => navigate("/forgot-password")}
                   onLoginSuccess={handleLoginSuccess}
                   theme={theme}
-                  onThemeToggle={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
                 />
               </Suspense>
             }
@@ -571,7 +577,6 @@ const App = () => {
                   }}
                   onSignupSuccess={handleSignupSuccess}
                   theme={theme}
-                  onThemeToggle={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
                 />
               </Suspense>
             }
@@ -584,7 +589,6 @@ const App = () => {
                   isAuthenticated={isAuthenticated}
                   onInvitationAccepted={handleInvitationAccepted}
                   theme={theme}
-                  onThemeToggle={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
                 />
               </Suspense>
             }
@@ -598,7 +602,6 @@ const App = () => {
                     navigate("/signin", authData ? { state: authData } : undefined)
                   }
                   theme={theme}
-                  onThemeToggle={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
                 />
               </Suspense>
             }
@@ -613,6 +616,15 @@ const App = () => {
     return <Navigate to="/signin" replace state={{ from: location.pathname }} />;
   }
 
+  if (rolePermissions === null) {
+    return <div role="status" aria-live="polite">Loading workspace access…</div>;
+  }
+
+  const effectiveRole = rolePermissions.current_role || currentUser?.role || "user";
+  if (!isAllowedRouteForRole(location.pathname, effectiveRole)) {
+    return <Navigate to={getRoleHome(effectiveRole)} replace />;
+  }
+
   return (
     <div className="app" data-theme={theme}>
 
@@ -622,8 +634,8 @@ const App = () => {
         profilePhoto={profilePhoto}
         currentUser={currentUser}
         isAuthenticated={isAuthenticated}
-        canManageTeam={true}
-        canInviteElevatedRoles={true}
+        canManageTeam
+        canInviteElevatedRoles
         theme={theme}
         onThemeChange={setTheme}
         onHomeClick={handleHomeClick}
@@ -637,16 +649,13 @@ const App = () => {
         }}
         onSettingsClick={() => {
           sessionStorage.setItem("current_view", "settings");
-          sessionStorage.setItem("profile_tab", "basic");
-          navigate("/settings/basic");
+          sessionStorage.setItem("profile_tab", "notifications");
+          navigate("/settings/notifications");
         }}
         onSignInClick={() => navigate("/signin")}
         onSignUpClick={() => navigate("/signup")}
         onSignOutClick={handleLogout}
         onSelectSuggestion={handleSelectSuggestion}
-        onPermissionsUpdated={() => {
-          setRolePermissions(FULL_OPEN_PERMISSIONS);
-        }}
         onCreateClick={handleCreateClick}
       />
 
@@ -807,7 +816,9 @@ const App = () => {
               <Route path="/work/inbox" element={<Inbox theme={theme} />} />
               <Route path="/inbox" element={<Inbox theme={theme} />} />
               <Route path="/work/projects" element={<Suspense fallback={<main role="status">Loading Projects...</main>}><Projects rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
+              <Route path="/work/projects/:projectId" element={<Suspense fallback={<main role="status">Loading Project...</main>}><ProjectDetails rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
               <Route path="/projects" element={<Suspense fallback={<main role="status">Loading Projects...</main>}><Projects rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
+              <Route path="/projects/:projectId" element={<Suspense fallback={<main role="status">Loading Project...</main>}><ProjectDetails rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
               <Route path="/work/portfolios" element={<Suspense fallback={<main role="status">Loading Portfolios...</main>}><Portfolios currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>} />
               <Route path="/portfolios" element={<Suspense fallback={<main role="status">Loading Portfolios...</main>}><Portfolios currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>} />
               <Route path="/strategy/goals" element={<Suspense fallback={<main role="status">Loading Goals...</main>}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="My goals" /></Suspense>} />
@@ -826,7 +837,6 @@ const App = () => {
                 element={
                   <PeopleRouteWrapper
                     theme={theme}
-                    currentUser={currentUser}
                     onTabChange={(tab) => {
                       setPeopleTab(tab);
                       navigate(tab === "members" ? "/people" : `/people/${tab}`);
@@ -859,7 +869,6 @@ const App = () => {
                 ) : selectedActiveItem === "people" ? (
                   <PeoplePage
                     theme={theme}
-                    currentUser={currentUser}
                     activeTab={peopleTab}
                     onTabChange={(tab) => {
                       setPeopleTab(tab);

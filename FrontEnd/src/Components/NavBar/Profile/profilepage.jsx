@@ -5,9 +5,6 @@ import {
   User,
   Globe2,
   Settings,
-  SlidersHorizontal,
-  Sun,
-  Moon,
   Lock,
   List,
   Mail,
@@ -93,7 +90,7 @@ Profile.Sidebar = ({ activeTab, setActiveTab, profile = {}, projectKey = "LUX" }
 
         <button
           className={`sidebar-item settings-parent ${settingsOpen ? "active" : ""}`}
-          onClick={() => setActiveTab(settingsOpen ? "personal" : "basic")}
+          onClick={() => setActiveTab(settingsOpen ? "personal" : "notifications")}
           aria-expanded={settingsOpen}
         >
           <div className="sidebar-item-icon-wrap">
@@ -106,9 +103,8 @@ Profile.Sidebar = ({ activeTab, setActiveTab, profile = {}, projectKey = "LUX" }
         {settingsOpen && (
           <nav className="profile-subsidebar" aria-label="General settings">
             {[
-              { id: "basic", label: "Basic settings", icon: <SlidersHorizontal size={17} /> },
               { id: "notifications", label: "Notification settings", icon: <Bell size={17} /> },
-              { id: "language", label: "Language & Region", icon: <Globe2 size={17} /> },
+              { id: "timezone", label: "Time Zone", icon: <Globe2 size={17} /> },
               { id: "password", label: "Password", icon: <Lock size={17} /> },
               { id: "session", label: "Session history", icon: <List size={17} /> },
             ].map((item, idx) => (
@@ -744,51 +740,14 @@ const ProfileProjectSummaryCard = ({ tasks = [], projectKey = "LUX" }) => {
   );
 };
 
-Profile.BasicSettings = ({ theme, onThemeChange }) => (
-  <section className="settings-page">
-    <header className="settings-page-header">
-      <h2>Basic settings</h2>
-    </header>
-    <div className="basic-setting-row">
-      <div>
-        <h3>Appearance</h3>
-        <p>Choose the theme used throughout the app.</p>
-      </div>
-      <div className="theme-control" role="group" aria-label="Appearance theme">
-        <button
-          type="button"
-          className={theme === "light" ? "selected" : ""}
-          aria-pressed={theme === "light"}
-          onClick={() => onThemeChange("light")}
-        >
-          <Sun size={17} />
-          Light
-        </button>
-        <button
-          type="button"
-          className={theme === "dark" ? "selected" : ""}
-          aria-pressed={theme === "dark"}
-          onClick={() => onThemeChange("dark")}
-        >
-          <Moon size={17} />
-          Dark
-        </button>
-      </div>
-    </div>
-  </section>
-);
-
 Profile.TabContent = ({ activeTab, theme, onThemeChange, onLogout, currentUser }) => {
   const titles = {
-    language: "Language & Region",
+    timezone: "Time Zone",
     password: "Password",
     session: "Session history",
   };
 
   if (activeTab === "personal") return null;
-  if (activeTab === "basic") {
-    return <Profile.BasicSettings theme={theme} onThemeChange={onThemeChange} />;
-  }
   if (activeTab === "notifications") {
     return (
       <div className="profile-settings-section">
@@ -796,7 +755,7 @@ Profile.TabContent = ({ activeTab, theme, onThemeChange, onLogout, currentUser }
       </div>
     );
   }
-  if (activeTab === "language") return <LanguageRegionPage />;
+  if (activeTab === "timezone") return <LanguageRegionPage />;
   if (activeTab === "password") return <ChangePassword />;
   if (activeTab === "session") return <SessionHistoryPage onLogout={onLogout} currentUser={currentUser} />;
 

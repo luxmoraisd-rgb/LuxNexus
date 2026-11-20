@@ -856,6 +856,10 @@
   gap: 14px;
 }
 
+.portfolio-timeframe-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .portfolio-modal-footer {
   padding: 16px 24px;
   border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
