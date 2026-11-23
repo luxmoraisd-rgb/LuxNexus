@@ -2,6 +2,7 @@
 Comprehensive automated test suite for Agile Sprints & Board Views API.
 Tests all endpoints from Sections 01 through 05.
 """
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from unittest.mock import patch
 from zipfile import ZipFile
@@ -111,6 +112,22 @@ class AgileBoardAPITests(TestCase):
         )
         self.assertEqual(sprint_response.status_code, status.HTTP_201_CREATED)
         sprint_id = sprint_response.data['id']
+        other_sprint = Sprint.objects.create(
+            board=self.board,
+            project_id="507f1f77bcf86cd799439012",
+            name="Other project sprint",
+        )
+
+        filtered_sprints = self.client.get(
+            "/api/backlog/sprints/",
+            {"project_id": project_id},
+        )
+        self.assertEqual(filtered_sprints.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [str(sprint["id"]) for sprint in filtered_sprints.data],
+            [str(sprint_id)],
+        )
+        self.assertNotIn(str(other_sprint.id), [str(sprint["id"]) for sprint in filtered_sprints.data])
 
         task_response = self.client.post(
             '/api/backlog/tasks/',
@@ -134,6 +151,32 @@ class AgileBoardAPITests(TestCase):
         self.assertTrue(
             any(str(task['id']) == str(task_response.data['id']) for task in filtered_tasks.data)
         )
+
+    def test_project_task_filter_does_not_change_other_projects_tasks(self):
+        project_id = "507f1f77bcf86cd799439011"
+        other_project_id = "507f1f77bcf86cd799439012"
+        other_sprint = Sprint.objects.create(
+            board=self.board,
+            project_id=other_project_id,
+            name="Other project sprint",
+        )
+        other_task = Task.objects.create(
+            board=self.board,
+            sprint=other_sprint,
+            project_id=other_project_id,
+            title="Other project overdue task",
+            due_date=(datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat(),
+        )
+
+        response = self.client.get(
+            "/api/backlog/tasks/",
+            {"project_id": project_id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(any(task["project_id"] == other_project_id for task in response.data))
+        other_task.refresh_from_db()
+        self.assertEqual(other_task.sprint_id, other_sprint.id)
 
     def test_member_cannot_create_tasks_or_sprints_or_complete_sprints(self):
         member = User.objects.create_user(

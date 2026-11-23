@@ -63,6 +63,8 @@ export default function Projects() {
   const [formEndDate, setFormEndDate] = useState("");
   const [formStatus, setFormStatus] = useState("Active");
   const [teamLeads, setTeamLeads] = useState([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [formError, setFormError] = useState("");
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -139,6 +141,7 @@ export default function Projects() {
 
   const handleOpenCreateModal = () => {
     setEditingProject(null);
+    setFormError("");
     setFormName("");
     setFormKey("");
     setFormCategory("Engineering");
@@ -154,6 +157,7 @@ export default function Projects() {
 
   const handleOpenEditModal = (proj) => {
     setEditingProject(proj);
+    setFormError("");
     setFormName(proj.name || "");
     setFormKey(proj.key || "");
     setFormCategory(proj.category || "Engineering");
@@ -169,67 +173,73 @@ export default function Projects() {
 
   const handleSaveProject = async (e) => {
     e.preventDefault();
-    if (!formName.trim()) return;
+    if (!formName.trim() || isSaving) return;
 
-    if (editingProject) {
-      // Update existing project
-      const updates = {
-        name: formName.trim(),
-        key: formKey.trim() || editingProject.key,
-        category: formCategory,
-        description: formDescription.trim(),
-        color: formColor,
-        progress: Number(formProgress) || 0,
-        lead: formLead.trim(),
-        project_lead: formLead.trim(),
-        start_date: formStartDate,
-        startDate: formStartDate,
-        end_date: formEndDate,
-        endDate: formEndDate,
-        status: formStatus,
-      };
+    setIsSaving(true);
+    setFormError("");
+    try {
+      if (editingProject) {
+        const updates = {
+          name: formName.trim(),
+          key: formKey.trim() || editingProject.key,
+          category: formCategory,
+          description: formDescription.trim(),
+          color: formColor,
+          progress: Number(formProgress) || 0,
+          lead: formLead.trim(),
+          project_lead: formLead.trim(),
+          start_date: formStartDate,
+          startDate: formStartDate,
+          end_date: formEndDate,
+          endDate: formEndDate,
+          status: formStatus,
+        };
 
-      try {
         await updateProject(editingProject.id, updates);
         setProjects((prev) =>
           prev.map((p) => (p.id === editingProject.id ? { ...p, ...updates } : p))
         );
         showToast(`Project "${formName}" updated successfully!`);
-      } catch {
-        showToast("Error updating project.");
-      }
-    } else {
-      // Create new project
-      const key =
-        formKey.trim() ||
-        formName.slice(0, 3).toUpperCase() + "-" + Math.floor(Math.random() * 900 + 100);
+      } else {
+        const payload = {
+          name: formName.trim(),
+          key: formKey.trim(),
+          category: formCategory,
+          description: formDescription.trim(),
+          color: formColor,
+          progress: Number(formProgress) || 0,
+          is_default_workspace: projects.length === 0,
+          start_date: formStartDate,
+          end_date: formEndDate,
+          lead: formLead.trim(),
+          project_lead: formLead.trim(),
+          status: formStatus,
+        };
 
-      const payload = {
-        name: formName.trim(),
-        key: key.toUpperCase(),
-        category: formCategory,
-        description: formDescription.trim(),
-        color: formColor,
-        progress: Number(formProgress) || 0,
-        active_sprint_name: "",
-        is_default_workspace: projects.length === 0,
-        start_date: new Date().toISOString().split("T")[0],
-        end_date: formEndDate,
-        lead: formLead.trim(),
-        project_lead: formLead.trim(),
-        status: formStatus,
-      };
-
-      try {
         const created = await createProject(payload);
         setProjects((prev) => [created, ...prev.filter((p) => p.id !== created.id)]);
         showToast(`Project "${formName}" created in MongoDB!`);
-      } catch {
-        showToast("Error creating project.");
       }
+      setIsModalOpen(false);
+    } catch (error) {
+      const responseData = error.response?.data;
+      const fieldErrors = responseData && typeof responseData === "object"
+        ? Object.entries(responseData).flatMap(([field, messages]) =>
+            (Array.isArray(messages) ? messages : [messages])
+              .filter((message) => typeof message === "string")
+              .map((message) => `${field}: ${message}`)
+          )
+        : [];
+      const message =
+        (typeof responseData?.detail === "string" && responseData.detail) ||
+        fieldErrors.join(" ") ||
+        error.message ||
+        (editingProject ? "Unable to update project." : "Unable to create project.");
+      setFormError(message);
+      showToast(message);
+    } finally {
+      setIsSaving(false);
     }
-
-    setIsModalOpen(false);
   };
 
   const handleDeleteProject = async (projId, projName) => {
@@ -530,7 +540,7 @@ export default function Projects() {
 
       {/* Create / Edit Project Modal */}
       {isModalOpen && (
-        <div className="modal-backdrop" onClick={() => setIsModalOpen(false)}>
+        <div className="modal-backdrop" onClick={() => !isSaving && setIsModalOpen(false)}>
           <div
             className="create-project-modal"
             onClick={(e) => e.stopPropagation()}
@@ -540,12 +550,29 @@ export default function Projects() {
               <button
                 className="modal-close-btn"
                 onClick={() => setIsModalOpen(false)}
+                disabled={isSaving}
               >
                 <X size={18} />
               </button>
             </div>
 
             <form className="modal-form" onSubmit={handleSaveProject}>
+              {isSaving && !editingProject && (
+                <div
+                  className="project-create-progress"
+                  role="progressbar"
+                  aria-label="Creating project"
+                  aria-valuetext="Creating project"
+                >
+                  <div className="project-create-progress-bar" />
+                  <span>Creating your project...</span>
+                </div>
+              )}
+              {formError && (
+                <p className="project-form-error" role="alert">
+                  {formError}
+                </p>
+              )}
               <div className="form-group">
                 <label>Project Name *</label>
                 <input
@@ -643,11 +670,17 @@ export default function Projects() {
                   type="button"
                   className="modal-cancel-btn"
                   onClick={() => setIsModalOpen(false)}
+                  disabled={isSaving}
                 >
                   Cancel
                 </button>
-                <button type="submit" className="modal-submit-btn">
-                  {editingProject ? "Save Changes" : "Create Project"}
+                <button type="submit" className="modal-submit-btn" disabled={isSaving}>
+                  {isSaving ? (
+                    <>
+                      <Loader2 size={15} className="spin" />
+                      {editingProject ? "Saving..." : "Creating..."}
+                    </>
+                  ) : editingProject ? "Save Changes" : "Create Project"}
                 </button>
               </div>
             </form>

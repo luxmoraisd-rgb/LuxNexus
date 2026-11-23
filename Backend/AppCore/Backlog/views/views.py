@@ -32,6 +32,7 @@ from gridfs.errors import NoFile
 from ...db import get_database
 from ...task_assignees import list_task_assignees
 from ...Auth.role_permissions import (
+    AdminOnlyDeletePermission,
     RoleCapabilityPermission,
     RoleModulePermission,
     TaskDetailRolePermission,
@@ -244,6 +245,12 @@ class SprintStartView(RoleProtectedAPIView):
 
 
 class SprintDetailView(RoleProtectedAPIView):
+    permission_classes = [
+        IsAuthenticated,
+        RoleModulePermission,
+        RoleCapabilityPermission,
+        AdminOnlyDeletePermission,
+    ]
     role_capabilities = {
         "GET": "view_tasks",
         "PATCH": "manage_sprints",
@@ -932,11 +939,13 @@ class TaskCreateListView(RoleProtectedAPIView):
     @extend_schema(summary="List all tasks", responses={200: TaskSerializer(many=True)})
     def get(self, request):
         tasks = Task.objects.all().select_related('board', 'sprint', 'owner')
+        project_id = request.query_params.get('project_id')
         board_id = request.query_params.get('board_id')
         sprint_id = request.query_params.get('sprint_id')
         status_filter = request.query_params.get('status')
         type_filter = request.query_params.get('type')
-        project_id = request.query_params.get('project_id')
+        if project_id:
+            tasks = tasks.filter(project_id=project_id)
 
         # Rollover past-due incomplete tasks to Backlog (like Jira & Monday.com)
         today = datetime.now(timezone.utc).date()
@@ -959,8 +968,6 @@ class TaskCreateListView(RoleProtectedAPIView):
             tasks = tasks.filter(status=status_filter)
         if type_filter:
             tasks = tasks.filter(task_type=type_filter)
-        if project_id:
-            tasks = tasks.filter(project_id=project_id)
 
         serializer = TaskSerializer(tasks, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)

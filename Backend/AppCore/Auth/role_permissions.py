@@ -129,6 +129,14 @@ class RoleCapabilityPermission(BasePermission):
         return capability is not None and has_role_permission(request.user, capability)
 
 
+class AdminOnlyDeletePermission(BasePermission):
+    def has_permission(self, request, view):
+        return (
+            request.method != "DELETE"
+            or get_effective_role(request.user) == "admin"
+        )
+
+
 class TaskDetailRolePermission(BasePermission):
     def has_permission(self, request, view):
         if request.method == "GET":

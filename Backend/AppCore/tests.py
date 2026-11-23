@@ -16,6 +16,7 @@ from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from .Auth.authentication import MongoTokenAuthentication
 from .Auth.role_permissions import (
+    AdminOnlyDeletePermission,
     DEFAULT_ROLE_POLICIES,
     RoleCapabilityPermission,
     RoleModulePermission,
@@ -1042,6 +1043,60 @@ class RolePermissionTests(SimpleTestCase):
             )
             with self.subTest(role=role):
                 self.assertTrue(RoleCapabilityPermission().has_permission(request, view))
+
+    def test_only_configured_admin_can_delete_sprints(self):
+        permission = AdminOnlyDeletePermission()
+        view = object()
+
+        for role, email, expected in (
+            ("admin", "admin@example.com", True),
+            ("team_lead", "lead@example.com", False),
+            ("user", "member@example.com", False),
+            ("admin", "unconfigured@example.com", False),
+        ):
+            request = APIRequestFactory().delete("/api/backlog/sprints/test-id/")
+            request.user = MongoUser(
+                id=ObjectId(),
+                username=role,
+                email=email,
+                first_name=role,
+                last_name="",
+                role=role,
+            )
+            with self.subTest(role=role, email=email):
+                self.assertEqual(permission.has_permission(request, view), expected)
+
+        read_request = APIRequestFactory().get("/api/backlog/sprints/test-id/")
+        read_request.user = MongoUser(
+            id=ObjectId(),
+            username="member",
+            email="member@example.com",
+            first_name="Member",
+            last_name="",
+            role="user",
+        )
+        self.assertTrue(permission.has_permission(read_request, view))
+
+    def test_team_lead_cannot_delete_sprints_through_either_api(self):
+        client = APIClient()
+        client.force_authenticate(
+            user=MongoUser(
+                id=ObjectId(),
+                username="lead",
+                email="lead@example.com",
+                first_name="Team Lead",
+                last_name="",
+                role="team_lead",
+            )
+        )
+
+        for path in (
+            "/api/backlog/sprints/0123456789abcdef01234567/",
+            "/api/all-sprints/sprints/0123456789abcdef01234567/",
+        ):
+            with self.subTest(path=path):
+                response = client.delete(path)
+                self.assertEqual(response.status_code, 403)
 
     def test_member_can_update_tasks_assigned_to_member(self):
         request = APIRequestFactory().put("/api/tasks/1/")

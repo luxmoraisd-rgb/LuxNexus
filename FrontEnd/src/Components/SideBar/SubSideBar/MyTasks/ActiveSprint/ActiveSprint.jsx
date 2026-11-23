@@ -46,7 +46,6 @@ const ActiveSprint = memo(({
   onOpenTypePicker,
   onOpenSPPicker,
   onOpenEpicPicker,
-  onMoveTask,
   onDeleteTask,
   onRemoveEpic,
   onAddTaskToSprint,
@@ -558,7 +557,6 @@ const ActiveSprint = memo(({
                     onOpenEditTaskId={(targetTask, e) =>
                       onOpenModal && onOpenModal('editTaskId', targetTask, e)
                     }
-                    onMoveTask={(taskId) => onMoveTask && onMoveTask(taskId, 'backlog')}
                     onDeleteTask={onDeleteTask}
                     onRemoveEpic={onRemoveEpic}
                     showToast={showToast}

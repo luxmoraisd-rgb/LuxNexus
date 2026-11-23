@@ -2,8 +2,6 @@ import { memo } from 'react';
 import {
   CommentBubblePlusIcon,
   UserOutlineIcon,
-  MoveUpIcon,
-  MoveDownIcon,
   TrashIcon,
   EditIcon,
 } from './BacklogIcons';
@@ -24,7 +22,6 @@ const TaskRow = memo(({
   onOpenSPPicker,
   onOpenEpicPicker,
   onOpenEditTaskId,
-  onMoveTask,
   onDeleteTask,
   showToast,
   teamMembers = TEAM_MEMBERS,
@@ -239,19 +236,9 @@ const TaskRow = memo(({
       </td>
 
 
-      {/* Quick Actions (Move & Delete) */}
+      {/* Quick Action */}
       <td className="td-actions">
         <div className="backlog-row-actions">
-          {/* Move between Sprint and Backlog */}
-          <button
-            type="button"
-            className="backlog-row-action-btn"
-            onClick={() => onMoveTask(task.id, isSprint1 ? 'backlog' : 'sprint1')}
-            title={isSprint1 ? 'Move to Backlog' : 'Move to Sprint 1'}
-          >
-            {isSprint1 ? <MoveDownIcon size={13} /> : <MoveUpIcon size={13} />}
-          </button>
-
           {/* Delete Task */}
           <button
             type="button"

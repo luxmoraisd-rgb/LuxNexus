@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useDeferredValue, useEffect, useRef, lazy, Suspense } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { Trash2 } from 'lucide-react';
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -298,6 +299,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
   const canManageSprints = isElevatedTaskRole && (
     rolePermissions ? rolePermissions.manage_sprints !== false : true
   );
+  const canDeleteSprints = effectiveRole === 'admin' && canManageSprints;
   const canManageBoard = rolePermissions ? rolePermissions.manage_board !== false : true;
   const canEditTask = useCallback(() => true, []);
 
@@ -728,16 +730,26 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
   }, []);
 
   const handleDeleteSprint = useCallback(async (sprintId) => {
-    if (!requirePermission(canManageSprints, 'You do not have permission to delete sprints.')) return;
+    if (!requirePermission(canDeleteSprints, 'Only admins can delete sprints.')) return;
     const sprintObj = sprints.find((s) => s.id === sprintId);
-    setAllTasks((prev) =>
-      prev.map((t) => (t.sprintId === sprintId ? { ...t, sprintId: 'backlog' } : t))
-    );
-    setSprints((prev) => prev.filter((s) => s.id !== sprintId));
-    setActiveModal(null);
-    showToast(`${sprintObj?.name || 'Sprint'} deleted. Tasks moved to Backlog.`, 'info');
-    await sprintApi.delete(sprintId);
-  }, [canManageSprints, requirePermission, sprints, showToast]);
+    if (!window.confirm(`Delete "${sprintObj?.name || 'Sprint'}"? Its tasks will move to Backlog.`)) return;
+    try {
+      await sprintApi.delete(sprintId);
+      setAllTasks((prev) =>
+        prev.map((task) =>
+          String(task.sprintId) === String(sprintId) ? { ...task, sprintId: 'backlog' } : task
+        )
+      );
+      setSprints((prev) => prev.filter((sprint) => String(sprint.id) !== String(sprintId)));
+      setActiveModal(null);
+      showToast(`${sprintObj?.name || 'Sprint'} deleted. Tasks moved to Backlog.`, 'success');
+    } catch (error) {
+      showToast(
+        error.response?.data?.detail || error.message || 'Unable to delete sprint.',
+        'error'
+      );
+    }
+  }, [canDeleteSprints, requirePermission, sprints, showToast]);
 
   const handleStartSprint = useCallback(async (sprintId) => {
     if (!requirePermission(canManageSprints, 'You do not have permission to start sprints.')) return;
@@ -1516,7 +1528,6 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
               onOpenTypePicker={handleOpenTypePicker}
               onOpenSPPicker={handleOpenSPPicker}
               onOpenEpicPicker={handleOpenEpicPicker}
-              onMoveTask={handleMoveTask}
               onDeleteTask={handleDeleteTask}
               onRemoveEpic={handleRemoveEpic}
               onUpdateTaskStatus={handleStatusChange}
@@ -1552,7 +1563,6 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
               onOpenTypePicker={handleOpenTypePicker}
               onOpenSPPicker={handleOpenSPPicker}
               onOpenEpicPicker={handleOpenEpicPicker}
-              onMoveTask={handleMoveTask}
               onDeleteTask={handleDeleteTask}
               onRemoveEpic={handleRemoveEpic}
               onAddTaskToSprint={(sprintId, title, type) =>
@@ -1564,6 +1574,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
                 })
               }
               onCreateSprint={handleCreateSprint}
+              onDeleteSprint={handleDeleteSprint}
               showToast={showToast}
               onGoToBacklog={() => {
                 setActiveTab('Backlog');
@@ -1692,6 +1703,18 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
                         </button>
                       ))}
 
+                      {canDeleteSprints && (
+                        <button
+                          type="button"
+                          className="backlog-header-icon-btn backlog-delete-sprint-btn"
+                          onClick={() => handleDeleteSprint(sprint.id)}
+                          title={`Delete ${sprint.name}`}
+                          aria-label={`Delete ${sprint.name}`}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+
                       <button
                         type="button"
                         className="backlog-header-icon-btn"
@@ -1788,7 +1811,6 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
                               onOpenSPPicker={handleOpenSPPicker}
                               onOpenEpicPicker={handleOpenEpicPicker}
                               onOpenEditTaskId={(task, e) => handleOpenModal('editTaskId', task, e)}
-                              onMoveTask={(taskId) => handleMoveTask(taskId, 'backlog')}
                               onDeleteTask={handleDeleteTask}
                               onRemoveEpic={handleRemoveEpic}
                               showToast={showToast}
@@ -1986,7 +2008,6 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
                           onOpenSPPicker={handleOpenSPPicker}
                           onOpenEpicPicker={handleOpenEpicPicker}
                           onOpenEditTaskId={(task, e) => handleOpenModal('editTaskId', task, e)}
-                          onMoveTask={handleMoveTask}
                           onDeleteTask={handleDeleteTask}
                           onRemoveEpic={handleRemoveEpic}
                           showToast={showToast}
@@ -2087,6 +2108,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
             sprint1Dates={sprint1Dates}
             onUpdateSprintDates={handleUpdateSprintDates}
             onDeleteSprint={handleDeleteSprint}
+            canDeleteSprint={canDeleteSprints}
             automations={automations}
             setAutomations={setAutomations}
             statusConfig={statusConfig}

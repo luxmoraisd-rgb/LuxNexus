@@ -308,18 +308,32 @@ const KanbanBoard = ({
                 {tasks.map((task) => {
                   const typeBg = typeConfig[task.type]?.bg || '#579bfc';
                   const isTaskDragging = draggingTaskId === task.id;
-                  const ownerName = task.owner?.name || task.owner || 'Unassigned';
-                  const ownerInitial = task.owner?.initial || (ownerName ? ownerName[0].toUpperCase() : 'U');
-                  const ownerBg = task.owner?.avatarBg || '#6366f1';
-                  const ownerRecord =
-                    (typeof task.owner === 'object' && task.owner) ||
-                    personFilterMembers.find(
-                      (person) =>
-                        String(person.id) === String(task.owner) ||
-                        person.name?.toLowerCase() === String(task.owner || '').toLowerCase() ||
-                        person.email?.toLowerCase() === String(task.owner || '').toLowerCase()
-                    ) ||
-                    { name: ownerName, initial: ownerInitial, avatarBg: ownerBg };
+                  const matchedOwner = personFilterMembers.find((person) =>
+                    isTaskAssignedToPerson(task.owner, person)
+                  );
+                  const ownerRecord = {
+                    ...(matchedOwner || {}),
+                    ...(typeof task.owner === 'object' && task.owner ? task.owner : {}),
+                  };
+                  const rawOwnerLabel =
+                    typeof task.owner === 'string' && !/^[a-f\d]{24}$/i.test(task.owner.trim())
+                      ? task.owner.trim()
+                      : '';
+                  const ownerName =
+                    ownerRecord.name ||
+                    ownerRecord.display_name ||
+                    ownerRecord.username ||
+                    ownerRecord.email ||
+                    rawOwnerLabel ||
+                    'Unassigned';
+                  const ownerInitial =
+                    ownerRecord.initial ||
+                    ownerRecord.initials ||
+                    (ownerName ? ownerName[0].toUpperCase() : 'U');
+                  const ownerBg = ownerRecord.avatarBg || ownerRecord.avatarColor || '#6366f1';
+                  ownerRecord.name = ownerName;
+                  ownerRecord.initial = ownerInitial;
+                  ownerRecord.avatarBg = ownerBg;
 
                   return (
                     <article

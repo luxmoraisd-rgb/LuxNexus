@@ -82,14 +82,27 @@ class ProjectViewSet(viewsets.ViewSet):
         data = serializer.validated_data
         name = data["name"].strip()
 
-        # Generate unique project key if not provided
+        # Generate an unused key when the client does not supply one.
         key = data.get("key", "").strip()
         if not key:
             prefix = "".join([w[0].upper() for w in name.split() if w])[:4] or "PRJ"
-            key = f"NEX-{prefix}-{random.randint(100, 999)}"
-        key = key.upper()
-        if self.collection.find_one({"key": {"$regex": f"^{re.escape(key)}$", "$options": "i"}}):
-            return Response({"key": ["A project with this key already exists."]}, status=status.HTTP_400_BAD_REQUEST)
+            first_number = random.randrange(900)
+            for offset in range(900):
+                candidate = f"NEX-{prefix}-{100 + (first_number + offset) % 900}"
+                if not self.collection.find_one({
+                    "key": {"$regex": f"^{re.escape(candidate)}$", "$options": "i"}
+                }):
+                    key = candidate
+                    break
+            else:
+                return Response(
+                    {"key": ["No project keys are available for this name."]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            key = key.upper()
+            if self.collection.find_one({"key": {"$regex": f"^{re.escape(key)}$", "$options": "i"}}):
+                return Response({"key": ["A project with this key already exists."]}, status=status.HTTP_400_BAD_REQUEST)
 
         now = datetime.now(timezone.utc).isoformat()
         is_default = bool(data.get("is_default_workspace") or data.get("isDefaultWorkspace"))

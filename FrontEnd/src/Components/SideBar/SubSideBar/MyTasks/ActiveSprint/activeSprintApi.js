@@ -258,16 +258,6 @@ export const activeSprintApi = {
   },
 
   /**
-   * Move task between sprint and backlog
-   * POST /api/tasks/{taskId}/move/
-   */
-  moveTask: async (taskId, { sprintId, position = null }) => {
-    const payload = { sprintId, position };
-    const response = await activeSprintClient.post(`/tasks/${taskId}/move/`, payload);
-    return response.data;
-  },
-
-  /**
    * Delete task
    * DELETE /api/tasks/{taskId}/
    */

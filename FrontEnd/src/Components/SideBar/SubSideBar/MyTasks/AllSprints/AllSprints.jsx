@@ -1,4 +1,5 @@
 import { memo, useState, useMemo } from 'react';
+import { Trash2 } from 'lucide-react';
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -41,11 +42,11 @@ const AllSprints = memo(({
   onOpenTypePicker,
   onOpenSPPicker,
   onOpenEpicPicker,
-  onMoveTask,
   onDeleteTask,
   onRemoveEpic,
   onAddTaskToSprint,
   onCreateSprint,
+  onDeleteSprint,
   showToast,
   onGoToBacklog,
 }) => {
@@ -55,6 +56,7 @@ const AllSprints = memo(({
     (rolePermissions ? rolePermissions.manage_tasks !== false : true);
   const canManageSprints = isElevatedRole &&
     (rolePermissions ? rolePermissions.manage_sprints !== false : true);
+  const canDeleteSprints = effectiveRole === 'admin' && canManageSprints;
   // Filter state: 'all' | 'active' | 'planned' | 'completed'
   const [filterState, setFilterState] = useState('all');
   const customColumns = useCustomColumns();
@@ -401,6 +403,18 @@ const AllSprints = memo(({
                       </button>
                     ))}
 
+                    {canDeleteSprints && onDeleteSprint && (
+                      <button
+                        type="button"
+                        className="backlog-header-icon-btn backlog-delete-sprint-btn"
+                        onClick={() => onDeleteSprint(sprint.id)}
+                        title={`Delete ${sprint.name}`}
+                        aria-label={`Delete ${sprint.name}`}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       className="backlog-header-icon-btn"
@@ -502,7 +516,6 @@ const AllSprints = memo(({
                             onOpenEditTaskId={(targetTask, e) =>
                               onOpenModal && onOpenModal('editTaskId', targetTask, e)
                             }
-                            onMoveTask={(taskId) => onMoveTask && onMoveTask(taskId, 'backlog')}
                             onDeleteTask={onDeleteTask}
                             onRemoveEpic={onRemoveEpic}
                             showToast={showToast}

@@ -173,6 +173,11 @@
   color: #ffffff;
 }
 
+.backlog-delete-sprint-btn:hover {
+  background-color: rgba(226, 68, 92, 0.12);
+  color: #e2445c;
+}
+
 .backlog-tabs-nav {
   background-color: var(--app-surface, #18191e);
   border-bottom: 1px solid var(--app-border, rgba(148, 163, 209, 0.14));

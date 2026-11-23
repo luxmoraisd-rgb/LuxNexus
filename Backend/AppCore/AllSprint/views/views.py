@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 
 from AppCore.Backlog.models.model import Sprint, Task
 from AppCore.Backlog.serializers.serializer import SprintSerializer, TaskSerializer
-from AppCore.Auth.role_permissions import RoleModulePermission
+from AppCore.Auth.role_permissions import AdminOnlyDeletePermission, RoleModulePermission
 
 
 class AllSprintsOverviewView(APIView):
@@ -72,7 +72,11 @@ class AllSprintsOverviewView(APIView):
 
 
 class SprintViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RoleModulePermission]
+    permission_classes = [
+        IsAuthenticated,
+        RoleModulePermission,
+        AdminOnlyDeletePermission,
+    ]
     queryset = Sprint.objects.all().prefetch_related('tasks').order_by('order', '-created_at')
     serializer_class = SprintSerializer
     filter_backends = [SearchFilter, OrderingFilter]

@@ -127,6 +127,7 @@ const BacklogModals = memo(({
   anchorRect,
   activeTaskTarget,
   canUploadTaskAssets = false,
+  canDeleteSprint = false,
   sprint1Tasks,
   backlogTasks,
   allTasks = [],
@@ -827,26 +828,6 @@ const BacklogModals = memo(({
               }}
             >
               <span>📥 Export Board as CSV</span>
-            </button>
-            <button
-              type="button"
-              className="backlog-popover-list-item"
-              onClick={() => {
-                showToast('Board permissions updated', 'info');
-                onClose();
-              }}
-            >
-              <span>🔒 Board Permissions</span>
-            </button>
-            <button
-              type="button"
-              className="backlog-popover-list-item"
-              onClick={() => {
-                showToast('Notification preferences saved', 'info');
-                onClose();
-              }}
-            >
-              <span>🔔 Notification Settings</span>
             </button>
           </div>
         </div>
@@ -1658,7 +1639,7 @@ const BacklogModals = memo(({
             >
               📦 Move all tasks to Backlog
             </button>
-            {sprints && sprints.length > 1 && (
+            {canDeleteSprint && sprints && sprints.length > 1 && (
               <button
                 type="button"
                 className="backlog-popover-list-item"

@@ -48,6 +48,7 @@ export default function ProjectDetails({ rolePermissions, currentUser }) {
   const effectiveRole = rolePermissions?.current_role || currentUser?.role || "user";
   const isElevated = effectiveRole === "admin" || effectiveRole === "team_lead";
   const canManageSprints = isElevated && rolePermissions?.manage_sprints !== false;
+  const canDeleteSprints = effectiveRole === "admin" && canManageSprints;
   const canManageTasks = isElevated && rolePermissions?.manage_tasks !== false;
   const canManageProject = isElevated && rolePermissions?.manage_portfolios !== false;
 
@@ -66,9 +67,20 @@ export default function ProjectDetails({ rolePermissions, currentUser }) {
         taskApi.getAll({ project_id: projectId }),
         backlogClient.get("/backlog/users/"),
       ]);
+      const projectSprints = (Array.isArray(sprintResponse.data) ? sprintResponse.data : [])
+        .filter((sprint) =>
+          String(sprint.project_id || sprint.projectId || "") === String(projectId)
+        );
+      const projectSprintIds = new Set(projectSprints.map((sprint) => String(sprint.id)));
+      const projectTasks = (Array.isArray(taskData) ? taskData : []).filter((task) => {
+        const taskProjectId = task.project_id || task.projectId;
+        if (taskProjectId) return String(taskProjectId) === String(projectId);
+        const sprintId = task.sprintId || task.sprint_id || task.sprint?.id;
+        return sprintId && projectSprintIds.has(String(sprintId));
+      });
       setProject(projectData);
-      setSprints(Array.isArray(sprintResponse.data) ? sprintResponse.data : []);
-      setTasks(Array.isArray(taskData) ? taskData : []);
+      setSprints(projectSprints);
+      setTasks(projectTasks);
       setAssignees(Array.isArray(assigneeResponse.data) ? assigneeResponse.data : []);
     } catch (loadError) {
       setError(loadError.response?.data?.detail || "Unable to load project details.");
@@ -113,13 +125,17 @@ export default function ProjectDetails({ rolePermissions, currentUser }) {
   };
 
   const deleteSprint = async (sprint) => {
+    if (!canDeleteSprints) {
+      showToast("Only admins can delete sprints.");
+      return;
+    }
     if (!window.confirm(`Delete "${sprint.name}"?`)) return;
     try {
       await sprintApi.delete(sprint.id);
       setSprints((current) => current.filter((item) => String(item.id) !== String(sprint.id)));
       showToast("Sprint deleted.");
-    } catch {
-      showToast("Unable to delete sprint.");
+    } catch (deleteError) {
+      showToast(deleteError.response?.data?.detail || "Unable to delete sprint.");
     }
   };
 
@@ -240,7 +256,7 @@ export default function ProjectDetails({ rolePermissions, currentUser }) {
                   <div className="project-sprint-meta">
                     <span>{sprint.status || "future"}</span>
                     <span>{sprint.duration_text || sprint.dates || "Dates not set"}</span>
-                    {canManageSprints && <button type="button" onClick={() => deleteSprint(sprint)} title="Delete sprint"><Trash2 size={14} /></button>}
+                    {canDeleteSprints && <button type="button" onClick={() => deleteSprint(sprint)} title="Delete sprint" aria-label={`Delete ${sprint.name}`}><Trash2 size={14} /></button>}
                   </div>
                 </article>
               ))}
