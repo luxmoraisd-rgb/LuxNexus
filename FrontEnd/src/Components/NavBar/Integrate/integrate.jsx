@@ -96,7 +96,7 @@ export default function IntegrateButton({ theme = "dark" }) {
         {isOpen && (
           <div className="integrate-dropdown" data-theme={theme} role="menu" aria-label="Integrations menu">
             {integrationItems.map(({ id, name, Icon }) => {
-              const connected = !connectedIntegrations[id];
+              const connected = !!connectedIntegrations[id];
               return (
                 <button
                   key={id}

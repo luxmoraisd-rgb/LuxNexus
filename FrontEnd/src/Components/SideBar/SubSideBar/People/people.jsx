@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   ChevronDown,
   Users,
@@ -7,6 +6,7 @@ import {
   Search,
   Mail,
   MapPin,
+  Hash,
   Phone,
   Briefcase,
   Layers,
@@ -17,7 +17,6 @@ import {
   Plus,
   Trash2,
   Edit,
-  Send,
   X,
   ExternalLink,
   Loader2,
@@ -177,8 +176,6 @@ export const PeoplePage = ({
   activeTab = "members",
   onTabChange,
 }) => {
-  const navigate = useNavigate();
-
   const sanitizeTab = (tab) => (tab === "workspace" ? "members" : tab || "members");
   const [internalTab, setInternalTab] = useState(sanitizeTab(activeTab));
   const currentTab = onTabChange ? sanitizeTab(activeTab) : internalTab;
@@ -211,9 +208,19 @@ export const PeoplePage = ({
 
   // Modals & Drawers
   const [selectedMember, setSelectedMember] = useState(null);
+  const [employeeIdDraft, setEmployeeIdDraft] = useState("");
+  const [isEditingEmployeeId, setIsEditingEmployeeId] = useState(false);
+  const [isSavingEmployeeId, setIsSavingEmployeeId] = useState(false);
+  const [employeeIdError, setEmployeeIdError] = useState("");
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
+
+  useEffect(() => {
+    setEmployeeIdDraft(selectedMember?.employeeId || "");
+    setIsEditingEmployeeId(false);
+    setEmployeeIdError("");
+  }, [selectedMember?.id, selectedMember?.employeeId]);
 
   // Invite Form
   const [inviteForm, setInviteForm] = useState({
@@ -284,7 +291,7 @@ export const PeoplePage = ({
     return members.filter((m) => {
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const corpus = `${m.name} ${m.username} ${m.email} ${m.jobTitle} ${m.department} ${m.team || ""} ${m.location}`.toLowerCase();
+        const corpus = `${m.name} ${m.username} ${m.email} ${m.employeeId || ""} ${m.jobTitle} ${m.department} ${m.team || ""} ${m.location}`.toLowerCase();
         if (!corpus.includes(q)) return false;
       }
       if (roleFilter !== "all" && m.role?.toLowerCase() !== roleFilter) {
@@ -430,6 +437,41 @@ export const PeoplePage = ({
       }
     } catch {
       showToast("Failed to update squad assignment");
+    }
+  };
+
+  const handleEmployeeIdSave = async () => {
+    const employeeId = employeeIdDraft.trim().toUpperCase();
+    if (!/^LUX-SD-(CHN|BNG|HYD)-(?:00[1-9]|0[1-9]\d|[1-9]\d{2})$/.test(employeeId)) {
+      setEmployeeIdError("Employee ID number must be from 001 to 999.");
+      return;
+    }
+
+    setIsSavingEmployeeId(true);
+    setEmployeeIdError("");
+    try {
+      const updated = await peopleApi.updateMember(selectedMember.id, {
+        employeeId,
+      });
+      setMembers((previous) =>
+        previous.map((member) =>
+          member.id === selectedMember.id
+            ? { ...member, employeeId: updated.employeeId }
+            : member
+        )
+      );
+      setSelectedMember((previous) => ({
+        ...previous,
+        employeeId: updated.employeeId,
+      }));
+      setIsEditingEmployeeId(false);
+      showToast("Employee ID updated");
+    } catch (error) {
+      setEmployeeIdError(
+        error.response?.data?.error || "Failed to update Employee ID."
+      );
+    } finally {
+      setIsSavingEmployeeId(false);
     }
   };
 
@@ -721,6 +763,10 @@ export const PeoplePage = ({
                       <span>{member.email}</span>
                     </div>
                     <div className="meta-row">
+                      <Hash size={13} />
+                      <span>{member.employeeId || "Not assigned"}</span>
+                    </div>
+                    <div className="meta-row">
                       <MapPin size={13} />
                       <span>{member.location}</span>
                     </div>
@@ -739,6 +785,7 @@ export const PeoplePage = ({
                 <thead>
                   <tr>
                     <th>Colleague</th>
+                    <th>Employee ID</th>
                     <th>Team / Squad</th>
                     <th>Role</th>
                     <th>Department</th>
@@ -767,6 +814,7 @@ export const PeoplePage = ({
                           </div>
                         </div>
                       </td>
+                      <td>{member.employeeId || "Not assigned"}</td>
                       <td>
                         <div className="table-team-badge">
                           <Layers size={12} />
@@ -932,6 +980,66 @@ export const PeoplePage = ({
                   <span style={{ fontSize: 13 }}>{selectedMember.email}</span>
                 </div>
                 <div className="form-group">
+                  <label>Employee ID</label>
+                  {isEditingEmployeeId ? (
+                    <>
+                      <input
+                        className="form-control"
+                        type="text"
+                        maxLength={15}
+                        value={employeeIdDraft}
+                        onChange={(event) => {
+                          setEmployeeIdDraft(event.target.value.toUpperCase());
+                          setEmployeeIdError("");
+                        }}
+                        aria-label="Employee ID"
+                        aria-invalid={Boolean(employeeIdError)}
+                        aria-describedby={employeeIdError ? "people-employee-id-error" : undefined}
+                      />
+                      {employeeIdError && (
+                        <span id="people-employee-id-error" role="alert">
+                          {employeeIdError}
+                        </span>
+                      )}
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          type="button"
+                          className="people-btn people-btn-primary"
+                          onClick={handleEmployeeIdSave}
+                          disabled={isSavingEmployeeId}
+                        >
+                          {isSavingEmployeeId ? "Saving..." : "Save ID"}
+                        </button>
+                        <button
+                          type="button"
+                          className="people-btn people-btn-secondary"
+                          onClick={() => {
+                            setEmployeeIdDraft(selectedMember.employeeId || "");
+                            setEmployeeIdError("");
+                            setIsEditingEmployeeId(false);
+                          }}
+                          disabled={isSavingEmployeeId}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 13 }}>{selectedMember.employeeId || "Not assigned"}</span>
+                      {selectedMember.can_edit_employee_id && (
+                        <button
+                          type="button"
+                          className="people-btn people-btn-secondary"
+                          onClick={() => setIsEditingEmployeeId(true)}
+                        >
+                          Edit
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="form-group">
                   <label>Assigned Squad / Team</label>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#818cf8", fontWeight: 600, fontSize: 13 }}>
                     <Layers size={14} />
@@ -986,17 +1094,6 @@ export const PeoplePage = ({
             </div>
 
             <div className="people-modal-footer">
-              <button
-                type="button"
-                className="people-btn people-btn-primary"
-                onClick={() => {
-                  setSelectedMember(null);
-                  navigate("/work/inbox");
-                }}
-              >
-                <Send size={14} />
-                <span>Send Message</span>
-              </button>
               <button
                 type="button"
                 className="people-btn people-btn-secondary"

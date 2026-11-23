@@ -92,6 +92,11 @@ export const NotificationSettingsPanel = ({
   onClose,
   isStandalone = false,
 }) => {
+  const [browserPermission, setBrowserPermission] = useState(() =>
+    typeof window !== "undefined" && "Notification" in window
+      ? window.Notification.permission
+      : "unsupported"
+  );
   const [settings, setSettings] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
@@ -136,11 +141,30 @@ export const NotificationSettingsPanel = ({
     try {
       localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(payload));
     } catch {}
+    window.dispatchEvent(
+      new CustomEvent("nexus:notification-settings-changed", {
+        detail: payload,
+      })
+    );
 
     try {
       await inboxApi.updateSettings(payload);
     } catch (err) {
       console.warn("Failed to persist notification settings to backend:", err);
+    }
+  };
+
+  const enableBrowserNotifications = async () => {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      setBrowserPermission("unsupported");
+      return;
+    }
+
+    try {
+      setBrowserPermission(await window.Notification.requestPermission());
+    } catch (err) {
+      console.warn("Unable to request browser notification permission:", err);
+      setBrowserPermission("error");
     }
   };
 
@@ -178,6 +202,31 @@ export const NotificationSettingsPanel = ({
       </div>
 
       <div className="notification-list notification-settings-list">
+        <div className="browser-notification-permission">
+          <div className="notification-info">
+            <span className="notification-name">Browser notifications</span>
+            <span className="notification-desc">
+              {browserPermission === "granted"
+                ? "Browser alerts are enabled for your selected notification types."
+                : browserPermission === "denied"
+                  ? "Notifications are blocked by your browser. Change this site’s permission in browser settings."
+                  : browserPermission === "unsupported"
+                    ? "This browser does not support desktop notifications."
+                    : browserPermission === "error"
+                      ? "Unable to request permission. Use a secure connection and check browser settings."
+                    : "Allow browser alerts for new notifications while Nexus is open."}
+            </span>
+          </div>
+          {browserPermission === "default" && (
+            <button
+              type="button"
+              className="browser-notification-enable"
+              onClick={enableBrowserNotifications}
+            >
+              Enable
+            </button>
+          )}
+        </div>
         {settings.map((item) => (
           <button
             key={item.id}
@@ -239,12 +288,87 @@ const NotificationSettings = ({ theme = "dark" }) => {
   });
 
   const containerRef = useRef(null);
+  const knownNotificationIdsRef = useRef(null);
+  const notificationPreferencesRef = useRef(
+    Object.fromEntries(
+      DEFAULT_NOTIFICATION_SETTINGS.map(({ id, enabled }) => [id, enabled])
+    )
+  );
+
+  const getNotificationPreferenceKey = (notification) => {
+    if (notification.mentioned || notification.type === "mention") return "mentions";
+    const type = String(notification.type || "").toLowerCase();
+    const typeToPreference = {
+      comment: "comments",
+      comments: "comments",
+      reply: "comments",
+      message: "direct-messages",
+      "direct-message": "direct-messages",
+      task: "tasks",
+      project: "project-updates",
+      "project-update": "project-updates",
+      "due-date": "due-dates",
+      reminder: "reminders",
+      security: "security",
+      "weekly-summary": "weekly-summary",
+    };
+    return typeToPreference[type] || null;
+  };
 
   // Load unread notifications from the inbox API.
-  const loadNotifications = async () => {
+  const loadNotifications = async ({ notifyNew = false } = {}) => {
     try {
       const data = await inboxApi.getAll();
-      setNotifications(Array.isArray(data) ? data : []);
+      const currentNotifications = Array.isArray(data) ? data : [];
+      setNotifications(currentNotifications);
+
+      const knownIds = knownNotificationIdsRef.current;
+      if (knownIds === null) {
+        knownNotificationIdsRef.current = new Set(
+          currentNotifications.map((item) => item.id)
+        );
+        return;
+      }
+
+      const newNotifications = currentNotifications.filter(
+        (item) => item.id && !knownIds.has(item.id)
+      );
+      currentNotifications.forEach((item) => knownIds.add(item.id));
+
+      if (
+        notifyNew &&
+        typeof window !== "undefined" &&
+        "Notification" in window &&
+        window.Notification.permission === "granted"
+      ) {
+        newNotifications.forEach((item) => {
+          if (item.isSent || item.unread === false) return;
+          const preferenceKey = getNotificationPreferenceKey(item);
+          if (
+            preferenceKey &&
+            notificationPreferencesRef.current[preferenceKey] === false
+          ) {
+            return;
+          }
+
+          try {
+            const browserNotification = new window.Notification(
+              item.title || "New Nexus notification",
+              {
+                body: [item.author, item.snippet].filter(Boolean).join(": "),
+                tag: `nexus-notification-${item.id}`,
+              }
+            );
+            browserNotification.onclick = () => {
+              window.focus();
+              navigate("/work/inbox");
+              browserNotification.close();
+            };
+          } catch (err) {
+            console.warn("Unable to display a browser notification:", err);
+          }
+        });
+      }
     } catch (err) {
       console.warn("Unable to fetch notifications from inbox API:", err);
       setNotifications([]);
@@ -254,14 +378,47 @@ const NotificationSettings = ({ theme = "dark" }) => {
   useEffect(() => {
     loadNotifications();
 
+    inboxApi
+      .getSettings()
+      .then((data) => {
+        if (data && typeof data === "object") {
+          notificationPreferencesRef.current = {
+            ...notificationPreferencesRef.current,
+            ...data,
+          };
+        }
+      })
+      .catch((err) => {
+        console.warn("Unable to fetch notification preferences:", err);
+      });
+
     const handleSync = () => {
-      loadNotifications();
+      loadNotifications({ notifyNew: true });
+    };
+    const handleSettingsChanged = (event) => {
+      notificationPreferencesRef.current = {
+        ...notificationPreferencesRef.current,
+        ...event.detail,
+      };
     };
 
+    const pollId = window.setInterval(
+      () => loadNotifications({ notifyNew: true }),
+      30_000
+    );
     window.addEventListener("nexus:notifications-changed", handleSync);
+    window.addEventListener(
+      "nexus:notification-settings-changed",
+      handleSettingsChanged
+    );
     window.addEventListener("focus", handleSync);
     return () => {
+      window.clearInterval(pollId);
       window.removeEventListener("nexus:notifications-changed", handleSync);
+      window.removeEventListener(
+        "nexus:notification-settings-changed",
+        handleSettingsChanged
+      );
       window.removeEventListener("focus", handleSync);
     };
   }, []);

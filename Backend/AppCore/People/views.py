@@ -1,17 +1,24 @@
 import os
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 
 from bson import ObjectId
 from django.conf import settings
 from django.core.mail import send_mail
+from pymongo.errors import DuplicateKeyError
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ..Auth.utils import user_payload
-from ..Auth.role_permissions import ROLE_LABELS, RoleModulePermission
+from ..Auth.role_permissions import (
+    ROLE_LABELS,
+    RoleModulePermission,
+    is_configured_admin,
+)
+from ..Auth.serializers.signup import EMPLOYEE_ID_PATTERN
 from ..db import get_database
 
 DEFAULT_AVATAR_COLORS = [
@@ -55,6 +62,7 @@ def _format_user(doc, index=0):
         "id": user_id,
         "username": username,
         "email": email,
+        "employeeId": doc.get("employee_id", ""),
         "name": name,
         "firstName": first,
         "lastName": last,
@@ -103,10 +111,11 @@ class PeopleListView(APIView):
 
         for idx, doc in enumerate(users_cursor):
             person = _format_user(doc, idx)
+            person["can_edit_employee_id"] = is_configured_admin(request.user)
 
             # Apply in-memory filtering for rich fields
             if search:
-                text_corpus = f"{person['name']} {person['username']} {person['email']} {person['jobTitle']} {person['department']} {person['location']}".lower()
+                text_corpus = f"{person['name']} {person['username']} {person['email']} {person['employeeId']} {person['jobTitle']} {person['department']} {person['location']}".lower()
                 if search not in text_corpus:
                     continue
 
@@ -216,7 +225,9 @@ class PeopleDetailView(APIView):
                 {"error": "Member not found"},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        return Response(_format_user(doc), status=status.HTTP_200_OK)
+        person = _format_user(doc)
+        person["can_edit_employee_id"] = is_configured_admin(request.user)
+        return Response(person, status=status.HTTP_200_OK)
 
     def patch(self, request, user_id):
         db = get_database()
@@ -234,7 +245,36 @@ class PeopleDetailView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        has_employee_id = "employeeId" in data or "employee_id" in data
+        employee_id_sequence = None
         update_fields = {"updated_at": datetime.now(timezone.utc)}
+        if has_employee_id:
+            if not is_configured_admin(request.user):
+                return Response(
+                    {"error": "Only admins can change Employee ID."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            employee_id = data.get("employeeId", data.get("employee_id"))
+            if not isinstance(employee_id, str):
+                return Response(
+                    {"error": "Employee ID must be a string."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            employee_id = employee_id.strip().upper()
+            if not re.fullmatch(EMPLOYEE_ID_PATTERN, employee_id):
+                return Response(
+                    {
+                        "error": (
+                            "Use LUX-SD-CHN-001 through LUX-SD-CHN-999, replacing "
+                            "CHN with BNG or HYD for your branch."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            employee_id_sequence = int(employee_id[-3:])
+            update_fields["employee_id"] = employee_id
+            update_fields["employee_id_sequence"] = employee_id_sequence
+
         if "role" in data:
             if data["role"] not in ROLE_LABELS:
                 return Response(
@@ -259,10 +299,28 @@ class PeopleDetailView(APIView):
                 profile_updates[f"profile.{key}"] = data[key]
 
         update_fields.update(profile_updates)
-        db.users.update_one(target, {"$set": update_fields})
+        if employee_id_sequence is not None and db.users.find_one(
+            {
+                "employee_id_sequence": employee_id_sequence,
+                "_id": {"$ne": existing["_id"]},
+            }
+        ):
+            return Response(
+                {"error": "This employee ID number is already assigned."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            db.users.update_one(target, {"$set": update_fields})
+        except DuplicateKeyError:
+            return Response(
+                {"error": "This employee ID number is already assigned."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         updated = db.users.find_one(target)
-        return Response(_format_user(updated), status=status.HTTP_200_OK)
+        person = _format_user(updated)
+        person["can_edit_employee_id"] = is_configured_admin(request.user)
+        return Response(person, status=status.HTTP_200_OK)
 
     def delete(self, request, user_id):
         db = get_database()

@@ -64,6 +64,7 @@ Profile.Sidebar = ({ activeTab, setActiveTab, profile = {}, projectKey = "LUX" }
   const fields = [
     profile.name,
     profile.email,
+    profile.employee_id,
     profile.mobile,
     profile.location,
     profile.jobTitle,
@@ -225,6 +226,9 @@ const ProfileHero = ({ profile, onUpdate, onPhotoUpload, isSaving }) => {
   const [editingMobile, setEditingMobile] = useState(false);
   const [mobile, setMobile] = useState(profile.mobile || "");
   const [mobileError, setMobileError] = useState("");
+  const [editingEmployeeId, setEditingEmployeeId] = useState(false);
+  const [employeeId, setEmployeeId] = useState(profile.employee_id || "");
+  const [employeeIdError, setEmployeeIdError] = useState("");
   const [isPhotoPreviewOpen, setIsPhotoPreviewOpen] = useState(false);
   const previewCloseButtonRef = useRef(null);
 
@@ -267,6 +271,17 @@ const ProfileHero = ({ profile, onUpdate, onPhotoUpload, isSaving }) => {
     }
     onUpdate({ ...profile, mobile: mobile.trim() });
     setEditingMobile(false);
+  };
+
+  const saveEmployeeId = () => {
+    const trimmed = employeeId.trim().toUpperCase();
+    if (!/^LUX-SD-(CHN|BNG|HYD)-(?:00[1-9]|0[1-9]\d|[1-9]\d{2})$/.test(trimmed)) {
+      setEmployeeIdError("Employee ID number must be from 001 to 999.");
+      return;
+    }
+    onUpdate({ ...profile, employee_id: trimmed });
+    setEmployeeIdError("");
+    setEditingEmployeeId(false);
   };
 
   const handlePhotoUpload = (event) => {
@@ -411,6 +426,73 @@ const ProfileHero = ({ profile, onUpdate, onPhotoUpload, isSaving }) => {
           value={profile.email || "Add an email"}
           empty={!profile.email}
         />
+        <div className="info-item">
+          <div className="info-icon"><User size={18} /></div>
+          <div className="mobile-info-content">
+            <strong>Employee ID</strong>
+            {editingEmployeeId ? (
+              <>
+                <div className="mobile-number-editor">
+                  <input
+                    type="text"
+                    maxLength={15}
+                    value={employeeId}
+                    onChange={(event) => {
+                      setEmployeeId(event.target.value.toUpperCase());
+                      setEmployeeIdError("");
+                    }}
+                    placeholder="LUX-SD-CHN-001"
+                    aria-label="Employee ID"
+                    aria-invalid={Boolean(employeeIdError)}
+                    aria-describedby={employeeIdError ? "employee-id-error" : undefined}
+                    autoFocus
+                  />
+                  <button type="button" onClick={saveEmployeeId} disabled={isSaving} aria-label="Save employee ID" title="Save">
+                    <Check size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEmployeeId(profile.employee_id || "");
+                      setEmployeeIdError("");
+                      setEditingEmployeeId(false);
+                    }}
+                    aria-label="Cancel employee ID edit"
+                    title="Cancel"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+                {employeeIdError && (
+                  <p id="employee-id-error" className="mobile-number-error" role="alert">
+                    {employeeIdError}
+                  </p>
+                )}
+              </>
+            ) : (
+              <div className="mobile-number-display">
+                <p className={!profile.employee_id ? "empty-info" : ""}>
+                  {profile.employee_id || "Not assigned"}
+                </p>
+                {profile.can_edit_employee_id && (
+                  <button
+                    type="button"
+                    className="mobile-number-edit"
+                    onClick={() => {
+                      setEmployeeId(profile.employee_id || "");
+                      setEmployeeIdError("");
+                      setEditingEmployeeId(true);
+                    }}
+                    aria-label="Edit employee ID"
+                    title="Edit employee ID"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
 
         <div className="info-item">
           <div className="info-icon"><Smartphone size={18} /></div>
@@ -861,6 +943,7 @@ const ProfilePage = ({
             ...result.data,
             name: result.data.name || profileInputs.profileName || profileInputs.currentUser?.name || profileInputs.currentUser?.username || "User",
             email: result.data.email || profileInputs.currentUser?.email || "",
+            employee_id: result.data.employee_id || profileInputs.currentUser?.employee_id || "",
             photo: result.data.photo || profileInputs.profilePhoto || "",
             location: hasPlaceholderLocation ? "" : result.data.location || "",
           };

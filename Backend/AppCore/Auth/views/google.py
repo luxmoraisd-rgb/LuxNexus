@@ -68,6 +68,7 @@ class GoogleAuthView(APIView):
             now,
             ip=client_ip,
             user_agent=user_agent,
+            expires_in_days=30 if request.data.get("remember_me") is True else 14,
         )
 
         return Response(

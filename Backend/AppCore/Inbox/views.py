@@ -141,22 +141,53 @@ class InboxView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        recipient_email = str(data.get("recipient_email", "")).strip().lower()
+        if not recipient_email:
+            return Response(
+                {"recipient_email": ["This field is required."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        database = get_database()
+        recipient = database.users.find_one(
+            {
+                "email": {
+                    "$regex": f"^{re.escape(recipient_email)}$",
+                    "$options": "i",
+                }
+            }
+        )
+        if recipient is None:
+            return Response(
+                {"recipient_email": ["No account matches this email address."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        recipient_name = " ".join(
+            part.strip()
+            for part in (
+                recipient.get("first_name", ""),
+                recipient.get("last_name", ""),
+            )
+            if part and part.strip()
+        ) or recipient.get("username") or recipient_email.split("@", 1)[0]
+
         now = datetime.now(timezone.utc)
-        doc = {
-            "user_id": str(request.user.id),
+        notification = {
             "title": title,
             "snippet": data.get("snippet") or str(data.get("description", ""))[:120],
             "description": data.get("description", ""),
-            "author": data.get("author") or getattr(request.user, "username", "System"),
-            "author_email": data.get("author_email") or getattr(request.user, "email", ""),
-            "avatar": data.get("avatar") or (data.get("author", "N")[:2].upper() if data.get("author") else "N"),
+            "author": getattr(request.user, "username", "System"),
+            "author_email": getattr(request.user, "email", ""),
+            "avatar": data.get("avatar") or getattr(request.user, "username", "N")[:2].upper(),
             "avatarColor": data.get("avatarColor", "#6366f1"),
+            "recipient_name": recipient_name,
+            "recipient_email": recipient_email,
             "type": data.get("type", "message"),
-            "unread": data.get("unread", True),
             "starred": data.get("starred", False),
             "archived": data.get("archived", False),
             "deleted": False,
-            "mentioned": data.get("mentioned", False),
+            "mentioned": data.get("type") == "mention",
             "section": data.get("section", "Today"),
             "tags": data.get("tags", []),
             "time": data.get("time") or now.strftime("%I:%M %p"),
@@ -166,9 +197,31 @@ class InboxView(APIView):
             "created_at": now,
         }
 
-        result = get_database().notifications.insert_one(doc)
-        doc["_id"] = result.inserted_id
-        return Response(_serialize_notification(doc), status=status.HTTP_201_CREATED)
+        recipient_doc = {
+            **notification,
+            "user_id": str(recipient["_id"]),
+            "unread": True,
+            "isSent": False,
+        }
+        recipient_result = database.notifications.insert_one(recipient_doc)
+        recipient_doc["_id"] = recipient_result.inserted_id
+
+        if str(recipient["_id"]) == str(request.user.id):
+            return Response(
+                _serialize_notification(recipient_doc),
+                status=status.HTTP_201_CREATED,
+            )
+
+        sender_doc = {
+            **notification,
+            "user_id": str(request.user.id),
+            "unread": False,
+            "isSent": True,
+            "mentioned": False,
+        }
+        sender_result = database.notifications.insert_one(sender_doc)
+        sender_doc["_id"] = sender_result.inserted_id
+        return Response(_serialize_notification(sender_doc), status=status.HTTP_201_CREATED)
 
 
 class NotificationDetailView(APIView):

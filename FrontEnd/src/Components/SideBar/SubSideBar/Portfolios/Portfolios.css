@@ -1270,3 +1270,49 @@
 [data-theme="light"] .drawer-meta-label {
   color: #64748b;
 }
+
+@media (max-width: 650px) {
+  .portfolios-container {
+    padding: 16px 14px 32px;
+    gap: 18px;
+  }
+
+  .portfolios-title-group {
+    min-width: 0;
+    gap: 12px;
+  }
+
+  .portfolios-heading {
+    font-size: 1.35rem;
+  }
+
+  .portfolios-actions-bar {
+    width: 100%;
+    gap: 8px;
+  }
+
+  .portfolios-search-box {
+    width: 100%;
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+
+  .portfolios-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .portfolio-card {
+    padding: 16px;
+  }
+
+  .portfolio-modal {
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+  }
+
+  .form-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

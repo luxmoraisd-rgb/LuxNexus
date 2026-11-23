@@ -27,7 +27,7 @@ from .Auth.role_permissions import (
 from .Auth.views.permissions import RolePermissionsView
 from .checks import check_email_configuration
 from .models import MongoUser
-from .People.views import _invitation_days_left
+from .People.views import _format_user, _invitation_days_left
 from .Reporting.views.reports import EOD_PATTERN, _aggregate_reports, _eod_comment_reports
 from .ActiveSprint.serializers.serializer import TaskSerializer as ActiveSprintTaskSerializer
 from .Backlog.serializers.serializer import (
@@ -48,6 +48,164 @@ class PeopleInvitationExpiryTests(SimpleTestCase):
             _invitation_days_left(expires_at, sent_at + timedelta(days=1)),
             5,
         )
+
+
+class PeopleMemberFormattingTests(SimpleTestCase):
+    def test_member_payload_includes_employee_id(self):
+        person = _format_user(
+            {
+                "_id": ObjectId(),
+                "username": "nexus_user",
+                "email": "user@example.com",
+                "employee_id": "LUX-SD-CHN-007",
+            }
+        )
+
+        self.assertEqual(person["employeeId"], "LUX-SD-CHN-007")
+
+    @override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
+    @patch("AppCore.People.views.get_database")
+    def test_people_list_marks_employee_id_edit_access_for_configured_admin(
+        self, get_database
+    ):
+        admin = MongoUser(
+            id=ObjectId(),
+            username="nexus_admin",
+            email="admin@example.com",
+            first_name="Admin",
+            last_name="",
+            role="admin",
+        )
+        client = APIClient()
+        client.force_authenticate(user=admin)
+        database = get_database.return_value
+        database.users.find.return_value.sort.return_value = [
+            {
+                "_id": ObjectId(),
+                "username": "member",
+                "email": "member@example.com",
+                "employee_id": "LUX-SD-CHN-007",
+            }
+        ]
+
+        response = client.get("/api/people/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data[0]["employeeId"], "LUX-SD-CHN-007")
+        self.assertTrue(response.data[0]["can_edit_employee_id"])
+
+
+@override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
+class PeopleEmployeeIdUpdateTests(SimpleTestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.target_id = ObjectId()
+        self.admin = MongoUser(
+            id=ObjectId(),
+            username="nexus_admin",
+            email="admin@example.com",
+            first_name="Admin",
+            last_name="",
+            role="admin",
+        )
+        self.member = MongoUser(
+            id=ObjectId(),
+            username="member",
+            email="member@example.com",
+            first_name="Member",
+            last_name="",
+            role="user",
+        )
+
+    @patch("AppCore.People.views.get_database")
+    def test_admin_can_update_another_members_employee_id(self, get_database):
+        self.client.force_authenticate(user=self.admin)
+        database = get_database.return_value
+        database.users.find_one.side_effect = [
+            {
+                "_id": self.target_id,
+                "username": "member",
+                "email": "member@example.com",
+            },
+            None,
+            {
+                "_id": self.target_id,
+                "username": "member",
+                "email": "member@example.com",
+                "employee_id": "LUX-SD-BNG-021",
+            },
+        ]
+
+        response = self.client.patch(
+            f"/api/people/{self.target_id}/",
+            {"employeeId": "lux-sd-bng-021"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["employeeId"], "LUX-SD-BNG-021")
+        updates = database.users.update_one.call_args.args[1]["$set"]
+        self.assertEqual(updates["employee_id"], "LUX-SD-BNG-021")
+        self.assertEqual(updates["employee_id_sequence"], 21)
+
+    @patch("AppCore.People.views.get_database")
+    def test_non_admin_cannot_update_employee_id(self, get_database):
+        self.client.force_authenticate(user=self.member)
+        database = get_database.return_value
+        database.users.find_one.return_value = {
+            "_id": self.target_id,
+            "username": "member",
+            "email": "member@example.com",
+        }
+
+        response = self.client.patch(
+            f"/api/people/{self.target_id}/",
+            {"employeeId": "LUX-SD-BNG-021"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        database.users.update_one.assert_not_called()
+
+    @patch("AppCore.People.views.get_database")
+    def test_admin_cannot_assign_employee_id_number_already_in_use(
+        self, get_database
+    ):
+        self.client.force_authenticate(user=self.admin)
+        database = get_database.return_value
+        database.users.find_one.side_effect = [
+            {"_id": self.target_id, "email": "member@example.com"},
+            {"_id": ObjectId(), "employee_id": "LUX-SD-CHN-021"},
+        ]
+
+        response = self.client.patch(
+            f"/api/people/{self.target_id}/",
+            {"employeeId": "LUX-SD-HYD-021"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("already assigned", response.data["error"])
+        database.users.update_one.assert_not_called()
+
+    @patch("AppCore.People.views.get_database")
+    def test_admin_cannot_assign_zero_employee_number(self, get_database):
+        self.client.force_authenticate(user=self.admin)
+        database = get_database.return_value
+        database.users.find_one.return_value = {
+            "_id": self.target_id,
+            "email": "member@example.com",
+        }
+
+        response = self.client.patch(
+            f"/api/people/{self.target_id}/",
+            {"employeeId": "LUX-SD-CHN-000"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("001 through LUX-SD-CHN-999", response.data["error"])
+        database.users.update_one.assert_not_called()
 
 
 class TaskAssigneeTests(SimpleTestCase):
@@ -285,6 +443,91 @@ class FrontendApiRouteTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), [])
+
+    @patch("AppCore.Inbox.views.get_database")
+    def test_inbox_message_creates_recipient_notification_and_sender_copy(self, get_database):
+        sender_id = ObjectId()
+        recipient_id = ObjectId()
+        recipient_notification_id = ObjectId()
+        sender_notification_id = ObjectId()
+        database = get_database.return_value
+        database.users.find_one.return_value = {
+            "_id": recipient_id,
+            "first_name": "Recipient",
+            "last_name": "Member",
+            "username": "recipient",
+            "email": "recipient@example.com",
+        }
+        database.notifications.insert_one.side_effect = [
+            Mock(inserted_id=recipient_notification_id),
+            Mock(inserted_id=sender_notification_id),
+        ]
+        user = MongoUser.from_document(
+            {
+                "_id": sender_id,
+                "username": "sender",
+                "email": "sender@example.com",
+                "role": "admin",
+            }
+        )
+        client = APIClient()
+        client.force_authenticate(user=user)
+
+        response = client.post(
+            "/api/inbox/",
+            {
+                "recipient_email": "recipient@example.com",
+                "title": "A mention",
+                "description": "Hello @recipient",
+                "type": "mention",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["id"], str(sender_notification_id))
+        inserted_recipient, inserted_sender = [
+            call.args[0]
+            for call in database.notifications.insert_one.call_args_list
+        ]
+        self.assertEqual(inserted_recipient["user_id"], str(recipient_id))
+        self.assertTrue(inserted_recipient["unread"])
+        self.assertFalse(inserted_recipient["isSent"])
+        self.assertTrue(inserted_recipient["mentioned"])
+        self.assertEqual(inserted_recipient["author"], "sender")
+        self.assertEqual(inserted_recipient["recipient_name"], "Recipient Member")
+        self.assertEqual(inserted_recipient["recipient_email"], "recipient@example.com")
+        self.assertEqual(inserted_sender["user_id"], str(sender_id))
+        self.assertFalse(inserted_sender["unread"])
+        self.assertTrue(inserted_sender["isSent"])
+
+    @patch("AppCore.Inbox.views.get_database")
+    def test_inbox_message_requires_an_existing_recipient(self, get_database):
+        database = get_database.return_value
+        database.users.find_one.return_value = None
+        user = MongoUser.from_document(
+            {
+                "_id": ObjectId(),
+                "username": "sender",
+                "email": "sender@example.com",
+                "role": "admin",
+            }
+        )
+        client = APIClient()
+        client.force_authenticate(user=user)
+
+        response = client.post(
+            "/api/inbox/",
+            {
+                "recipient_email": "missing@example.com",
+                "title": "A mention",
+                "type": "mention",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        database.notifications.insert_one.assert_not_called()
 
     @patch("AppCore.Chat.views.get_database")
     def test_all_roles_can_view_chat_and_read_status(self, get_database):
@@ -564,6 +807,7 @@ class MongoUserTests(SimpleTestCase):
                 "_id": user_id,
                 "username": "nexus_user",
                 "email": "user@example.com",
+                "employee_id": "LUX-SD-CHN-007",
             }
         )
 
@@ -571,6 +815,7 @@ class MongoUserTests(SimpleTestCase):
         self.assertTrue(user.is_authenticated)
         self.assertTrue(user.is_active)
         self.assertEqual(user.role, "user")
+        self.assertEqual(user.employee_id, "LUX-SD-CHN-007")
 
     def test_django_password_hasher_works_without_relational_auth_models(self):
         encoded = make_password("correct-horse-battery-staple")
@@ -664,6 +909,43 @@ class MongoAuthenticationTests(SimpleTestCase):
         )
 
 
+class LoginRememberMeTests(SimpleTestCase):
+    @patch("AppCore.Auth.views.login.get_client_ip", return_value="127.0.0.1")
+    @patch("AppCore.Auth.views.login.create_token", return_value="access-token")
+    @patch("AppCore.Auth.views.login.check_password", return_value=True)
+    @patch("AppCore.Auth.views.login.get_database")
+    def test_remember_me_extends_login_token_lifetime(
+        self, get_database, _check_password, create_token, _get_client_ip
+    ):
+        user_id = ObjectId()
+        get_database.return_value.users.find_one.return_value = {
+            "_id": user_id,
+            "username": "remember_user",
+            "email": "remember@example.com",
+            "password_hash": "hashed-password",
+            "is_active": True,
+        }
+        client = APIClient()
+
+        for remember_me, expected_days in ((False, 14), (True, 30)):
+            with self.subTest(remember_me=remember_me):
+                response = client.post(
+                    "/api/auth/login/",
+                    {
+                        "email": "remember@example.com",
+                        "password": "correct-password",
+                        "remember_me": remember_me,
+                    },
+                    format="json",
+                )
+
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(
+                    create_token.call_args.kwargs["expires_in_days"],
+                    expected_days,
+                )
+
+
 class SignupApiTests(SimpleTestCase):
     @patch("AppCore.Auth.views.signup.get_database")
     def test_signup_returns_user_and_mongodb_backed_bearer_token(self, get_database):
@@ -678,6 +960,7 @@ class SignupApiTests(SimpleTestCase):
                 {
                     "fullName": "Nexus User",
                     "email": "USER@example.com",
+                    "employee_id": "lux-sd-chn-007",
                     "password": "correct-horse",
                     "confirm_password": "correct-horse",
                 }
@@ -688,8 +971,12 @@ class SignupApiTests(SimpleTestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["user"]["id"], str(user_id))
         self.assertEqual(response.json()["user"]["email"], "user@example.com")
+        self.assertEqual(response.json()["user"]["employee_id"], "LUX-SD-CHN-007")
         self.assertTrue(response.json()["token"])
         self.assertNotIn("password_hash", response.json()["user"])
+        saved_user = database.users.insert_one.call_args.args[0]
+        self.assertEqual(saved_user["employee_id"], "LUX-SD-CHN-007")
+        self.assertEqual(saved_user["employee_id_sequence"], 7)
         database.tokens.insert_one.assert_called_once()
 
     @patch("AppCore.Auth.views.signup._get_valid_invitation")
@@ -717,6 +1004,7 @@ class SignupApiTests(SimpleTestCase):
                 {
                     "fullName": "Team Lead",
                     "email": "lead@example.com",
+                    "employee_id": "LUX-SD-BNG-008",
                     "password": "correct-horse",
                     "confirm_password": "correct-horse",
                     "invitation_token": token,
@@ -729,6 +1017,94 @@ class SignupApiTests(SimpleTestCase):
         self.assertEqual(response.json()["user"]["role"], "team_lead")
         self.assertTrue(response.json()["invitation_accepted"])
         self.assertEqual(database.users.insert_one.call_args.args[0]["role"], "team_lead")
+
+    @patch("AppCore.Auth.views.signup.get_database")
+    def test_signup_rejects_employee_id_with_an_unsupported_branch(self, get_database):
+        response = self.client.post(
+            "/api/auth/signup/",
+            data=json.dumps(
+                {
+                    "fullName": "Nexus User",
+                    "email": "user@example.com",
+                    "employee_id": "LUX-SD-MAA-007",
+                    "password": "correct-horse",
+                    "confirm_password": "correct-horse",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("employee_id", response.json()["errors"])
+        get_database.assert_not_called()
+
+    @patch("AppCore.Auth.views.signup.get_database")
+    def test_signup_rejects_zero_employee_number(self, get_database):
+        response = self.client.post(
+            "/api/auth/signup/",
+            data=json.dumps(
+                {
+                    "fullName": "Nexus User",
+                    "email": "user@example.com",
+                    "employee_id": "LUX-SD-CHN-000",
+                    "password": "correct-horse",
+                    "confirm_password": "correct-horse",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("employee_id", response.json()["errors"])
+        get_database.assert_not_called()
+
+    @patch("AppCore.Auth.views.signup.get_database")
+    def test_signup_rejects_four_digit_employee_number(self, get_database):
+        response = self.client.post(
+            "/api/auth/signup/",
+            data=json.dumps(
+                {
+                    "fullName": "Nexus User",
+                    "email": "user@example.com",
+                    "employee_id": "LUX-SD-CHN-0007",
+                    "password": "correct-horse",
+                    "confirm_password": "correct-horse",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("employee_id", response.json()["errors"])
+        get_database.assert_not_called()
+
+    @patch("AppCore.Auth.views.signup.get_database")
+    def test_signup_rejects_employee_number_already_used_by_another_branch(
+        self, get_database
+    ):
+        database = get_database.return_value
+        database.users.find_one.side_effect = [
+            None,
+            {"employee_id": "LUX-SD-CHN-007", "employee_id_sequence": 7},
+        ]
+
+        response = self.client.post(
+            "/api/auth/signup/",
+            data=json.dumps(
+                {
+                    "fullName": "Nexus User",
+                    "email": "user@example.com",
+                    "employee_id": "LUX-SD-BNG-007",
+                    "password": "correct-horse",
+                    "confirm_password": "correct-horse",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("employee_id", response.json()["errors"])
+        database.users.insert_one.assert_not_called()
 
 
 @override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
@@ -936,6 +1312,7 @@ class MongoProfileApiTests(SimpleTestCase):
             "_id": self.user_id,
             "username": self.user.username,
             "email": self.user.email,
+            "employee_id": "LUX-SD-CHN-007",
             "first_name": self.user.first_name,
             "profile": {
                 "location": "Portland, Oregon",
@@ -952,9 +1329,111 @@ class MongoProfileApiTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["location"], "Portland, Oregon")
         self.assertEqual(response.data["jobTitle"], "Engineer")
+        self.assertEqual(response.data["employee_id"], "LUX-SD-CHN-007")
         updates = database.users.update_one.call_args.args[1]["$set"]
         self.assertEqual(updates["profile.location"], "Portland, Oregon")
         self.assertEqual(updates["profile.jobTitle"], "Engineer")
+
+    @override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
+    @patch("AppCore.Auth.views.profile.get_database")
+    def test_profile_patch_rejects_employee_id_changes(self, get_database):
+        response = self.client.patch(
+            "/api/auth/profile/",
+            {"employee_id": "LUX-SD-HYD-0009", "jobTitle": "Engineer"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("Only admins", response.data["error"])
+        get_database.return_value.users.update_one.assert_not_called()
+
+    @override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
+    @patch("AppCore.Auth.views.profile.get_database")
+    def test_configured_admin_can_update_employee_id(self, get_database):
+        admin = MongoUser(
+            id=self.user_id,
+            username="nexus_admin",
+            email="admin@example.com",
+            first_name="Admin",
+            last_name="",
+            role="admin",
+        )
+        self.client.force_authenticate(user=admin)
+        database = get_database.return_value
+        database.users.find_one.side_effect = [
+            None,
+            {
+                "_id": self.user_id,
+                "username": admin.username,
+                "email": admin.email,
+                "employee_id": "LUX-SD-HYD-009",
+                "first_name": admin.first_name,
+            },
+        ]
+
+        response = self.client.patch(
+            "/api/auth/profile/",
+            {"employee_id": "lux-sd-hyd-009"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["employee_id"], "LUX-SD-HYD-009")
+        self.assertTrue(response.data["can_edit_employee_id"])
+        updates = database.users.update_one.call_args.args[1]["$set"]
+        self.assertEqual(updates["employee_id"], "LUX-SD-HYD-009")
+        self.assertEqual(updates["employee_id_sequence"], 9)
+
+    @override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
+    @patch("AppCore.Auth.views.profile.get_database")
+    def test_profile_admin_cannot_assign_zero_employee_number(self, get_database):
+        admin = MongoUser(
+            id=self.user_id,
+            username="nexus_admin",
+            email="admin@example.com",
+            first_name="Admin",
+            last_name="",
+            role="admin",
+        )
+        self.client.force_authenticate(user=admin)
+
+        response = self.client.patch(
+            "/api/auth/profile/",
+            {"employee_id": "LUX-SD-CHN-000"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("001 through LUX-SD-CHN-999", response.data["error"])
+        get_database.assert_not_called()
+
+    @override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
+    @patch("AppCore.Auth.views.profile.get_database")
+    def test_admin_cannot_assign_employee_number_already_in_use(self, get_database):
+        admin = MongoUser(
+            id=self.user_id,
+            username="nexus_admin",
+            email="admin@example.com",
+            first_name="Admin",
+            last_name="",
+            role="admin",
+        )
+        self.client.force_authenticate(user=admin)
+        database = get_database.return_value
+        database.users.find_one.return_value = {
+            "_id": ObjectId(),
+            "employee_id": "LUX-SD-CHN-009",
+        }
+
+        response = self.client.patch(
+            "/api/auth/profile/",
+            {"employee_id": "LUX-SD-BNG-009"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("already assigned", response.data["error"])
+        database.users.update_one.assert_not_called()
 
     @patch("AppCore.Auth.views.profile.get_database")
     def test_profile_avatar_upload_is_persisted_in_mongodb(self, get_database):

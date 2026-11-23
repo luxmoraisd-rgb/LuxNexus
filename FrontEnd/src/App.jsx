@@ -1,17 +1,30 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useParams,
+} from "react-router-dom";
 
-import Navbar from "./Components/NavBar/Navbar/navbar";
 import { authClient } from "./Components/Auth/authApi";
-import MainSidebar from "./Components/SideBar/MainSideBar/Mainsidebar/mainsidebar";
-import TrackerSidebar from "./Components/SideBar/MainSideBar/Tracker/trackersidebar";
-import KnowledgeSidebar from "./Components/SideBar/MainSideBar/Knowledge/knowledgesidebar";
-import PeopleSidebar from "./Components/SideBar/MainSideBar/People/peoplesidebar";
-import SubSidebar from "./Components/SideBar/MainSideBar/Work/worksidebar";
-import Dashboard from "./Components/SideBar/SubSideBar/HomePage/DashBoard/dashboard";
-import Inbox from "./Components/SideBar/SubSideBar/Inbox/inbox";
-import { SprintOverviewPage } from "./Components/SideBar/SubSideBar/MyTasks/TaskHeader/SprintOverview/sprintoverview";
 import "./App.css";
+const Navbar = lazy(() => import("./Components/NavBar/Navbar/navbar"));
+const MainSidebar = lazy(() => import("./Components/SideBar/MainSideBar/Mainsidebar/mainsidebar"));
+const TrackerSidebar = lazy(() => import("./Components/SideBar/MainSideBar/Tracker/trackersidebar"));
+const KnowledgeSidebar = lazy(() => import("./Components/SideBar/MainSideBar/Knowledge/knowledgesidebar"));
+const PeopleSidebar = lazy(() => import("./Components/SideBar/MainSideBar/People/peoplesidebar"));
+const SubSidebar = lazy(() => import("./Components/SideBar/MainSideBar/Work/worksidebar"));
+const Dashboard = lazy(() => import("./Components/SideBar/SubSideBar/HomePage/DashBoard/dashboard"));
+const Inbox = lazy(() => import("./Components/SideBar/SubSideBar/Inbox/inbox"));
+const SprintOverviewPage = lazy(() =>
+  import("./Components/SideBar/SubSideBar/MyTasks/TaskHeader/SprintOverview/sprintoverview").then(
+    (module) => ({ default: module.SprintOverviewPage })
+  )
+);
+const PeoplePage = lazy(() => import("./Components/SideBar/SubSideBar/People/people"));
 const Resourcing = lazy(() => import("./Components/SideBar/SubSideBar/Resourcing/resourcing"));
 const Backlog = lazy(() => import("./Components/SideBar/SubSideBar/MyTasks/Backlog/Backlog"));
 const MyTasksScreen = lazy(() => import("./Components/SideBar/SubSideBar/MyTasks/MyTasksScreen"));
@@ -26,7 +39,6 @@ const Signup = lazy(() => import("./Components/Auth/SignUp/signup"));
 const ForgotPassword = lazy(() => import("./Components/Auth/ForgotPass/forgotpassword"));
 const AcceptInvite = lazy(() => import("./Components/Auth/AcceptInvite"));
 const GoalsPage = lazy(() => import("./Components/SideBar/SubSideBar/Goals/GoalsPage"));
-import PeoplePage from "./Components/SideBar/SubSideBar/People/people";
 
 const isAllowedRouteForRole = (pathname, role) => {
   const path = pathname.replace(/\/+$/, "") || "/";
@@ -45,6 +57,21 @@ const preloadMyTasks = () => {
   import("./Components/SideBar/SubSideBar/MyTasks/Backlog/Backlog");
 };
 
+const clearStoredAuth = () => {
+  try {
+    sessionStorage.removeItem("token");
+    sessionStorage.removeItem("user");
+  } catch (error) {
+    console.warn("Unable to clear session authentication.", error);
+  }
+  try {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+  } catch (error) {
+    console.warn("Unable to clear remembered authentication.", error);
+  }
+};
+
 const PeopleRouteWrapper = ({ theme, onTabChange }) => {
   const { subTab } = useParams();
   const validTab =
@@ -60,7 +87,7 @@ const PeopleRouteWrapper = ({ theme, onTabChange }) => {
   );
 };
 
-const App = () => {
+const AppContent = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const normalizedPath = location.pathname.replace(/\/+$/, "") || "/";
@@ -70,23 +97,38 @@ const App = () => {
 
   const [currentUser, setCurrentUser] = useState(() => {
     try {
-      const token = sessionStorage.getItem("token");
+      const sessionToken = sessionStorage.getItem("token");
+      const rememberedToken = localStorage.getItem("token");
+      if (sessionToken && rememberedToken && sessionToken !== rememberedToken) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+      }
+
+      const token = sessionToken || rememberedToken;
       if (!token || token === "nexus-guest-token" || token.includes("demo-token")) {
-        sessionStorage.removeItem("token");
-        sessionStorage.removeItem("user");
+        clearStoredAuth();
         return null;
       }
-      const storedUser = sessionStorage.getItem("user");
-      if (!storedUser) return null;
+      const storedUser =
+        sessionStorage.getItem("user") ||
+        (rememberedToken === token ? localStorage.getItem("user") : null);
+      if (!storedUser) {
+        clearStoredAuth();
+        return null;
+      }
       const parsed = JSON.parse(storedUser);
       if (parsed?.email === "guest@nexusapp.io") {
-        sessionStorage.removeItem("token");
-        sessionStorage.removeItem("user");
+        clearStoredAuth();
         return null;
+      }
+      if (!sessionToken) sessionStorage.setItem("token", token);
+      if (!sessionStorage.getItem("user")) {
+        sessionStorage.setItem("user", storedUser);
       }
       return parsed;
     } catch (error) {
       console.warn("Unable to restore the signed-in user.", error);
+      clearStoredAuth();
       return null;
     }
   });
@@ -474,10 +516,18 @@ const App = () => {
       name: data?.name || data?.email?.split("@")[0] || "User",
       email: data?.email,
     };
+    const token = data?.token || data?.jwt || data?.accessToken;
     const name = user?.name || user?.username || user?.email || "User";
     sessionStorage.setItem("user", JSON.stringify(user));
-    if (data?.token || data?.jwt || data?.accessToken) {
-      sessionStorage.setItem("token", data.token || data.jwt || data.accessToken);
+    if (token) {
+      sessionStorage.setItem("token", token);
+    }
+    if (data?.rememberMe && token) {
+      localStorage.setItem("token", token);
+      localStorage.setItem("user", JSON.stringify(user));
+    } else {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
     }
     if (data?.ip) {
       sessionStorage.setItem("session_ip", data.ip);
@@ -501,6 +551,8 @@ const App = () => {
 
   const handleSignupSuccess = (data) => {
     if (data?.invitation_accepted && data?.token && data?.user) {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
       sessionStorage.setItem("token", data.token);
       sessionStorage.setItem("user", JSON.stringify(data.user));
       setCurrentUser(data.user);
@@ -512,6 +564,8 @@ const App = () => {
     // Clear any active session so the user must sign in explicitly
     sessionStorage.removeItem("user");
     sessionStorage.removeItem("token");
+    localStorage.removeItem("user");
+    localStorage.removeItem("token");
     setCurrentUser(null);
     const registeredEmail = data?.email || data?.user?.email || "";
     navigate("/signin", {
@@ -523,6 +577,8 @@ const App = () => {
   };
 
   const handleInvitationAccepted = (user) => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
     sessionStorage.setItem("user", JSON.stringify(user));
     setCurrentUser(user);
     setRolePermissions(null);
@@ -629,35 +685,35 @@ const App = () => {
     <div className="app" data-theme={theme}>
 
       {/* TOP NAVBAR */}
-      <Navbar
-        profileName={profileName}
-        profilePhoto={profilePhoto}
-        currentUser={currentUser}
-        isAuthenticated={isAuthenticated}
-        canManageTeam
-        canInviteElevatedRoles
-        theme={theme}
-        onThemeChange={setTheme}
-        onHomeClick={handleHomeClick}
-        onMenuClick={() =>
-          setSidebarOpen(!sidebarOpen)
-        }
-        onProfileClick={() => {
-          sessionStorage.setItem("current_view", "profile");
-          sessionStorage.setItem("profile_tab", "personal");
-          navigate("/profile/personal");
-        }}
-        onSettingsClick={() => {
-          sessionStorage.setItem("current_view", "settings");
-          sessionStorage.setItem("profile_tab", "notifications");
-          navigate("/settings/notifications");
-        }}
-        onSignInClick={() => navigate("/signin")}
-        onSignUpClick={() => navigate("/signup")}
-        onSignOutClick={handleLogout}
-        onSelectSuggestion={handleSelectSuggestion}
-        onCreateClick={handleCreateClick}
-      />
+      <Suspense fallback={null}>
+        <Navbar
+          profileName={profileName}
+          profilePhoto={profilePhoto}
+          currentUser={currentUser}
+          isAuthenticated={isAuthenticated}
+          canManageTeam
+          canInviteElevatedRoles
+          theme={theme}
+          onThemeChange={setTheme}
+          onHomeClick={handleHomeClick}
+          onMenuClick={() => setSidebarOpen(!sidebarOpen)}
+          onProfileClick={() => {
+            sessionStorage.setItem("current_view", "profile");
+            sessionStorage.setItem("profile_tab", "personal");
+            navigate("/profile/personal");
+          }}
+          onSettingsClick={() => {
+            sessionStorage.setItem("current_view", "settings");
+            sessionStorage.setItem("profile_tab", "notifications");
+            navigate("/settings/notifications");
+          }}
+          onSignInClick={() => navigate("/signin")}
+          onSignUpClick={() => navigate("/signup")}
+          onSignOutClick={handleLogout}
+          onSelectSuggestion={handleSelectSuggestion}
+          onCreateClick={handleCreateClick}
+        />
+      </Suspense>
 
       {currentView === "profile" || currentView === "settings" ? (
         <Suspense fallback={null}>
@@ -694,10 +750,12 @@ const App = () => {
               sidebarOpen ? "open" : "closed"
             }`}
           >
-            <MainSidebar
-              activeItem={selectedActiveItem}
-              setActiveItem={handleMainItemSelect}
-            />
+            <Suspense fallback={null}>
+              <MainSidebar
+                activeItem={selectedActiveItem}
+                setActiveItem={handleMainItemSelect}
+              />
+            </Suspense>
           </div>
 
           {/* SUB SIDEBAR */}
@@ -707,10 +765,12 @@ const App = () => {
                 sidebarOpen ? "open" : "closed"
               }`}
             >
-              <SubSidebar
-                activeMenu={selectedActiveSubItem}
-                onMenuSelect={handleSubItemSelect}
-              />
+              <Suspense fallback={null}>
+                <SubSidebar
+                  activeMenu={selectedActiveSubItem}
+                  onMenuSelect={handleSubItemSelect}
+                />
+              </Suspense>
             </div>
           )}
 
@@ -720,38 +780,40 @@ const App = () => {
                 sidebarOpen ? "open" : "closed"
               }`}
             >
-              <TrackerSidebar
-                selectedItem={
-                  isReportsRoute
-                    ? "Reports"
-                    : isResourcingRoute
-                      ? "Resourcing"
-                      : isGoalsRoute || isStrategyMapRoute || isTeamGoalsRoute
-                        ? "Goals"
-                        : trackerView
-                }
-                onSelectionChange={(item) => {
-                  if (item === "Goals") {
-                    setTrackerView("Goals");
-                    navigate("/strategy/goals");
-                  } else if (item === "Strategy map") {
-                    setTrackerView("Strategy map");
-                    navigate("/strategy/strategy-map");
-                  } else if (item === "Team goals") {
-                    setTrackerView("Team goals");
-                    navigate("/strategy/team-goals");
-                  } else if (item === "Reports") {
-                    setTrackerView("Reports");
-                    navigate("/strategy/reports");
-                  } else if (item === "Resourcing") {
-                    setTrackerView("Resourcing");
-                    navigate("/strategy/resourcing");
-                  } else {
-                    setTrackerView("Reports");
-                    navigate("/strategy/reports");
+              <Suspense fallback={null}>
+                <TrackerSidebar
+                  selectedItem={
+                    isReportsRoute
+                      ? "Reports"
+                      : isResourcingRoute
+                        ? "Resourcing"
+                        : isGoalsRoute || isStrategyMapRoute || isTeamGoalsRoute
+                          ? "Goals"
+                          : trackerView
                   }
-                }}
-              />
+                  onSelectionChange={(item) => {
+                    if (item === "Goals") {
+                      setTrackerView("Goals");
+                      navigate("/strategy/goals");
+                    } else if (item === "Strategy map") {
+                      setTrackerView("Strategy map");
+                      navigate("/strategy/strategy-map");
+                    } else if (item === "Team goals") {
+                      setTrackerView("Team goals");
+                      navigate("/strategy/team-goals");
+                    } else if (item === "Reports") {
+                      setTrackerView("Reports");
+                      navigate("/strategy/reports");
+                    } else if (item === "Resourcing") {
+                      setTrackerView("Resourcing");
+                      navigate("/strategy/resourcing");
+                    } else {
+                      setTrackerView("Reports");
+                      navigate("/strategy/reports");
+                    }
+                  }}
+                />
+              </Suspense>
             </div>
           )}
 
@@ -761,7 +823,9 @@ const App = () => {
                 sidebarOpen ? "open" : "closed"
               }`}
             >
-              <KnowledgeSidebar />
+              <Suspense fallback={null}>
+                <KnowledgeSidebar />
+              </Suspense>
             </div>
           )}
 
@@ -771,37 +835,40 @@ const App = () => {
                 sidebarOpen ? "open" : "closed"
               }`}
             >
-              <PeopleSidebar
-                activeItem={
-                  location.pathname === "/people/teams"
-                    ? "Teams"
-                    : location.pathname === "/people/invitations"
-                      ? "Invitations"
-                      : peopleTab === "teams"
-                        ? "Teams"
-                        : peopleTab === "invitations"
-                          ? "Invitations"
-                          : "Members"
-                }
-                onNavigate={(item) => {
-                  if (item === "Teams") {
-                    setPeopleTab("teams");
-                    navigate("/people/teams");
-                  } else if (item === "Invitations") {
-                    setPeopleTab("invitations");
-                    navigate("/people/invitations");
-                  } else {
-                    setPeopleTab("members");
-                    navigate("/people");
+              <Suspense fallback={null}>
+                <PeopleSidebar
+                  activeItem={
+                    location.pathname === "/people/teams"
+                      ? "Teams"
+                      : location.pathname === "/people/invitations"
+                        ? "Invitations"
+                        : peopleTab === "teams"
+                          ? "Teams"
+                          : peopleTab === "invitations"
+                            ? "Invitations"
+                            : "Members"
                   }
-                }}
-              />
+                  onNavigate={(item) => {
+                    if (item === "Teams") {
+                      setPeopleTab("teams");
+                      navigate("/people/teams");
+                    } else if (item === "Invitations") {
+                      setPeopleTab("invitations");
+                      navigate("/people/invitations");
+                    } else {
+                      setPeopleTab("members");
+                      navigate("/people");
+                    }
+                  }}
+                />
+              </Suspense>
             </div>
           )}
 
           {/* MAIN CONTENT */}
           <div className="main-content">
-            <Routes>
+            <Suspense fallback={<main className="route-loading" role="status">Loading page…</main>}>
+              <Routes>
               <Route path="/" element={<Dashboard profileName={profileName} currentUser={currentUser} />} />
               <Route path="/home" element={<Dashboard profileName={profileName} currentUser={currentUser} />} />
               <Route path="/work/tasks" element={<Suspense fallback={<div className="backlog-skeleton-wrapper" style={{ padding: 24 }}><div className="backlog-skeleton-card"><div className="backlog-skeleton-header" /><div className="backlog-skeleton-row" /><div className="backlog-skeleton-row" /></div></div>}><MyTasksScreen rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
@@ -881,7 +948,8 @@ const App = () => {
                   <Dashboard profileName={profileName} currentUser={currentUser} />
                 )}
               />
-            </Routes>
+              </Routes>
+            </Suspense>
           </div>
 
         </div>
@@ -891,5 +959,11 @@ const App = () => {
   );
 };
 
+
+const App = () => (
+  <BrowserRouter>
+    <AppContent />
+  </BrowserRouter>
+);
 
 export default App;

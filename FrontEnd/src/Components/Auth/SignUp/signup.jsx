@@ -48,6 +48,26 @@ const AlertCircleIcon = () => (
   </svg>
 );
 
+const formatEmployeeIdInput = (value) => {
+  const normalized = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  let employeeIdParts = normalized;
+
+  if (normalized.startsWith('LUX')) {
+    employeeIdParts = normalized.slice(3);
+  } else if (normalized.startsWith('LU')) {
+    employeeIdParts = normalized.slice(2);
+  } else if (normalized.startsWith('L')) {
+    employeeIdParts = normalized.slice(1);
+  }
+
+  const parts = employeeIdParts.slice(0, 8);
+  const division = parts.slice(0, 2).replace(/[^A-Z]/g, '');
+  const branch = parts.slice(2, 5).replace(/[^A-Z]/g, '');
+  const number = parts.slice(5, 8).replace(/\D/g, '');
+
+  return `LUX-${division}${division.length === 2 ? '-' : ''}${branch}${branch.length === 3 ? '-' : ''}${number}`;
+};
+
 const DecorativeBackgroundLeft = () => (
   <svg
     className="auth-bg-art auth-bg-art-left"
@@ -341,7 +361,8 @@ const Signup = ({
   const invitationToken = searchParams.get('invite') || '';
   const invitationEmail = searchParams.get('email') || '';
   const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState(invitationEmail);
+  const [email, setEmail] = useState(invitationEmail.trim().toLowerCase());
+  const [employeeId, setEmployeeId] = useState('LUX-');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -482,6 +503,16 @@ const Signup = ({
     return '';
   };
 
+  const validateEmployeeId = (val) => {
+    if (!val || !val.trim()) {
+      return 'Employee ID is required.';
+    }
+    if (!/^LUX-SD-(CHN|BNG|HYD)-(?:00[1-9]|0[1-9]\d|[1-9]\d{2})$/.test(val.trim().toUpperCase())) {
+      return 'Use an employee number from 001 to 999.';
+    }
+    return '';
+  };
+
   const validatePassword = (val) => {
     if (!val) {
       return 'Password is required.';
@@ -580,7 +611,7 @@ const Signup = ({
   };
 
   const handleEmailChange = (e) => {
-    const sanitized = e.target.value.replace(/\s+/g, '');
+    const sanitized = e.target.value.replace(/\s+/g, '').toLowerCase();
     setEmail(sanitized);
     if (fieldErrors.email) {
       setFieldErrors((prev) => ({ ...prev, email: '' }));
@@ -588,7 +619,40 @@ const Signup = ({
   };
 
   const handleEmailBlur = () => {
-    setEmail((prev) => prev.trim());
+    setEmail((prev) => prev.trim().toLowerCase());
+  };
+
+  const handleEmployeeIdChange = (e) => {
+    setEmployeeId(formatEmployeeIdInput(e.target.value));
+    if (fieldErrors.employeeId) {
+      setFieldErrors((prev) => ({ ...prev, employeeId: '' }));
+    }
+  };
+
+  const handleEmployeeIdKeyDown = (e) => {
+    if (e.key !== 'Backspace') return;
+
+    const input = e.currentTarget;
+    const cursorPosition = input.selectionStart;
+    if (
+      cursorPosition !== input.selectionEnd ||
+      cursorPosition !== input.value.length ||
+      input.value[cursorPosition - 1] !== '-'
+    ) {
+      return;
+    }
+
+    const characterToDelete = cursorPosition - 2;
+    if (characterToDelete < 4) return;
+
+    e.preventDefault();
+    const updatedValue =
+      input.value.slice(0, characterToDelete) +
+      input.value.slice(cursorPosition);
+    setEmployeeId(formatEmployeeIdInput(updatedValue));
+    if (fieldErrors.employeeId) {
+      setFieldErrors((prev) => ({ ...prev, employeeId: '' }));
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -597,19 +661,23 @@ const Signup = ({
     setAuthSuccess('');
 
     const trimmedName = fullName.trim();
-    const trimmedEmail = email.trim();
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedEmployeeId = employeeId.trim().toUpperCase();
     setFullName(trimmedName);
     setEmail(trimmedEmail);
+    setEmployeeId(trimmedEmployeeId);
 
     const nameErr = validateFullName(trimmedName);
     const emailErr = validateEmail(trimmedEmail);
+    const employeeIdErr = validateEmployeeId(trimmedEmployeeId);
     const passErr = validatePassword(password);
     const confirmErr = validateConfirmPassword(confirmPassword, password);
 
-    if (nameErr || emailErr || passErr || confirmErr) {
+    if (nameErr || emailErr || employeeIdErr || passErr || confirmErr) {
       setFieldErrors({
         fullName: nameErr,
         email: emailErr,
+        employeeId: employeeIdErr,
         password: passErr,
         confirmPassword: confirmErr,
       });
@@ -625,6 +693,7 @@ const Signup = ({
         fullName: trimmedName,
         name: trimmedName,
         email: trimmedEmail,
+        employee_id: trimmedEmployeeId,
         password,
         confirmPassword,
         invitationToken,
@@ -668,6 +737,8 @@ const Signup = ({
         resData?.detail ||
         (Array.isArray(resData?.invitation_token) ? resData.invitation_token[0] : resData?.invitation_token) ||
         (Array.isArray(resData?.email) ? resData.email[0] : resData?.email) ||
+        (Array.isArray(resData?.employee_id) ? resData.employee_id[0] : resData?.employee_id) ||
+        (Array.isArray(resData?.errors?.employee_id) ? resData.errors.employee_id[0] : resData?.errors?.employee_id) ||
         (Array.isArray(resData?.username) ? resData.username[0] : resData?.username) ||
         (Array.isArray(resData?.non_field_errors) ? resData.non_field_errors[0] : resData?.non_field_errors);
 
@@ -689,6 +760,13 @@ const Signup = ({
         setFieldErrors((prev) => ({
           ...prev,
           confirmPassword: Array.isArray(resData.confirm_password) ? resData.confirm_password[0] : resData.confirm_password,
+        }));
+      }
+      const employeeIdError = resData?.employee_id || resData?.errors?.employee_id;
+      if (employeeIdError) {
+        setFieldErrors((prev) => ({
+          ...prev,
+          employeeId: Array.isArray(employeeIdError) ? employeeIdError[0] : employeeIdError,
         }));
       }
     }
@@ -853,6 +931,38 @@ const Signup = ({
                 <div className="auth-field-error-msg">
                   <AlertCircleIcon />
                   <span>{fieldErrors.email}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Employee ID Field */}
+            <div className="auth-field-group">
+              <label className="auth-field-label" htmlFor="auth-signup-employee-id">
+                Employee ID
+              </label>
+              <div className="auth-input-wrapper">
+                <input
+                  id="auth-signup-employee-id"
+                  type="text"
+                  className={`auth-input ${fieldErrors.employeeId ? 'auth-input-error' : ''}`}
+                  placeholder="LUX-SD-CHN-001"
+                  value={employeeId}
+                  onChange={handleEmployeeIdChange}
+                  onKeyDown={handleEmployeeIdKeyDown}
+                  onBlur={() => setEmployeeId((prev) => prev.trim().toUpperCase())}
+                  maxLength={15}
+                  autoComplete="off"
+                  aria-describedby="auth-signup-employee-id-hint"
+                  required
+                />
+              </div>
+              <small className="auth-field-hint" id="auth-signup-employee-id-hint">
+                Use CHN for Chennai, BNG for Bangalore, or HYD for Hyderabad
+              </small>
+              {fieldErrors.employeeId && (
+                <div className="auth-field-error-msg">
+                  <AlertCircleIcon />
+                  <span>{fieldErrors.employeeId}</span>
                 </div>
               )}
             </div>

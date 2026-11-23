@@ -414,13 +414,16 @@ const Signin = ({
       });
 
       const data = response.data;
-      const token = data.token || data.accessToken || data.jwt || 'active-session-token';
+      const token = data.token || data.accessToken || data.jwt;
+      if (!token) {
+        const error = new Error("The server did not return a sign-in token.");
+        error.code = "MISSING_AUTH_TOKEN";
+        throw error;
+      }
       const user = data.user || data.data?.user || { email: email.trim(), name: email.trim().split('@')[0] };
 
       
-      if (token) {
-        sessionStorage.setItem('token', token);
-      }
+      sessionStorage.setItem('token', token);
       if (user) {
         sessionStorage.setItem('user', JSON.stringify(user));
       }
@@ -434,14 +437,23 @@ const Signin = ({
 
       setTimeout(() => {
         if (onLoginSuccess) {
-          onLoginSuccess(data);
+          onLoginSuccess({ ...data, rememberMe });
         } else {
+          if (rememberMe) {
+            localStorage.setItem('token', token);
+            localStorage.setItem('user', JSON.stringify(user));
+          } else {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+          }
           navigateTo('/home');
         }
       }, 700);
     } catch (err) {
       setIsLoading(false);
-      const isNetworkErr = err.code === 'ERR_NETWORK' || !err.response;
+      const isNetworkErr =
+        err.code === 'ERR_NETWORK' ||
+        (!err.response && err.code !== 'MISSING_AUTH_TOKEN');
       const resData = err.response?.data;
       const rawError =
         resData?.error ||
@@ -449,7 +461,8 @@ const Signin = ({
         resData?.detail ||
         (Array.isArray(resData?.email) ? resData.email[0] : resData?.email) ||
         (Array.isArray(resData?.non_field_errors) ? resData.non_field_errors[0] : resData?.non_field_errors) ||
-        (Array.isArray(resData?.password) ? resData.password[0] : resData?.password);
+        (Array.isArray(resData?.password) ? resData.password[0] : resData?.password) ||
+        (err.code === 'MISSING_AUTH_TOKEN' ? err.message : null);
 
       const errorMessage =
         rawError ||
@@ -513,6 +526,7 @@ const Signin = ({
         email: validation.email,
         name: selectedAccount.name || validation.name,
         provider: 'google',
+        remember_me: rememberMe,
       });
 
       const googleData = res.data;
@@ -540,8 +554,15 @@ const Signin = ({
 
       setTimeout(() => {
         if (onLoginSuccess) {
-          onLoginSuccess(googleData);
+          onLoginSuccess({ ...googleData, rememberMe });
         } else {
+          if (rememberMe && token && user) {
+            localStorage.setItem('token', token);
+            localStorage.setItem('user', JSON.stringify(user));
+          } else {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+          }
           navigateTo('/home');
         }
       }, 700);

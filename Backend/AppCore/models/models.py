@@ -11,6 +11,7 @@ class MongoUser:
     email: str
     first_name: str
     last_name: str
+    employee_id: str = ""
     role: str = "user"
     is_active: bool = True
 
@@ -22,6 +23,7 @@ class MongoUser:
             email=document["email"],
             first_name=document.get("first_name", ""),
             last_name=document.get("last_name", ""),
+            employee_id=document.get("employee_id", ""),
             role=document.get("role", "user"),
             is_active=document.get("is_active", True),
         )

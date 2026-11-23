@@ -46,6 +46,7 @@ import "./inbox.css";
 const createInitialComposeForm = () => ({
   to: "",
   toEmail: "",
+  recipientId: "",
   subject: "",
   type: "message",
   description: "",
@@ -54,64 +55,6 @@ const createInitialComposeForm = () => ({
 
 const MAX_REPLY_FILE_SIZE = 25 * 1024 * 1024;
 const MAX_REPLY_TOTAL_SIZE = 100 * 1024 * 1024;
-const VALID_EMAIL_TLDS = new Set([
-  "com", "org", "net", "edu", "gov", "mil", "int", "biz", "info", "name",
-  "pro", "museum", "aero", "coop", "jobs", "mobi", "travel", "asia", "app",
-  "dev", "io", "ai", "co", "me", "tv", "tech", "online", "site", "xyz",
-  "cloud", "store", "shop", "email", "agency", "solutions", "company",
-  "digital", "world", "finance", "systems", "services", "group", "live",
-  "blog", "design", "software", "website",
-]);
-const COMMON_EMAIL_DOMAINS = [
-  "gmail.com",
-  "yahoo.com",
-  "outlook.com",
-  "hotmail.com",
-  "icloud.com",
-  "aol.com",
-  "live.com",
-  "proton.me",
-];
-const EMAIL_ADDRESS_PATTERN =
-  /^[A-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+([A-Z]{2,63})$/i;
-const getEmailDomainDistance = (left, right) => {
-  const distances = Array.from({ length: right.length + 1 }, (_, index) => index);
-  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
-    let previousDiagonal = distances[0];
-    distances[0] = leftIndex;
-    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
-      const previousRow = distances[rightIndex];
-      distances[rightIndex] = Math.min(
-        distances[rightIndex] + 1,
-        distances[rightIndex - 1] + 1,
-        previousDiagonal +
-          (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1)
-      );
-      previousDiagonal = previousRow;
-    }
-  }
-  return distances[right.length];
-};
-const isValidRecipientEmail = (email) => {
-  const match = email.match(EMAIL_ADDRESS_PATTERN);
-  if (
-    !match ||
-    (!/^[a-z]{2}$/i.test(match[1]) &&
-      !VALID_EMAIL_TLDS.has(match[1].toLowerCase()))
-  ) {
-    return false;
-  }
-
-  const domain = email.slice(email.lastIndexOf("@") + 1).toLowerCase();
-  const isLikelyProviderTypo = COMMON_EMAIL_DOMAINS.some(
-    (knownDomain) =>
-      domain !== knownDomain &&
-      Math.abs(domain.length - knownDomain.length) <= 2 &&
-      getEmailDomainDistance(domain, knownDomain) <= 2
-  );
-  return !isLikelyProviderTypo;
-};
-const RECIPIENT_EMAIL_ERROR = "Please enter a valid email address.";
 
 const formatRelativeTimestamp = (item, now) => {
   const createdAt = item.created_at || item.createdAt;
@@ -234,18 +177,98 @@ function Inbox({ theme: propTheme }) {
   const [showCompose, setShowCompose] = useState(false);
   const [composeForm, setComposeForm] = useState(createInitialComposeForm);
   const [isSubmittingCompose, setIsSubmittingCompose] = useState(false);
+  const [recipients, setRecipients] = useState([]);
+  const [isLoadingRecipients, setIsLoadingRecipients] = useState(false);
+  const [recipientListError, setRecipientListError] = useState("");
+  const [showRecipientSuggestions, setShowRecipientSuggestions] =
+    useState(false);
   const [recipientEmailError, setRecipientEmailError] = useState("");
+  const [recipientSuggestionIndex, setRecipientSuggestionIndex] = useState(0);
 
-  const handleComposeOpen = () => {
+  const handleComposeOpen = async () => {
     setComposeForm(createInitialComposeForm());
     setRecipientEmailError("");
+    setRecipientListError("");
+    setShowRecipientSuggestions(true);
+    setRecipientSuggestionIndex(0);
     setShowCompose(true);
+    setIsLoadingRecipients(true);
+    try {
+      const members = await inboxApi.getRecipients();
+      setRecipients(
+        Array.isArray(members)
+          ? members.filter(
+              (member) =>
+                member.email &&
+                String(member.status || "active").toLowerCase() !== "inactive"
+            )
+          : []
+      );
+    } catch (err) {
+      console.warn("[Inbox] Unable to load recipient members:", err);
+      setRecipientListError("Unable to load members. Please close and retry.");
+    } finally {
+      setIsLoadingRecipients(false);
+    }
   };
 
   const handleComposeClose = () => {
     setShowCompose(false);
     setComposeForm(createInitialComposeForm());
+    setShowRecipientSuggestions(false);
     setRecipientEmailError("");
+    setRecipientListError("");
+    setRecipientSuggestionIndex(0);
+  };
+
+  const recipientOptions = useMemo(() => {
+    const query = composeForm.to.trim().toLowerCase();
+    return recipients
+      .filter((member) => {
+        const searchable = [
+          member.name,
+          member.username,
+          member.email,
+          member.employeeId,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return !query || searchable.includes(query);
+      })
+      .slice(0, 8);
+  }, [composeForm.to, recipients]);
+
+  const handleRecipientSelect = (member) => {
+    setComposeForm((current) => ({
+      ...current,
+      to: member.name || member.username || member.email,
+      toEmail: member.email,
+      recipientId: member.id,
+    }));
+    setRecipientEmailError("");
+    setShowRecipientSuggestions(false);
+    setRecipientSuggestionIndex(0);
+  };
+
+  const handleRecipientKeyDown = (event) => {
+    if (!showRecipientSuggestions || recipientOptions.length === 0) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setRecipientSuggestionIndex(
+        (index) => (index + 1) % recipientOptions.length
+      );
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setRecipientSuggestionIndex(
+        (index) => (index - 1 + recipientOptions.length) % recipientOptions.length
+      );
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      handleRecipientSelect(recipientOptions[recipientSuggestionIndex]);
+    } else if (event.key === "Escape") {
+      setShowRecipientSuggestions(false);
+    }
   };
 
   // Preferences Modal State
@@ -386,15 +409,16 @@ function Inbox({ theme: propTheme }) {
   --------------------------------------------------------- */
   const counts = useMemo(() => {
     const active = notifications.filter((n) => !n.archived && !n.deleted);
+    const inboxItems = active.filter((n) => !n.isSent);
     const validTrash = notifications.filter(
       (n) => n.deleted && !isOlderThan30Days(n)
     );
     return {
-      inbox: active.length,
-      unread: active.filter((n) => n.unread).length,
-      starred: active.filter((n) => n.starred).length,
-      mentions: active.filter((n) => n.mentioned).length,
-      tasks: active.filter((n) => n.type === "task").length,
+      inbox: inboxItems.length,
+      unread: inboxItems.filter((n) => n.unread).length,
+      starred: inboxItems.filter((n) => n.starred).length,
+      mentions: inboxItems.filter((n) => n.mentioned).length,
+      tasks: inboxItems.filter((n) => n.type === "task").length,
       sent: notifications.filter((n) => n.isSent && !n.deleted).length,
       archive: notifications.filter((n) => n.archived && !n.deleted).length,
       trash: validTrash.length,
@@ -902,8 +926,9 @@ function Inbox({ theme: propTheme }) {
   /* Submit Compose Message */
   const handleComposeSubmit = async (e) => {
     e.preventDefault();
-    if (!isValidRecipientEmail(composeForm.toEmail)) {
-      setRecipientEmailError(RECIPIENT_EMAIL_ERROR);
+    if (!composeForm.recipientId || !composeForm.toEmail) {
+      setRecipientEmailError("Choose a member from the list before sending.");
+      setShowRecipientSuggestions(true);
       return;
     }
 
@@ -930,8 +955,7 @@ function Inbox({ theme: propTheme }) {
       snippet:
         composeForm.description.trim().slice(0, 100) ||
         composeForm.subject.trim(),
-      author: composeForm.to || "Recipient",
-      author_email: composeForm.toEmail || "team@nexusapp.io",
+      recipient_email: composeForm.toEmail.trim().toLowerCase(),
       type: composeForm.type,
       tags: composeForm.tags
         .split(",")
@@ -950,11 +974,17 @@ function Inbox({ theme: propTheme }) {
       setNotifications((prev) => [inserted, ...prev]);
       handleComposeClose();
       showToast("Message sent successfully");
-      setActiveFolder("inbox");
+      setActiveFolder("sent");
       setSelectedId(inserted.id);
+      window.dispatchEvent(new CustomEvent("nexus:notifications-changed"));
     } catch (err) {
       console.warn("[Inbox] compose error:", err);
-      showToast("Failed to send message", "error");
+      showToast(
+        err.response?.data?.recipient_email?.[0] ||
+          err.response?.data?.detail ||
+          "Failed to send message",
+        "error"
+      );
     } finally {
       setIsSubmittingCompose(false);
     }
@@ -1451,6 +1481,13 @@ function Inbox({ theme: propTheme }) {
                           </span>
                         </div>
 
+                        {item.isSent && item.recipient_name && (
+                          <div className="row-recipient-label">
+                            {item.type === "mention" ? "Mentioned" : "To"}:{" "}
+                            {item.recipient_name}
+                          </div>
+                        )}
+
                         <div className="row-snippet-wrap">
                           <span className="row-snippet-summary">
                             {item.snippet || item.description}
@@ -1710,9 +1747,24 @@ function Inbox({ theme: propTheme }) {
                     </div>
 
                     <div className="identity-sub-line">
-                      <span className="meta-to-label">To:</span>
+                      <span className="meta-to-label">
+                        {activeNotification.isSent &&
+                        activeNotification.type === "mention"
+                          ? "Mentioned:"
+                          : "To:"}
+                      </span>
                       <span className="meta-to-target">
-                        You &lt;me@nexusapp.io&gt;
+                        {activeNotification.isSent
+                          ? `${activeNotification.recipient_name || "Recipient"}${
+                              activeNotification.recipient_email
+                                ? ` <${activeNotification.recipient_email}>`
+                                : ""
+                            }`
+                          : `You${
+                              activeNotification.recipient_email
+                                ? ` <${activeNotification.recipient_email}>`
+                                : ""
+                            }`}
                       </span>
                       <span className="meta-sep">·</span>
                       <span className="meta-date-stamp">
@@ -2082,42 +2134,108 @@ function Inbox({ theme: propTheme }) {
 
             <form onSubmit={handleComposeSubmit} className="inbox-modal-form">
               <div className="form-field-row">
-                <label className="field-label">To:</label>
-                <input
-                  type="text"
-                  className="field-input"
-                  value={composeForm.to}
-                  onChange={(e) =>
-                    setComposeForm({ ...composeForm, to: e.target.value })
-                  }
-                  placeholder="Recipient Name"
-                  required
-                />
-              </div>
-
-              <div className="form-field-row">
-                <label className="field-label">Email:</label>
-                <div className="email-field-control">
+                <label className="field-label">
+                  {composeForm.type === "mention" ? "Mention:" : "To:"}
+                </label>
+                <div className="recipient-picker-control">
                   <input
-                    type="email"
+                    type="text"
                     className="field-input"
-                    value={composeForm.toEmail}
+                    value={composeForm.to}
+                    onFocus={() => setShowRecipientSuggestions(true)}
+                    onKeyDown={handleRecipientKeyDown}
                     onChange={(e) => {
-                      const toEmail = e.target.value;
-                      setComposeForm({ ...composeForm, toEmail });
-                      setRecipientEmailError(
-                        toEmail && !isValidRecipientEmail(toEmail)
-                          ? RECIPIENT_EMAIL_ERROR
-                          : ""
-                      );
+                      const to = e.target.value;
+                      setComposeForm((current) => ({
+                        ...current,
+                        to,
+                        toEmail: "",
+                        recipientId: "",
+                      }));
+                      setRecipientEmailError("");
+                      setRecipientSuggestionIndex(0);
+                      setShowRecipientSuggestions(true);
                     }}
-                    placeholder="recipient@nexusapp.io"
+                    placeholder="Search members by name or email"
+                    autoComplete="off"
+                    role="combobox"
+                    aria-label="Search workspace members"
+                    aria-autocomplete="list"
+                    aria-expanded={showRecipientSuggestions}
+                    aria-controls="inbox-recipient-options"
                     aria-invalid={Boolean(recipientEmailError)}
                     aria-describedby={
                       recipientEmailError ? "recipient-email-error" : undefined
                     }
                     required
                   />
+                  {composeForm.toEmail && (
+                    <span className="recipient-selected-email">
+                      {composeForm.toEmail}
+                    </span>
+                  )}
+                  {showRecipientSuggestions && (
+                    <div
+                      className="recipient-suggestion-list"
+                      id="inbox-recipient-options"
+                      role="listbox"
+                    >
+                      {isLoadingRecipients ? (
+                        <div className="recipient-suggestion-empty">
+                          Loading members...
+                        </div>
+                      ) : recipientListError ? (
+                        <div
+                          className="recipient-suggestion-empty"
+                          role="alert"
+                        >
+                          {recipientListError}
+                        </div>
+                      ) : recipientOptions.length ? (
+                        recipientOptions.map((member, index) => (
+                          <button
+                            key={member.id}
+                            type="button"
+                            className={`recipient-suggestion-option ${
+                              index === recipientSuggestionIndex
+                                ? "is-active"
+                                : ""
+                            }`}
+                            role="option"
+                            aria-selected={
+                              index === recipientSuggestionIndex ||
+                              member.id === composeForm.recipientId
+                            }
+                            onClick={() => handleRecipientSelect(member)}
+                          >
+                            <span
+                              className="recipient-suggestion-avatar"
+                              style={{
+                                backgroundColor: member.avatarColor || "#6366f1",
+                              }}
+                            >
+                              {member.avatar ||
+                                (member.name || member.username || "U")
+                                  .slice(0, 2)
+                                  .toUpperCase()}
+                            </span>
+                            <span className="recipient-suggestion-identity">
+                              <strong>
+                                {member.name || member.username || member.email}
+                              </strong>
+                              <span>{member.email}</span>
+                            </span>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="recipient-suggestion-empty">
+                          {recipients.length
+                            ? "No members match your search."
+                            : "No workspace members are available."}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {recipientEmailError && (
                     <span
                       className="field-error"
@@ -2125,6 +2243,11 @@ function Inbox({ theme: propTheme }) {
                       role="alert"
                     >
                       {recipientEmailError}
+                    </span>
+                  )}
+                  {!recipientEmailError && composeForm.type === "mention" && (
+                    <span className="recipient-picker-hint">
+                      Choose a workspace member to add them to Mentions.
                     </span>
                   )}
                 </div>
@@ -2202,7 +2325,7 @@ function Inbox({ theme: propTheme }) {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmittingCompose}
+                  disabled={isSubmittingCompose || !composeForm.recipientId}
                   className="modal-btn-submit"
                 >
                   {isSubmittingCompose ? (
