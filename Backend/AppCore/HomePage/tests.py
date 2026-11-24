@@ -1,4 +1,4 @@
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.contrib.auth.models import User
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -6,9 +6,10 @@ from rest_framework import status
 from datetime import timedelta
 
 from AppCore.HomePage.models import Workspace, Project, Task
-from AppCore.HomePage.db import check_db_connection, seed_dashboard_data
+from AppCore.HomePage.db import check_db_connection
 
 
+@override_settings(NEXUS_ADMIN_EMAILS=frozenset({"franklin@example.com"}))
 class DashboardAPITests(TestCase):
     def setUp(self):
         self.client = APIClient()
@@ -19,6 +20,8 @@ class DashboardAPITests(TestCase):
             first_name='Franklin',
             last_name='Richards'
         )
+        self.user.role = "admin"
+        self.client.force_authenticate(user=self.user)
         self.workspace = Workspace.objects.create(name='Work', owner=self.user)
         self.project = Project.objects.create(
             name="Franklin's first project",
@@ -80,10 +83,3 @@ class DashboardAPITests(TestCase):
         response = self.client.get('/api/projects/recents/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(len(response.data) >= 1)
-
-    def test_database_seeder(self):
-        """Test seed_dashboard_data function."""
-        result = seed_dashboard_data()
-        self.assertEqual(result['user'], 'franklin')
-        self.assertEqual(result['project'], "Franklin's first project")
-        self.assertTrue(result['task_count'] >= 2)

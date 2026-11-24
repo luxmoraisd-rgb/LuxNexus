@@ -2,11 +2,10 @@ import hashlib
 import csv
 import io
 import json
-import random
 import re
 import zipfile
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 from bson import ObjectId
 from django.db import DatabaseError
@@ -22,7 +21,7 @@ from rest_framework.views import APIView
 import xlrd
 
 from AppCore.Backlog.models import Board, Sprint, Task
-from AppCore.Auth.role_permissions import has_role_permission
+from AppCore.Auth.role_permissions import get_effective_role
 from AppCore.db import get_database
 from ..models import get_eod_reports_collection
 from ..serializers.reports import ReportImportSerializer, ReportWriteSerializer
@@ -52,7 +51,7 @@ REPORT_FIELDS = (
 
 class EODReportRolePermission(BasePermission):
     def has_permission(self, request, view):
-        return has_role_permission(request.user, "view_reports")
+        return get_effective_role(request.user) in {"admin", "team_lead", "user"}
 
 
 def _user_id(request):
@@ -541,106 +540,6 @@ class EODReportListCreateView(APIView):
             return Response(_serialize_report(document), status=status.HTTP_201_CREATED)
         except PyMongoError:
             return Response({"error": "Unable to create report."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-
-
-class EODReportSampleDataView(APIView):
-    permission_classes = [IsAuthenticated, EODReportRolePermission]
-
-    def post(self, request):
-        collection = get_eod_reports_collection()
-        user_id = _user_id(request)
-        try:
-            collection.create_index(
-                [("created_by", 1), ("sample_key", 1)],
-                unique=True,
-                partialFilterExpression={"sample_key": {"$exists": True}},
-                name="eod_sample_report_deduplication",
-            )
-            sample_options = _available_options()
-            existing = collection.find_one({
-                "created_by": user_id,
-                "source": "sample",
-                "sample_key": {"$exists": True},
-            })
-        except PyMongoError:
-            return Response({"error": "Unable to prepare sample reports."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-
-        if existing:
-            count = collection.count_documents({"created_by": user_id, "source": "sample"})
-            return Response(
-                {"created": 0, "existing": count, "message": "Sample reports have already been added for this account."},
-                status=status.HTTP_200_OK,
-            )
-
-        randomizer = random.SystemRandom()
-        employees = sample_options["employees"] or [{
-            "id": user_id,
-            "name": getattr(request.user, "username", "") or getattr(request.user, "email", "You"),
-        }]
-        projects = sample_options["projects"]
-        sprints = sample_options["sprints"]
-        activities = [
-            ("Completed API integration", "Connected the report views to the authenticated API.", "Verify the remaining edge cases."),
-            ("Improved task filtering", "Reviewed assigned tasks and refined the report filters.", "Confirm the sprint filter with the team."),
-            ("Updated project documentation", "Documented the latest implementation and rollout steps.", "Share the notes for review."),
-            ("Resolved a workflow issue", "Investigated and corrected a task workflow issue.", "Monitor the workflow after deployment."),
-            ("Prepared sprint updates", "Reviewed current sprint work and updated progress notes.", "Follow up on the remaining review items."),
-            ("Finished UI improvements", "Completed report table layout and responsive behavior.", "Collect feedback from the project team."),
-            ("Reviewed pending work", "Triaged outstanding work and clarified the next actions.", "Continue with the highest priority task."),
-            ("Tested the latest changes", "Ran checks against the updated project functionality.", "Address any issues found during review."),
-        ]
-        statuses = ("In Progress", "In Review", "Done", "Ready to start")
-        today = timezone.localdate()
-        documents = []
-        for index in range(12):
-            task, completed, next_step = randomizer.choice(activities)
-            employee = randomizer.choice(employees)
-            project = randomizer.choice(projects) if projects else {}
-            sprint = randomizer.choice(sprints) if sprints else {}
-            report_date = today - timedelta(days=randomizer.randrange(0, 30))
-            document = {
-                "title": f"Sample: {task}",
-                "report_type": "daily",
-                "report_date": report_date.isoformat(),
-                "project_id": project.get("id", ""),
-                "project": project.get("name", ""),
-                "sprint_id": sprint.get("id", ""),
-                "sprint": sprint.get("name", ""),
-                "employee_id": employee.get("id", ""),
-                "employee": employee.get("name", ""),
-                "task": task,
-                "activity": f"EOD: {completed}",
-                "work_completed": completed,
-                "status": randomizer.choice(statuses),
-                "progress": randomizer.randrange(15, 96),
-                "blockers": randomizer.choice(("", "", "", "Waiting for review from a teammate.")),
-                "next_steps": next_step,
-                "source_data": {"sample": True},
-                "created_by": user_id,
-                "source": "sample",
-                "sample_key": f"sample-v1-{index}",
-                "created_at": timezone.now(),
-                "updated_at": timezone.now(),
-            }
-            documents.append(document)
-
-        created = 0
-        try:
-            for document in documents:
-                try:
-                    collection.insert_one(document)
-                    created += 1
-                except DuplicateKeyError:
-                    continue
-        except PyMongoError:
-            return Response(
-                {"error": "Unable to save all sample reports.", "created": created},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        return Response(
-            {"created": created, "existing": 12 - created, "message": f"Added {created} sample reports."},
-            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
-        )
 
 
 class EODReportDetailView(APIView):

@@ -1,11 +1,12 @@
 from rest_framework import status, viewsets
 from rest_framework.filters import OrderingFilter, SearchFilter
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from AppCore.Backlog.models.model import Sprint, Task
 from AppCore.Backlog.serializers.serializer import SprintSerializer, TaskSerializer
+from AppCore.Auth.role_permissions import AdminOnlyDeletePermission, RoleModulePermission
 
 
 class AllSprintsOverviewView(APIView):
@@ -16,7 +17,7 @@ class AllSprintsOverviewView(APIView):
     - sprints: serialized list of sprints with tasks, duration, and story point breakdown
     - tasks: all tasks in the project
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
 
     def get(self, request):
         sprints_qs = Sprint.objects.all().prefetch_related('tasks').order_by('order', '-created_at')
@@ -71,7 +72,11 @@ class AllSprintsOverviewView(APIView):
 
 
 class SprintViewSet(viewsets.ModelViewSet):
-    permission_classes = [AllowAny]
+    permission_classes = [
+        IsAuthenticated,
+        RoleModulePermission,
+        AdminOnlyDeletePermission,
+    ]
     queryset = Sprint.objects.all().prefetch_related('tasks').order_by('order', '-created_at')
     serializer_class = SprintSerializer
     filter_backends = [SearchFilter, OrderingFilter]
@@ -94,7 +99,7 @@ class SprintViewSet(viewsets.ModelViewSet):
 
 
 class TaskViewSet(viewsets.ModelViewSet):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
     queryset = Task.objects.all().select_related('sprint', 'owner', 'board').order_by('order', '-created_at')
     serializer_class = TaskSerializer
     filter_backends = [SearchFilter, OrderingFilter]

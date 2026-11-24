@@ -69,14 +69,6 @@ const TrashIcon = () => (
   </svg>
 );
 
-// Default Primary Account matching user's exact screenshot
-const DEFAULT_ACCOUNT = {
-  name: 'Sivakumar',
-  email: 'sivakumarluxmorchn@gmail.com',
-  avatarBg: '#137333', // Exact Google dark green
-  initial: 'S',
-};
-
 const GoogleAuthModal = ({
   isOpen,
   onClose,
@@ -94,8 +86,7 @@ const GoogleAuthModal = ({
   const [language, setLanguage] = useState('English (United States)');
   const [showLangMenu, setShowLangMenu] = useState(false);
 
-  // Accounts list initialized with default account
-  const [savedAccounts, setSavedAccounts] = useState(() => [DEFAULT_ACCOUNT]);
+  const [savedAccounts, setSavedAccounts] = useState([]);
   const [dismissedAccountEmails, setDismissedAccountEmails] = useState([]);
   const accounts = useMemo(() => {
     const visibleAccounts = savedAccounts.filter(

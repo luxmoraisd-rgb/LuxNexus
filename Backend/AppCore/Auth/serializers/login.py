@@ -5,6 +5,7 @@ class LoginSerializer(serializers.Serializer):
     username = serializers.CharField(required=False, allow_blank=True)
     email = serializers.CharField(required=False, allow_blank=True)
     password = serializers.CharField(write_only=True)
+    remember_me = serializers.BooleanField(required=False, default=False)
 
     def validate(self, attrs):
         if not (attrs.get("username") or "").strip() and not (

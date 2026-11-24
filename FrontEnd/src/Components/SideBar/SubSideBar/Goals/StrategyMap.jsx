@@ -41,9 +41,9 @@ const formatDueDate = (value) => {
 };
 
 const getOwnerName = (owner) =>
-  typeof owner === "string" ? owner : owner?.name || "Owner";
+  typeof owner === "string" ? owner : owner?.name || "";
 
-function StrategyMap({ onSelectTab }) {
+function StrategyMap({ onSelectTab, currentUser }) {
   const [strategyData, setStrategyData] = useState({ pillars: [], metrics: {} });
   const [loading, setLoading] = useState(true);
   const [selectedTag, setSelectedTag] = useState("all");
@@ -54,8 +54,8 @@ function StrategyMap({ onSelectTab }) {
   const [newObjective, setNewObjective] = useState({
     title: "",
     pillarId: "",
-    targetPeriod: "Q2 FY26",
-    owner: "Engineering Lead",
+    targetPeriod: "",
+    owner: "",
     dueDate: getTodayDate(),
   });
 
@@ -147,8 +147,8 @@ function StrategyMap({ onSelectTab }) {
     setNewObjective({
       title: "",
       pillarId: "",
-      targetPeriod: "Q2 FY26",
-      owner: "Engineering Lead",
+      targetPeriod: "",
+      owner: "",
       dueDate: getTodayDate(),
     });
   };
@@ -560,6 +560,7 @@ function StrategyMap({ onSelectTab }) {
               goal={selectedGoal}
               onClose={() => setSelectedGoal(null)}
               onSave={handleSaveGoal}
+              currentUser={currentUser}
             />
             {isSavingGoal && (
               <span className="strategy-goal-save-status" role="status">

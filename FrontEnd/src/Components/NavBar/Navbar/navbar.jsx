@@ -236,9 +236,7 @@ const Navbar = ({
           </div>
         ) : (
           <>
-            {["admin", "team_lead", "user"].includes(currentUser?.role) && (
-              <AdminChat currentUser={currentUser} theme={theme} />
-            )}
+            <AdminChat currentUser={currentUser} theme={theme} />
             <NotificationSettings theme={theme} />
 
             <IntegrateButton theme={theme} />

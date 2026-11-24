@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { fetchMeetings, FALLBACK_MEETINGS } from "../../SubSideBar/Meetings/meetingsApi";
+import { fetchMeetings } from "../../SubSideBar/Meetings/meetingsApi";
 import "./knowledgesidebar.css";
 
 /* ---------------- SVG ICONS ---------------- */
@@ -308,15 +308,15 @@ const RecentMeetingsSection = ({ meetings, onSelectMeeting }) => {
 const KnowledgeSidebar = () => {
   const navigate = useNavigate();
   const activeItem = "Meetings";
-  const [meetings, setMeetings] = useState(FALLBACK_MEETINGS);
+  const [meetings, setMeetings] = useState([]);
 
   useEffect(() => {
     let mounted = true;
-    fetchMeetings().then((res) => {
-      if (mounted && res && res.meetings) {
-        setMeetings(res.meetings);
-      }
-    });
+    fetchMeetings()
+      .then((res) => {
+        if (mounted && res && res.meetings) setMeetings(res.meetings);
+      })
+      .catch((error) => console.error("Failed to load meetings for sidebar:", error));
     return () => {
       mounted = false;
     };

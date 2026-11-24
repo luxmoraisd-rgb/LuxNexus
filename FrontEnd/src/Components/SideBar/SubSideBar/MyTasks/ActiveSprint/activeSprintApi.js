@@ -1,12 +1,5 @@
 import axios from 'axios';
-import {
-  API_BASE_URL,
-  DEFAULT_PROJECT_KEY,
-  getStoredTasks,
-  getStoredSprints,
-  saveStoredTasks,
-  saveStoredSprints,
-} from '../Backlog/backlogApi';
+import { API_BASE_URL } from '../Backlog/backlogApi';
 import { isTaskPastDueAndIncomplete } from '../Backlog/TaskRowUtils';
 
 /**
@@ -49,14 +42,10 @@ export const normalizeSprint = (rawSprint) => {
   if (!dates && rawSprint.start_date && rawSprint.end_date) {
     dates = `${rawSprint.start_date} - ${rawSprint.end_date}`;
   }
-  if (!dates) {
-    dates = 'Add Sprint dates';
-  }
-
   return {
     id: String(id),
-    name: rawSprint.name || 'Sprint',
-    status: rawSprint.status || (isStarted ? 'active' : isCompleted ? 'completed' : 'future'),
+    name: rawSprint.name || '',
+    status: rawSprint.status || (isStarted ? 'active' : isCompleted ? 'completed' : ''),
     isStarted,
     isCompleted,
     isExpanded: rawSprint.isExpanded !== false,
@@ -79,12 +68,12 @@ export const normalizeSprint = (rawSprint) => {
 export const normalizeTask = (rawTask) => {
   if (!rawTask) return null;
   const id = rawTask.id || rawTask._id || String(rawTask.pk || '');
-  const taskId = rawTask.task_key || rawTask.taskId || rawTask.key || `TASK-${id}`;
+  const taskId = rawTask.task_key || rawTask.taskId || rawTask.key || '';
   let sprintId = rawTask.sprint?.id || rawTask.sprint_id || rawTask.sprintId || 'backlog';
-  const owner = rawTask.owner?.id || rawTask.owner_id || rawTask.owner || 'siva';
-  const type = rawTask.task_type || rawTask.type || 'Frontend';
+  const owner = rawTask.owner?.id || rawTask.owner_id || rawTask.owner || '';
+  const type = rawTask.task_type || rawTask.type || '';
   const sp = rawTask.estimated_sp ?? rawTask.sp ?? null;
-  const status = rawTask.status || 'Ready to start';
+  const status = rawTask.status || '';
   const dueDate = rawTask.dueDate || rawTask.due_date || '';
 
   if (isTaskPastDueAndIncomplete({ dueDate, status })) {
@@ -94,12 +83,12 @@ export const normalizeTask = (rawTask) => {
   return {
     id: String(id),
     taskId: String(taskId),
-    title: rawTask.title || 'Untitled task',
+    title: rawTask.title || '',
     description: rawTask.description || '',
     status,
     type: String(type),
     sp: sp !== null && sp !== undefined ? Number(sp) : null,
-    owner: typeof owner === 'object' ? (owner.name || owner.username || 'siva') : String(owner),
+    owner: typeof owner === 'object' ? (owner.name || owner.username || '') : String(owner),
     ownerDetails: typeof rawTask.owner === 'object' ? rawTask.owner : null,
     epic: rawTask.epic || '',
     sprintId: String(sprintId),
@@ -107,7 +96,7 @@ export const normalizeTask = (rawTask) => {
     comments: Array.isArray(rawTask.comments) ? rawTask.comments : [],
     checklist: Array.isArray(rawTask.checklist) ? rawTask.checklist : [],
     dueDate,
-    updatedAt: rawTask.updated_at || rawTask.updatedAt || new Date().toISOString(),
+    updatedAt: rawTask.updated_at || rawTask.updatedAt || '',
   };
 };
 
@@ -128,14 +117,10 @@ export const activeSprintApi = {
         return normalized;
       }
     } catch (error) {
-      if (error.response?.status !== 404) {
-        console.warn('[ActiveSprintApi] GET /sprints/ error:', error.message);
-      }
+      if (error.response?.status !== 404) throw error;
     }
 
-    // Fallback to in-memory store
-    const inMem = getStoredSprints();
-    return Array.isArray(inMem) ? inMem.map(normalizeSprint) : [];
+    return [];
   },
 
   /**
@@ -160,13 +145,10 @@ export const activeSprintApi = {
         return data.map(normalizeTask);
       }
     } catch (error) {
-      console.warn(`[ActiveSprintApi] GET /tasks/?sprint_id=${sprintId} error:`, error.message);
+      if (error.response?.status !== 404) throw error;
     }
 
-    // In-memory fallback
-    const inMem = getStoredTasks();
-    const tasks = Array.isArray(inMem) ? inMem.map(normalizeTask) : [];
-    return sprintId ? tasks.filter((t) => String(t.sprintId) === String(sprintId)) : tasks;
+    return [];
   },
 
   /**
@@ -174,13 +156,8 @@ export const activeSprintApi = {
    * GET /api/sprints/{sprintId}/capacity/
    */
   getCapacity: async (sprintId) => {
-    try {
-      const response = await activeSprintClient.get(`/sprints/${sprintId}/capacity/`);
-      return response.data;
-    } catch (error) {
-      console.warn(`[ActiveSprintApi] GET /sprints/${sprintId}/capacity/ error:`, error.message);
-      return null;
-    }
+    const response = await activeSprintClient.get(`/sprints/${sprintId}/capacity/`);
+    return response.data;
   },
 
   /**
@@ -188,20 +165,10 @@ export const activeSprintApi = {
    * PUT /api/sprints/{sprintId}/capacity/
    */
   updateCapacity: async (sprintId, capacityLimit) => {
-    const sprints = getStoredSprints();
-    const updated = sprints.map((s) =>
-      String(s.id) === String(sprintId) ? { ...s, capacityLimit: Number(capacityLimit) } : s
-    );
-    saveStoredSprints(updated);
-    try {
-      const response = await activeSprintClient.put(`/sprints/${sprintId}/capacity/`, {
-        capacity_limit: Number(capacityLimit),
-      });
-      return response.data;
-    } catch (error) {
-      console.warn(`[ActiveSprintApi] PUT /sprints/${sprintId}/capacity/ error:`, error.message);
-      return { capacity_limit: Number(capacityLimit) };
-    }
+    const response = await activeSprintClient.put(`/sprints/${sprintId}/capacity/`, {
+      capacity_limit: Number(capacityLimit),
+    });
+    return response.data;
   },
 
   /**
@@ -209,31 +176,13 @@ export const activeSprintApi = {
    * PUT /api/sprints/{sprintId}/dates/
    */
   updateDates: async (sprintId, { startDate, endDate, durationText }) => {
-    const sprints = getStoredSprints();
-    const updated = sprints.map((s) =>
-      String(s.id) === String(sprintId)
-        ? {
-            ...s,
-            startDate: startDate || s.startDate,
-            endDate: endDate || s.endDate,
-            dates: durationText || s.dates,
-            durationText: durationText || s.durationText,
-          }
-        : s
-    );
-    saveStoredSprints(updated);
     const payload = {
       start_date: startDate || null,
       end_date: endDate || null,
       duration_text: durationText || '',
     };
-    try {
-      const response = await activeSprintClient.put(`/sprints/${sprintId}/dates/`, payload);
-      return response.data;
-    } catch (error) {
-      console.warn(`[ActiveSprintApi] PUT /sprints/${sprintId}/dates/ error:`, error.message);
-      return payload;
-    }
+    const response = await activeSprintClient.put(`/sprints/${sprintId}/dates/`, payload);
+    return response.data;
   },
 
   /**
@@ -241,20 +190,10 @@ export const activeSprintApi = {
    * PUT /api/sprints/{sprintId}/goals/
    */
   updateGoals: async (sprintId, goals) => {
-    const sprints = getStoredSprints();
-    const updated = sprints.map((s) =>
-      String(s.id) === String(sprintId) ? { ...s, goals: goals || '' } : s
-    );
-    saveStoredSprints(updated);
-    try {
-      const response = await activeSprintClient.put(`/sprints/${sprintId}/goals/`, {
-        goals: goals || '',
-      });
-      return response.data;
-    } catch (error) {
-      console.warn(`[ActiveSprintApi] PUT /sprints/${sprintId}/goals/ error:`, error.message);
-      return { goals };
-    }
+    const response = await activeSprintClient.put(`/sprints/${sprintId}/goals/`, {
+      goals: goals || '',
+    });
+    return response.data;
   },
 
   /**
@@ -262,18 +201,8 @@ export const activeSprintApi = {
    * POST /api/sprints/{sprintId}/start/
    */
   startSprint: async (sprintId) => {
-    const sprints = getStoredSprints();
-    const updated = sprints.map((s) =>
-      String(s.id) === String(sprintId) ? { ...s, isStarted: true, isCompleted: false, status: 'active' } : s
-    );
-    saveStoredSprints(updated);
-    try {
-      const response = await activeSprintClient.post(`/sprints/${sprintId}/start/`);
-      return response.data;
-    } catch (error) {
-      console.warn(`[ActiveSprintApi] POST /sprints/${sprintId}/start/ error:`, error.message);
-      return { message: 'Sprint started (in-memory mode)', sprint_id: sprintId };
-    }
+    const response = await activeSprintClient.post(`/sprints/${sprintId}/start/`);
+    return response.data;
   },
 
   /**
@@ -281,18 +210,8 @@ export const activeSprintApi = {
    * POST /api/sprints/{sprintId}/complete/
    */
   completeSprint: async (sprintId) => {
-    const sprints = getStoredSprints();
-    const updated = sprints.map((s) =>
-      String(s.id) === String(sprintId) ? { ...s, isStarted: false, isCompleted: true, status: 'completed' } : s
-    );
-    saveStoredSprints(updated);
-    try {
-      const response = await activeSprintClient.post(`/sprints/${sprintId}/complete/`);
-      return response.data;
-    } catch (error) {
-      console.warn(`[ActiveSprintApi] POST /sprints/${sprintId}/complete/ error:`, error.message);
-      return { message: 'Sprint completed (in-memory mode)', sprint_id: sprintId };
-    }
+    const response = await activeSprintClient.post(`/sprints/${sprintId}/complete/`);
+    return response.data;
   },
 
   /**
@@ -300,41 +219,22 @@ export const activeSprintApi = {
    * POST /api/tasks/
    */
   createTask: async (taskData) => {
-    const normalized = normalizeTask({
-      ...taskData,
-      id: String(taskData.id || `task-${Date.now()}`),
-      sprintId: String(taskData.sprintId || 'backlog'),
-    });
-    const currentTasks = getStoredTasks();
-    const updatedTasks = [...currentTasks, normalized];
-    saveStoredTasks(updatedTasks);
-
     const payload = {
       title: taskData.title,
       task_key: taskData.taskId,
       sprint_id: taskData.sprintId,
-      status: taskData.status || 'Ready to start',
-      task_type: taskData.type || 'Frontend',
-      estimated_sp: taskData.sp !== null ? Number(taskData.sp) : 3,
+      status: taskData.status || '',
+      task_type: taskData.type || '',
+      estimated_sp: taskData.sp !== null ? Number(taskData.sp) : null,
       epic: taskData.epic || '',
       description: taskData.description || '',
     };
-    try {
-      const response = await activeSprintClient.post('/tasks/', payload);
-      const serverTask = response.data?.task || response.data?.data || response.data;
-      if (serverTask && (serverTask.id || serverTask.pk)) {
-        const serverId = String(serverTask.id || serverTask.pk);
-        const synced = updatedTasks.map((t) =>
-          t.id === normalized.id ? { ...t, ...serverTask, id: serverId } : t
-        );
-        saveStoredTasks(synced);
-        return normalizeTask({ ...normalized, ...serverTask, id: serverId });
-      }
-      return normalized;
-    } catch (error) {
-      console.warn('[ActiveSprintApi] POST /tasks/ error:', error.message);
-      return normalized;
+    const response = await activeSprintClient.post('/tasks/', payload);
+    const serverTask = response.data?.task || response.data?.data || response.data;
+    if (!serverTask || !(serverTask.id || serverTask.pk)) {
+      throw new Error('The task was created without a server identifier.');
     }
+    return normalizeTask(serverTask);
   },
 
   /**
@@ -342,12 +242,6 @@ export const activeSprintApi = {
    * PUT /api/tasks/{taskId}/
    */
   updateTask: async (taskId, updates) => {
-    const currentTasks = getStoredTasks();
-    const updatedTasks = currentTasks.map((t) =>
-      String(t.id) === String(taskId) ? { ...t, ...updates } : t
-    );
-    saveStoredTasks(updatedTasks);
-
     const payload = {};
     if (updates.status !== undefined) payload.status = updates.status;
     if (updates.title !== undefined) payload.title = updates.title;
@@ -358,35 +252,9 @@ export const activeSprintApi = {
     if (updates.description !== undefined) payload.description = updates.description;
     if (updates.sprintId !== undefined) payload.sprint_id = updates.sprintId;
 
-    try {
-      const response = await activeSprintClient.put(`/tasks/${taskId}/`, payload);
-      const serverTask = response.data?.task || response.data?.data || response.data;
-      return normalizeTask({ ...updates, ...serverTask, id: String(taskId) });
-    } catch (error) {
-      console.warn(`[ActiveSprintApi] PUT /tasks/${taskId}/ error:`, error.message);
-      return { id: String(taskId), ...updates };
-    }
-  },
-
-  /**
-   * Move task between sprint and backlog
-   * POST /api/tasks/{taskId}/move/
-   */
-  moveTask: async (taskId, { sprintId, position = null }) => {
-    const currentTasks = getStoredTasks();
-    const updatedTasks = currentTasks.map((t) =>
-      String(t.id) === String(taskId) ? { ...t, sprintId: String(sprintId) } : t
-    );
-    saveStoredTasks(updatedTasks);
-
-    const payload = { sprintId, position };
-    try {
-      const response = await activeSprintClient.post(`/tasks/${taskId}/move/`, payload);
-      return response.data;
-    } catch (error) {
-      console.warn(`[ActiveSprintApi] POST /tasks/${taskId}/move/ error:`, error.message);
-      return payload;
-    }
+    const response = await activeSprintClient.put(`/tasks/${taskId}/`, payload);
+    const serverTask = response.data?.task || response.data?.data || response.data;
+    return normalizeTask({ ...updates, ...serverTask, id: String(taskId) });
   },
 
   /**
@@ -394,17 +262,8 @@ export const activeSprintApi = {
    * DELETE /api/tasks/{taskId}/
    */
   deleteTask: async (taskId) => {
-    const currentTasks = getStoredTasks();
-    const updatedTasks = currentTasks.filter((t) => String(t.id) !== String(taskId));
-    saveStoredTasks(updatedTasks);
-
-    try {
-      await activeSprintClient.delete(`/tasks/${taskId}/`);
-      return true;
-    } catch (error) {
-      console.warn(`[ActiveSprintApi] DELETE /tasks/${taskId}/ error:`, error.message);
-      return true;
-    }
+    await activeSprintClient.delete(`/tasks/${taskId}/`);
+    return true;
   },
 
   /**
@@ -412,13 +271,8 @@ export const activeSprintApi = {
    * POST /api/tasks/{taskId}/comments/
    */
   addComment: async (taskId, commentData) => {
-    try {
-      const response = await activeSprintClient.post(`/tasks/${taskId}/comments/`, commentData);
-      return response.data;
-    } catch (error) {
-      console.warn(`[ActiveSprintApi] POST /tasks/${taskId}/comments/ error:`, error.message);
-      return commentData;
-    }
+    const response = await activeSprintClient.post(`/tasks/${taskId}/comments/`, commentData);
+    return response.data;
   },
 
   /**

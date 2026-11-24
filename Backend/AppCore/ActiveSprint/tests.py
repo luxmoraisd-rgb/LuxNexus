@@ -2,15 +2,16 @@
 Comprehensive automated test suite for Agile Sprints & Board Views API.
 Tests all endpoints from Sections 01 through 05.
 """
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 from rest_framework import status
-from appcore.models import Board, Sprint, BoardView, BoardColumn, Task
+from AppCore.ActiveSprint.models import Board, Sprint, BoardView, BoardColumn, Task
 
 User = get_user_model()
 
 
+@override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
 class AgileBoardAPITests(TestCase):
     def setUp(self):
         self.client = APIClient()
@@ -18,6 +19,10 @@ class AgileBoardAPITests(TestCase):
         # Create users
         self.user_s = User.objects.create_user(username='sarah', first_name='Sarah', last_name='Smith')
         self.user_franklin = User.objects.create_user(username='franklin', first_name='Franklin', last_name='Delano')
+        self.user_s.email = "admin@example.com"
+        self.user_s.role = "admin"
+        self.user_s.save(update_fields=["email"])
+        self.client.force_authenticate(user=self.user_s)
         
         # Create Board
         self.board = Board.objects.create(name="Tasks", key="LUX", description="Main Product Board")
@@ -87,7 +92,7 @@ class AgileBoardAPITests(TestCase):
     def test_create_sprint(self):
         payload = {
             "name": "Sprint 3",
-            "board_id": self.board.id,
+            "board_id": str(self.board.id),
             "duration_text": "Oct 15 - Oct 29 (2 weeks)"
         }
         response = self.client.post('/api/sprints', payload, format='json')
@@ -162,15 +167,15 @@ class AgileBoardAPITests(TestCase):
         self.assertEqual(self.view_backlog.filters, {})
 
     def test_filter_board_by_person(self):
-        payload = {"user_id": self.user_s.id}
+        payload = {"user_id": str(self.user_s.id)}
         res = self.client.put(f'/api/views/{self.view_backlog.id}/filters/person', payload, format='json')
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.view_backlog.refresh_from_db()
-        self.assertEqual(self.view_backlog.filters.get('owner_id'), self.user_s.id)
+        self.assertEqual(self.view_backlog.filters.get('owner_id'), str(self.user_s.id))
 
     def test_save_custom_view(self):
         payload = {
-            "board_id": self.board.id,
+            "board_id": str(self.board.id),
             "name": "My Custom Bugs View",
             "filters": {"task_type": ["Bug"]},
             "view_type": "custom"
@@ -218,11 +223,11 @@ class AgileBoardAPITests(TestCase):
         self.assertEqual(len(res.data), 3)
 
     def test_hide_columns(self):
-        payload = {"hidden_columns": [self.col_epic.id]}
+        payload = {"hidden_columns": [str(self.col_epic.id)]}
         res = self.client.put(f'/api/views/{self.view_backlog.id}/hide-columns', payload, format='json')
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.view_backlog.refresh_from_db()
-        self.assertEqual(self.view_backlog.hidden_columns, [self.col_epic.id])
+        self.assertEqual(self.view_backlog.hidden_columns, [str(self.col_epic.id)])
 
     def test_apply_grouping(self):
         res = self.client.put(f'/api/views/{self.view_backlog.id}/group', {"columnId": "status"}, format='json')
@@ -248,8 +253,8 @@ class AgileBoardAPITests(TestCase):
         # Create task
         payload = {
             "title": "Create unit tests for board",
-            "board_id": self.board.id,
-            "sprint_id": self.sprint_1.id,
+            "board_id": str(self.board.id),
+            "sprint_id": str(self.sprint_1.id),
             "task_type": "Quality",
             "estimated_sp": 2
         }

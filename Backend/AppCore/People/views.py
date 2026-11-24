@@ -1,15 +1,24 @@
 import os
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 
 from bson import ObjectId
 from django.conf import settings
 from django.core.mail import send_mail
+from pymongo.errors import DuplicateKeyError
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ..Auth.utils import user_payload
+from ..Auth.role_permissions import (
+    ROLE_LABELS,
+    RoleModulePermission,
+    is_configured_admin,
+)
+from ..Auth.serializers.signup import EMPLOYEE_ID_PATTERN
 from ..db import get_database
 
 DEFAULT_AVATAR_COLORS = [
@@ -23,42 +32,6 @@ DEFAULT_AVATAR_COLORS = [
     "#14b8a6",
 ]
 
-DEFAULT_TEAMS = [
-    {
-        "name": "Core Platform Engineering",
-        "description": "Architecting the distributed backend, API gateways, and real-time collaboration engines.",
-        "department": "Engineering",
-        "lead": "Sivakumar",
-        "member_count": 4,
-        "tags": ["Backend", "MongoDB", "Architecture"],
-    },
-    {
-        "name": "Frontend & UI Experience",
-        "description": "Crafting the next-gen web interface, task boards, and interactive team workspaces.",
-        "department": "Product Design",
-        "lead": "Alex Rivera",
-        "member_count": 3,
-        "tags": ["React", "CSS3", "Design Systems"],
-    },
-    {
-        "name": "DevOps & Cloud Reliability",
-        "description": "Managing automated CI/CD pipelines, container clusters, and observability infrastructure.",
-        "department": "Infrastructure",
-        "lead": "DevOps Lead",
-        "member_count": 2,
-        "tags": ["Kubernetes", "Docker", "SRE"],
-    },
-    {
-        "name": "Product Strategy & Agile Operations",
-        "description": "Driving sprint roadmaps, client delivery milestones, and cross-functional resourcing.",
-        "department": "Product",
-        "lead": "Luxmor",
-        "member_count": 3,
-        "tags": ["Agile", "Sprints", "Strategy"],
-    },
-]
-
-
 def _format_user(doc, index=0):
     user_id = str(doc.get("_id", ""))
     first = doc.get("first_name", "").strip()
@@ -70,15 +43,9 @@ def _format_user(doc, index=0):
     profile = doc.get("profile", {}) or {}
 
     role = doc.get("role", "user")
-    job_title = (
-        profile.get("jobTitle")
-        or ("Principal Systems Architect" if role == "admin" else "Software Engineer")
-    )
-    department = (
-        profile.get("department")
-        or ("Product Architecture" if role == "admin" else "Engineering")
-    )
-    location = profile.get("location") or "Chennai, India"
+    job_title = profile.get("jobTitle", "")
+    department = profile.get("department", "")
+    location = profile.get("location", "")
     status_state = profile.get("status") or "active"
 
     initials = "".join([part[0] for part in name.split()[:2]]).upper() or "NX"
@@ -88,13 +55,14 @@ def _format_user(doc, index=0):
     joined_date = (
         created_at.strftime("%b %Y")
         if isinstance(created_at, datetime)
-        else "Oct 2026"
+        else ""
     )
 
     return {
         "id": user_id,
         "username": username,
         "email": email,
+        "employeeId": doc.get("employee_id", ""),
         "name": name,
         "firstName": first,
         "lastName": last,
@@ -102,20 +70,14 @@ def _format_user(doc, index=0):
         "jobTitle": job_title,
         "department": department,
         "location": location,
-        "phone": profile.get("mobile", "+1 (555) 019-2834"),
-        "bio": profile.get(
-            "bio",
-            "Working on Nexus Agile and cross-functional team workflows.",
-        ),
+        "phone": profile.get("mobile", ""),
+        "bio": profile.get("bio", ""),
         "avatar": profile.get("photo") or initials,
         "avatarColor": color,
         "status": status_state,
         "joinedDate": joined_date,
-        "tasksCount": profile.get("tasksCount", 3 + (index * 2) % 7),
-        "teams": profile.get(
-            "teams",
-            ["Core Platform"] if role == "admin" else ["Frontend & UI Experience"],
-        ),
+        "tasksCount": profile.get("tasksCount", 0),
+        "teams": profile.get("teams", []),
     }
 
 
@@ -149,10 +111,11 @@ class PeopleListView(APIView):
 
         for idx, doc in enumerate(users_cursor):
             person = _format_user(doc, idx)
+            person["can_edit_employee_id"] = is_configured_admin(request.user)
 
             # Apply in-memory filtering for rich fields
             if search:
-                text_corpus = f"{person['name']} {person['username']} {person['email']} {person['jobTitle']} {person['department']} {person['location']}".lower()
+                text_corpus = f"{person['name']} {person['username']} {person['email']} {person['employeeId']} {person['jobTitle']} {person['department']} {person['location']}".lower()
                 if search not in text_corpus:
                     continue
 
@@ -175,10 +138,20 @@ class PeopleListView(APIView):
         email = data.get("email", "").strip().lower()
         name = data.get("name", "").strip()
         role = data.get("role", "user")
+        if role not in ROLE_LABELS:
+            return Response(
+                {"role": "Choose a valid workspace role."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if role == "admin" and email not in settings.NEXUS_ADMIN_EMAILS:
+            return Response(
+                {"role": "Only configured Admin identities can be assigned the Admin role."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         department = data.get("department", "Engineering")
-        job_title = data.get("jobTitle", "Team Member")
-        location = data.get("location", "Remote")
-        bio = data.get("bio", "Nexus collaborator")
+        job_title = data.get("jobTitle", "")
+        location = data.get("location", "")
+        bio = data.get("bio", "")
 
         if not email:
             return Response(
@@ -252,7 +225,9 @@ class PeopleDetailView(APIView):
                 {"error": "Member not found"},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        return Response(_format_user(doc), status=status.HTTP_200_OK)
+        person = _format_user(doc)
+        person["can_edit_employee_id"] = is_configured_admin(request.user)
+        return Response(person, status=status.HTTP_200_OK)
 
     def patch(self, request, user_id):
         db = get_database()
@@ -270,8 +245,48 @@ class PeopleDetailView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        has_employee_id = "employeeId" in data or "employee_id" in data
+        employee_id_sequence = None
         update_fields = {"updated_at": datetime.now(timezone.utc)}
+        if has_employee_id:
+            if not is_configured_admin(request.user):
+                return Response(
+                    {"error": "Only admins can change Employee ID."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            employee_id = data.get("employeeId", data.get("employee_id"))
+            if not isinstance(employee_id, str):
+                return Response(
+                    {"error": "Employee ID must be a string."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            employee_id = employee_id.strip().upper()
+            if not re.fullmatch(EMPLOYEE_ID_PATTERN, employee_id):
+                return Response(
+                    {
+                        "error": (
+                            "Use LUX-SD-CHN-001 through LUX-SD-CHN-999, replacing "
+                            "CHN with BNG or HYD for your branch."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            employee_id_sequence = int(employee_id[-3:])
+            update_fields["employee_id"] = employee_id
+            update_fields["employee_id_sequence"] = employee_id_sequence
+
         if "role" in data:
+            if data["role"] not in ROLE_LABELS:
+                return Response(
+                    {"role": "Choose a valid workspace role."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            target_email = str(existing.get("email", "")).strip().lower()
+            if data["role"] == "admin" and target_email not in settings.NEXUS_ADMIN_EMAILS:
+                return Response(
+                    {"role": "Only configured Admin identities can be assigned the Admin role."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             update_fields["role"] = data["role"]
         if "name" in data and data["name"]:
             parts = data["name"].split()
@@ -284,10 +299,28 @@ class PeopleDetailView(APIView):
                 profile_updates[f"profile.{key}"] = data[key]
 
         update_fields.update(profile_updates)
-        db.users.update_one(target, {"$set": update_fields})
+        if employee_id_sequence is not None and db.users.find_one(
+            {
+                "employee_id_sequence": employee_id_sequence,
+                "_id": {"$ne": existing["_id"]},
+            }
+        ):
+            return Response(
+                {"error": "This employee ID number is already assigned."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            db.users.update_one(target, {"$set": update_fields})
+        except DuplicateKeyError:
+            return Response(
+                {"error": "This employee ID number is already assigned."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         updated = db.users.find_one(target)
-        return Response(_format_user(updated), status=status.HTTP_200_OK)
+        person = _format_user(updated)
+        person["can_edit_employee_id"] = is_configured_admin(request.user)
+        return Response(person, status=status.HTTP_200_OK)
 
     def delete(self, request, user_id):
         db = get_database()
@@ -316,16 +349,6 @@ class TeamListView(APIView):
 
     def get(self, request):
         db = get_database()
-        if "teams" not in db.list_collection_names() or db.teams.count_documents({}) == 0:
-            # Seed default teams
-            for t in DEFAULT_TEAMS:
-                db.teams.insert_one(
-                    {
-                        **t,
-                        "created_at": datetime.now(timezone.utc),
-                    }
-                )
-
         teams_cursor = db.teams.find({}).sort("name", 1)
         teams_list = []
         for doc in teams_cursor:
@@ -335,8 +358,8 @@ class TeamListView(APIView):
                     "name": doc.get("name"),
                     "description": doc.get("description", ""),
                     "department": doc.get("department", "Engineering"),
-                    "lead": doc.get("lead", "Team Lead"),
-                    "memberCount": doc.get("member_count", 3),
+                    "lead": doc.get("lead", ""),
+                    "memberCount": doc.get("member_count", 0),
                     "tags": doc.get("tags", []),
                 }
             )
@@ -354,9 +377,9 @@ class TeamListView(APIView):
 
         new_team = {
             "name": name,
-            "description": data.get("description", "Nexus operational squad."),
+            "description": data.get("description", ""),
             "department": data.get("department", "Engineering"),
-            "lead": data.get("lead", "Team Lead"),
+            "lead": data.get("lead", ""),
             "member_count": int(data.get("memberCount", 1)),
             "tags": data.get("tags", ["Active"]),
             "created_at": datetime.now(timezone.utc),
@@ -394,6 +417,8 @@ class PeopleInvitationsView(APIView):
     POST /api/people/invitations/ - Send a new invitation
     DELETE /api/people/invitations/<email>/ - Revoke invitation
     """
+
+    permission_classes = [IsAuthenticated, RoleModulePermission]
 
     def get(self, request):
         db = get_database()
@@ -435,6 +460,16 @@ class PeopleInvitationsView(APIView):
         if not email:
             return Response(
                 {"error": "Email is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if role not in ROLE_LABELS:
+            return Response(
+                {"role": "Choose a valid workspace role."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if role == "admin" and email not in settings.NEXUS_ADMIN_EMAILS:
+            return Response(
+                {"role": "Only configured Admin identities can be assigned the Admin role."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -498,13 +533,16 @@ class PeopleStatsView(APIView):
         now = datetime.now(timezone.utc)
         total_members = db.users.count_documents({})
         pending_invites = _pending_invitation_count(db, now)
-        total_teams = db.teams.count_documents({}) if "teams" in db.list_collection_names() else len(DEFAULT_TEAMS)
+        total_teams = db.teams.count_documents({})
+        active_members = db.users.count_documents(
+            {"is_active": True, "profile.status": "active"}
+        )
 
         return Response(
             {
                 "totalMembers": total_members,
-                "activeNow": max(1, total_members),
-                "totalTeams": max(total_teams, 4),
+                "activeNow": active_members,
+                "totalTeams": total_teams,
                 "pendingInvitations": pending_invites,
             },
             status=status.HTTP_200_OK,

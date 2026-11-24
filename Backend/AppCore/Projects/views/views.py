@@ -4,11 +4,15 @@ from datetime import datetime, timezone
 from bson import ObjectId
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from AppCore.Auth.role_permissions import (
+    RoleCapabilityPermission,
+    RoleModulePermission,
+)
 from ..db import get_projects_collection
-from ..models import ensure_seed_projects, serialize_project
+from ..models import serialize_project
 from ..serializers.serializer import ProjectSerializer
 
 
@@ -22,7 +26,14 @@ def get_query_id(pk):
 
 
 class ProjectViewSet(viewsets.ViewSet):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated, RoleModulePermission, RoleCapabilityPermission]
+    role_capabilities = {
+        "GET": "view_tasks",
+        "POST": "manage_portfolios",
+        "PATCH": "manage_portfolios",
+        "PUT": "manage_portfolios",
+        "DELETE": "manage_portfolios",
+    }
 
     @property
     def collection(self):
@@ -30,8 +41,6 @@ class ProjectViewSet(viewsets.ViewSet):
 
     def list(self, request):
         """List all workspace projects with optional search and category filters."""
-        ensure_seed_projects()
-
         query = {}
         category = request.query_params.get("category")
         if category and category.lower() != "all":
@@ -52,8 +61,6 @@ class ProjectViewSet(viewsets.ViewSet):
 
     def retrieve(self, request, pk=None):
         """Get single project by ID or key."""
-        ensure_seed_projects()
-
         doc = None
         if ObjectId.is_valid(pk):
             doc = self.collection.find_one({"_id": ObjectId(pk)})
@@ -75,11 +82,27 @@ class ProjectViewSet(viewsets.ViewSet):
         data = serializer.validated_data
         name = data["name"].strip()
 
-        # Generate unique project key if not provided
+        # Generate an unused key when the client does not supply one.
         key = data.get("key", "").strip()
         if not key:
             prefix = "".join([w[0].upper() for w in name.split() if w])[:4] or "PRJ"
-            key = f"NEX-{prefix}-{random.randint(100, 999)}"
+            first_number = random.randrange(900)
+            for offset in range(900):
+                candidate = f"NEX-{prefix}-{100 + (first_number + offset) % 900}"
+                if not self.collection.find_one({
+                    "key": {"$regex": f"^{re.escape(candidate)}$", "$options": "i"}
+                }):
+                    key = candidate
+                    break
+            else:
+                return Response(
+                    {"key": ["No project keys are available for this name."]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            key = key.upper()
+            if self.collection.find_one({"key": {"$regex": f"^{re.escape(key)}$", "$options": "i"}}):
+                return Response({"key": ["A project with this key already exists."]}, status=status.HTTP_400_BAD_REQUEST)
 
         now = datetime.now(timezone.utc).isoformat()
         is_default = bool(data.get("is_default_workspace") or data.get("isDefaultWorkspace"))
@@ -104,6 +127,11 @@ class ProjectViewSet(viewsets.ViewSet):
             "activeSprintName": data.get("active_sprint_name") or data.get("activeSprintName", "Sprint 1"),
             "start_date": data.get("start_date") or data.get("startDate", now.split("T")[0]),
             "startDate": data.get("start_date") or data.get("startDate", now.split("T")[0]),
+            "end_date": data.get("end_date") or data.get("endDate", ""),
+            "endDate": data.get("end_date") or data.get("endDate", ""),
+            "status": data.get("status", "Active"),
+            "lead": data.get("lead") or data.get("project_lead", ""),
+            "project_lead": data.get("lead") or data.get("project_lead", ""),
             "created_by": str(getattr(request.user, "email", getattr(request.user, "username", "user"))),
             "created_at": now,
             "updated_at": now,
@@ -123,9 +151,16 @@ class ProjectViewSet(viewsets.ViewSet):
             return Response({"detail": "Project not found."}, status=status.HTTP_404_NOT_FOUND)
 
         updates = {}
-        for k in ("name", "key", "category", "description", "color", "progress"):
+        for k in ("name", "key", "category", "description", "color", "progress", "status", "lead", "project_lead"):
             if k in request.data:
                 updates[k] = request.data[k]
+        if "key" in updates:
+            updates["key"] = str(updates["key"]).strip().upper()
+            if self.collection.find_one({
+                "key": {"$regex": f"^{re.escape(updates['key'])}$", "$options": "i"},
+                "_id": {"$ne": existing["_id"]},
+            }):
+                return Response({"key": ["A project with this key already exists."]}, status=status.HTTP_400_BAD_REQUEST)
 
         if "is_default_workspace" in request.data or "isDefaultWorkspace" in request.data:
             val = bool(request.data.get("is_default_workspace", request.data.get("isDefaultWorkspace")))
@@ -147,6 +182,11 @@ class ProjectViewSet(viewsets.ViewSet):
             updates["start_date"] = date_val
             updates["startDate"] = date_val
 
+        if "end_date" in request.data or "endDate" in request.data:
+            date_val = request.data.get("end_date", request.data.get("endDate"))
+            updates["end_date"] = date_val
+            updates["endDate"] = date_val
+
         updates["updated_at"] = datetime.now(timezone.utc).isoformat()
 
         self.collection.update_one(query, {"$set": updates})
@@ -158,17 +198,29 @@ class ProjectViewSet(viewsets.ViewSet):
         target_id = get_query_id(pk)
         query = {"_id": target_id} if isinstance(target_id, ObjectId) else {"$or": [{"_id": pk}, {"id": pk}]}
 
+        existing_doc = self.collection.find_one(query)
+        if not existing_doc:
+            return Response({"detail": "Project not found."}, status=status.HTTP_404_NOT_FOUND)
         res = self.collection.delete_one(query)
         if res.deleted_count == 0:
             return Response({"detail": "Project not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        project_id = str(existing_doc["_id"]) if "_id" in existing_doc else str(pk)
+        try:
+            from AppCore.Backlog.models import Sprint as BacklogSprint, Task as BacklogTask
+            from AppCore.ActiveSprint.models import Sprint as ActiveSprint, Task as ActiveTask
+            BacklogTask.objects.filter(project_id=project_id).update(sprint=None)
+            ActiveTask.objects.filter(project_id=project_id).update(sprint=None)
+            BacklogSprint.objects.filter(project_id=project_id).delete()
+            ActiveSprint.objects.filter(project_id=project_id).delete()
+        except Exception:
+            pass
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=False, methods=["get"])
     def stats(self, request):
         """Aggregate workspace project metrics."""
-        ensure_seed_projects()
-
         total_projects = self.collection.count_documents({})
         docs = list(self.collection.find({}))
 

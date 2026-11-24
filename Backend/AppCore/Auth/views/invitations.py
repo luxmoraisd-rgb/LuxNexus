@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ...db import get_database
-from ..role_permissions import ROLE_LABELS, has_role_permission
+from ..role_permissions import ROLE_LABELS
 from ..serializers import CreateInvitationSerializer, InvitationTokenSerializer
 from ..utils import user_payload
 
@@ -39,12 +39,6 @@ class TeamInvitationView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        if not has_role_permission(request.user, "manage_team"):
-            return Response(
-                {"detail": "You do not have permission to manage team invitations."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         now = datetime.now(timezone.utc)
         invitations = get_database().team_invitations.find(
             {
@@ -67,12 +61,6 @@ class TeamInvitationView(APIView):
         )
 
     def post(self, request):
-        if not has_role_permission(request.user, "manage_team"):
-            return Response(
-                {"detail": "You do not have permission to invite team members."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         serializer = CreateInvitationSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -84,15 +72,10 @@ class TeamInvitationView(APIView):
                 {"email": ["You cannot invite your own account."]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if role == "admin" and request.user.role != "admin":
+        if role == "admin" and email not in settings.NEXUS_ADMIN_EMAILS:
             return Response(
-                {"role": ["Only an Admin can invite another Admin."]},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        if request.user.role != "admin" and role != "user":
-            return Response(
-                {"role": ["Only an Admin can invite Team Leads or Admins."]},
-                status=status.HTTP_403_FORBIDDEN,
+                {"role": ["Only configured Admin identities can be assigned the Admin role."]},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         token = secrets.token_urlsafe(32)
@@ -183,6 +166,14 @@ class AcceptInvitationView(APIView):
             return Response(
                 {"detail": "This invitation link is invalid, expired, or already accepted."},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        if (
+            invitation["role"] == "admin"
+            and invitation["email"].strip().lower() not in settings.NEXUS_ADMIN_EMAILS
+        ):
+            return Response(
+                {"detail": "This invitation is not valid for a configured Admin identity."},
+                status=status.HTTP_403_FORBIDDEN,
             )
         if request.user.email.lower() != invitation["email"].lower():
             return Response(

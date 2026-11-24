@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   ChevronDown,
   Users,
@@ -7,6 +6,7 @@ import {
   Search,
   Mail,
   MapPin,
+  Hash,
   Phone,
   Briefcase,
   Layers,
@@ -17,15 +17,45 @@ import {
   Plus,
   Trash2,
   Edit,
-  Send,
   X,
   ExternalLink,
   Loader2,
   RefreshCw,
-  ShieldCheck,
 } from "lucide-react";
 import peopleApi from "./peopleApi";
 import "./people.css";
+
+const getAvatarImageSource = (avatar) => {
+  if (typeof avatar !== "string") return "";
+  const value = avatar.trim();
+  return /^(https?:\/\/|data:image\/|blob:|\/)/i.test(value) ? value : "";
+};
+
+function MemberAvatar({ member, className, style }) {
+  const imageSource = getAvatarImageSource(member.avatar);
+  const [failedImageSource, setFailedImageSource] = useState("");
+
+  if (imageSource && failedImageSource !== imageSource) {
+    return (
+      <img
+        className={`${className} member-avatar-image`}
+        src={imageSource}
+        alt=""
+        aria-label={`${member.name} profile`}
+        style={style}
+        onError={() => setFailedImageSource(imageSource)}
+      />
+    );
+  }
+
+  return (
+    <div className={className} style={style}>
+      {member.avatar && member.avatar.length <= 2
+        ? member.avatar
+        : member.name.slice(0, 2).toUpperCase()}
+    </div>
+  );
+}
 
 const getInvitationExpiryLabel = (expiresAt, currentDate) => {
   const expirationDate = new Date(expiresAt);
@@ -143,12 +173,9 @@ const ScrollableSelect = ({ ariaLabel, options, value, onChange }) => {
 
 export const PeoplePage = ({
   theme = "dark",
-  currentUser,
   activeTab = "members",
   onTabChange,
 }) => {
-  const navigate = useNavigate();
-
   const sanitizeTab = (tab) => (tab === "workspace" ? "members" : tab || "members");
   const [internalTab, setInternalTab] = useState(sanitizeTab(activeTab));
   const currentTab = onTabChange ? sanitizeTab(activeTab) : internalTab;
@@ -163,9 +190,9 @@ export const PeoplePage = ({
   const [teams, setTeams] = useState([]);
   const [invitations, setInvitations] = useState([]);
   const [stats, setStats] = useState({
-    totalMembers: 4,
-    activeNow: 4,
-    totalTeams: 4,
+    totalMembers: 0,
+    activeNow: 0,
+    totalTeams: 0,
     pendingInvitations: 0,
   });
 
@@ -181,65 +208,26 @@ export const PeoplePage = ({
 
   // Modals & Drawers
   const [selectedMember, setSelectedMember] = useState(null);
+  const [employeeIdDraft, setEmployeeIdDraft] = useState("");
+  const [isEditingEmployeeId, setIsEditingEmployeeId] = useState(false);
+  const [isSavingEmployeeId, setIsSavingEmployeeId] = useState(false);
+  const [employeeIdError, setEmployeeIdError] = useState("");
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
 
-  // Resolve logged-in user from prop or sessionStorage
-  const resolvedCurrentUser = useMemo(() => {
-    if (currentUser && typeof currentUser === "object") return currentUser;
-    try {
-      const stored = sessionStorage.getItem("user");
-      if (stored) return JSON.parse(stored);
-    } catch {
-      // Storage access safety
-    }
-    return null;
-  }, [currentUser]);
-
-  // Admin privileges: full visibility across all teams and squads
-  const isAdmin = useMemo(() => {
-    const role = (resolvedCurrentUser?.role || "").toLowerCase();
-    return (
-      role === "admin" ||
-      resolvedCurrentUser?.isAdmin === true ||
-      resolvedCurrentUser?.is_staff === true ||
-      resolvedCurrentUser?.is_superuser === true
-    );
-  }, [resolvedCurrentUser]);
-
-  // Current user's assigned team / squad
-  const currentUserTeam = useMemo(() => {
-    if (resolvedCurrentUser?.team) return resolvedCurrentUser.team;
-    if (
-      Array.isArray(resolvedCurrentUser?.teams) &&
-      resolvedCurrentUser.teams.length > 0
-    ) {
-      return resolvedCurrentUser.teams[0];
-    }
-    // Match against loaded members
-    if (resolvedCurrentUser && members.length > 0) {
-      const selfInList = members.find(
-        (m) =>
-          (resolvedCurrentUser.id && m.id === resolvedCurrentUser.id) ||
-          (resolvedCurrentUser.email &&
-            m.email?.toLowerCase() ===
-              resolvedCurrentUser.email?.toLowerCase()) ||
-          (resolvedCurrentUser.username &&
-            m.username?.toLowerCase() ===
-              resolvedCurrentUser.username?.toLowerCase())
-      );
-      if (selfInList?.team) return selfInList.team;
-    }
-    return "Core Platform Engineering";
-  }, [resolvedCurrentUser, members]);
+  useEffect(() => {
+    setEmployeeIdDraft(selectedMember?.employeeId || "");
+    setIsEditingEmployeeId(false);
+    setEmployeeIdError("");
+  }, [selectedMember?.id, selectedMember?.employeeId]);
 
   // Invite Form
   const [inviteForm, setInviteForm] = useState({
     email: "",
     role: "user",
     department: "Engineering",
-    team: "Frontend & UI Experience",
+    team: "",
   });
   const [isInviting, setIsInviting] = useState(false);
 
@@ -248,8 +236,8 @@ export const PeoplePage = ({
     name: "",
     description: "",
     department: "Engineering",
-    lead: "Team Lead",
-    tags: "Full-Stack, Sprints",
+    lead: "",
+    tags: "",
   });
   const [isCreatingTeam, setIsCreatingTeam] = useState(false);
 
@@ -258,15 +246,12 @@ export const PeoplePage = ({
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // Fetch data with viewer credentials for team-level access control
   const loadData = async (silent = false) => {
     if (!silent) setIsLoading(true);
     try {
-      const viewerRole = isAdmin ? "admin" : (resolvedCurrentUser?.role || "user");
-      const viewerTeam = currentUserTeam || "";
       const [membersData, teamsData, invitesData, statsData] =
         await Promise.all([
-          peopleApi.getMembers({ viewer_role: viewerRole, viewer_team: viewerTeam }),
+          peopleApi.getMembers(),
           peopleApi.getTeams(),
           peopleApi.getInvitations(),
           peopleApi.getStats(),
@@ -302,35 +287,11 @@ export const PeoplePage = ({
     loadData(true);
   };
 
-  // Filtered members with strict team isolation:
-  // - Admin sees ALL members across all teams
-  // - Non-admin only sees colleagues in their same squad (+ self)
   const filteredMembers = useMemo(() => {
     return members.filter((m) => {
-      if (!isAdmin && currentUserTeam) {
-        const memberTeam = m.team || (Array.isArray(m.teams) ? m.teams[0] : "");
-        const memberTeams = Array.isArray(m.teams) ? m.teams : [memberTeam].filter(Boolean);
-        const isSameTeam =
-          (memberTeam && memberTeam.trim().toLowerCase() === currentUserTeam.trim().toLowerCase()) ||
-          memberTeams.some(
-            (t) => t && t.trim().toLowerCase() === currentUserTeam.trim().toLowerCase()
-          );
-
-        const isSelf =
-          (resolvedCurrentUser?.id && m.id === resolvedCurrentUser.id) ||
-          (resolvedCurrentUser?.email &&
-            m.email?.toLowerCase() === resolvedCurrentUser.email?.toLowerCase()) ||
-          (resolvedCurrentUser?.username &&
-            m.username?.toLowerCase() === resolvedCurrentUser.username?.toLowerCase());
-
-        if (!isSameTeam && !isSelf) {
-          return false;
-        }
-      }
-
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const corpus = `${m.name} ${m.username} ${m.email} ${m.jobTitle} ${m.department} ${m.team || ""} ${m.location}`.toLowerCase();
+        const corpus = `${m.name} ${m.username} ${m.email} ${m.employeeId || ""} ${m.jobTitle} ${m.department} ${m.team || ""} ${m.location}`.toLowerCase();
         if (!corpus.includes(q)) return false;
       }
       if (roleFilter !== "all" && m.role?.toLowerCase() !== roleFilter) {
@@ -344,7 +305,7 @@ export const PeoplePage = ({
       }
       return true;
     });
-  }, [members, isAdmin, currentUserTeam, resolvedCurrentUser, searchQuery, roleFilter, deptFilter]);
+  }, [members, searchQuery, roleFilter, deptFilter]);
 
   // Unique departments for filter dropdown
   const departments = useMemo(() => {
@@ -368,7 +329,7 @@ export const PeoplePage = ({
         email: "",
         role: "user",
         department: "Engineering",
-        team: "Frontend & UI Experience",
+        team: "",
       });
       loadData(true);
     } catch (err) {
@@ -479,6 +440,41 @@ export const PeoplePage = ({
     }
   };
 
+  const handleEmployeeIdSave = async () => {
+    const employeeId = employeeIdDraft.trim().toUpperCase();
+    if (!/^LUX-SD-(CHN|BNG|HYD)-(?:00[1-9]|0[1-9]\d|[1-9]\d{2})$/.test(employeeId)) {
+      setEmployeeIdError("Employee ID number must be from 001 to 999.");
+      return;
+    }
+
+    setIsSavingEmployeeId(true);
+    setEmployeeIdError("");
+    try {
+      const updated = await peopleApi.updateMember(selectedMember.id, {
+        employeeId,
+      });
+      setMembers((previous) =>
+        previous.map((member) =>
+          member.id === selectedMember.id
+            ? { ...member, employeeId: updated.employeeId }
+            : member
+        )
+      );
+      setSelectedMember((previous) => ({
+        ...previous,
+        employeeId: updated.employeeId,
+      }));
+      setIsEditingEmployeeId(false);
+      showToast("Employee ID updated");
+    } catch (error) {
+      setEmployeeIdError(
+        error.response?.data?.error || "Failed to update Employee ID."
+      );
+    } finally {
+      setIsSavingEmployeeId(false);
+    }
+  };
+
   return (
     <div className="people-page-root" data-theme={theme}>
       {/* Toast Alert */}
@@ -509,9 +505,9 @@ export const PeoplePage = ({
             className="people-btn people-btn-secondary"
             onClick={handleRefresh}
             title="Refresh directory"
+            aria-label="Refresh directory"
           >
             <RefreshCw size={14} className={isRefreshing ? "spinning" : ""} />
-            <span>Sync</span>
           </button>
 
           {currentTab === "teams" ? (
@@ -698,30 +694,14 @@ export const PeoplePage = ({
             </div>
           </div>
 
-          {/* Scope indicator: Admin sees everyone; Non-Admin sees only their squad */}
-          <div className={`people-scope-banner ${isAdmin ? "scope-admin" : "scope-team"}`}>
+          <div className="people-scope-banner scope-admin">
             <div className="scope-banner-content">
-              {isAdmin ? (
-                <>
-                  <ShieldCheck size={16} className="scope-icon admin-icon" />
-                  <span className="scope-text">
-                    <strong>Admin Privileges:</strong> Full organization visibility enabled — showing all <strong>{filteredMembers.length}</strong> colleagues across all squads.
-                  </span>
-                </>
-              ) : (
-                <>
-                  <Layers size={16} className="scope-icon team-icon" />
-                  <span className="scope-text">
-                    <strong>Team Scope:</strong> Showing <strong>{currentUserTeam}</strong> squad members only (<strong>{filteredMembers.length}</strong> {filteredMembers.length === 1 ? "colleague" : "colleagues"}). Other team members are restricted.
-                  </span>
-                </>
-              )}
+              <Layers size={16} className="scope-icon team-icon" />
+              <span className="scope-text">
+                <strong>Workspace Directory:</strong> Showing all <strong>{filteredMembers.length}</strong> colleagues across teams.
+              </span>
             </div>
-            {isAdmin ? (
-              <span className="admin-status-pill">All Members Visible</span>
-            ) : (
-              <span className="team-status-pill">Squad Only</span>
-            )}
+            <span className="admin-status-pill">All Members Visible</span>
           </div>
 
           {/* Members List Display */}
@@ -754,12 +734,11 @@ export const PeoplePage = ({
                 >
                   <div className="card-top-row">
                     <div className="card-avatar-wrap">
-                      <div
+                      <MemberAvatar
+                        member={member}
                         className="card-avatar"
                         style={{ backgroundColor: member.avatarColor }}
-                      >
-                        {member.avatar.length <= 2 ? member.avatar : member.name.slice(0, 2).toUpperCase()}
-                      </div>
+                      />
                       <span className="status-dot" />
                     </div>
 
@@ -773,15 +752,19 @@ export const PeoplePage = ({
                     <p className="card-title">{member.jobTitle}</p>
                   </div>
 
-                  <div className="card-team-badge" title={`Team: ${member.team || "Core Platform Engineering"}`}>
+                  <div className="card-team-badge" title={`Team: ${member.team || "Unassigned"}`}>
                     <Layers size={12} className="team-badge-icon" />
-                    <span className="team-badge-text">{member.team || "Core Platform Engineering"}</span>
+                    <span className="team-badge-text">{member.team || "Unassigned"}</span>
                   </div>
 
                   <div className="card-meta-list">
                     <div className="meta-row">
                       <Mail size={13} />
                       <span>{member.email}</span>
+                    </div>
+                    <div className="meta-row">
+                      <Hash size={13} />
+                      <span>{member.employeeId || "Not assigned"}</span>
                     </div>
                     <div className="meta-row">
                       <MapPin size={13} />
@@ -802,6 +785,7 @@ export const PeoplePage = ({
                 <thead>
                   <tr>
                     <th>Colleague</th>
+                    <th>Employee ID</th>
                     <th>Team / Squad</th>
                     <th>Role</th>
                     <th>Department</th>
@@ -819,22 +803,22 @@ export const PeoplePage = ({
                     >
                       <td>
                         <div className="table-person-cell">
-                          <div
+                          <MemberAvatar
+                            member={member}
                             className="table-avatar"
                             style={{ backgroundColor: member.avatarColor }}
-                          >
-                            {member.avatar.length <= 2 ? member.avatar : member.name.slice(0, 2).toUpperCase()}
-                          </div>
+                          />
                           <div className="table-person-meta">
                             <span className="table-name">{member.name}</span>
                             <span className="table-email">{member.email}</span>
                           </div>
                         </div>
                       </td>
+                      <td>{member.employeeId || "Not assigned"}</td>
                       <td>
                         <div className="table-team-badge">
                           <Layers size={12} />
-                          <span>{member.team || "Core Platform Engineering"}</span>
+                          <span>{member.team || "Unassigned"}</span>
                         </div>
                       </td>
                       <td>
@@ -956,7 +940,8 @@ export const PeoplePage = ({
           >
             <div className="people-modal-header">
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <div
+                <MemberAvatar
+                  member={selectedMember}
                   className="table-avatar"
                   style={{
                     backgroundColor: selectedMember.avatarColor,
@@ -964,9 +949,7 @@ export const PeoplePage = ({
                     height: 44,
                     fontSize: 16,
                   }}
-                >
-                  {selectedMember.avatar.length <= 2 ? selectedMember.avatar : selectedMember.name.slice(0, 2).toUpperCase()}
-                </div>
+                />
                 <div>
                   <h3 style={{ margin: 0 }}>{selectedMember.name}</h3>
                   <span style={{ fontSize: 12, color: "#94a3b8" }}>
@@ -997,10 +980,70 @@ export const PeoplePage = ({
                   <span style={{ fontSize: 13 }}>{selectedMember.email}</span>
                 </div>
                 <div className="form-group">
+                  <label>Employee ID</label>
+                  {isEditingEmployeeId ? (
+                    <>
+                      <input
+                        className="form-control"
+                        type="text"
+                        maxLength={15}
+                        value={employeeIdDraft}
+                        onChange={(event) => {
+                          setEmployeeIdDraft(event.target.value.toUpperCase());
+                          setEmployeeIdError("");
+                        }}
+                        aria-label="Employee ID"
+                        aria-invalid={Boolean(employeeIdError)}
+                        aria-describedby={employeeIdError ? "people-employee-id-error" : undefined}
+                      />
+                      {employeeIdError && (
+                        <span id="people-employee-id-error" role="alert">
+                          {employeeIdError}
+                        </span>
+                      )}
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          type="button"
+                          className="people-btn people-btn-primary"
+                          onClick={handleEmployeeIdSave}
+                          disabled={isSavingEmployeeId}
+                        >
+                          {isSavingEmployeeId ? "Saving..." : "Save ID"}
+                        </button>
+                        <button
+                          type="button"
+                          className="people-btn people-btn-secondary"
+                          onClick={() => {
+                            setEmployeeIdDraft(selectedMember.employeeId || "");
+                            setEmployeeIdError("");
+                            setIsEditingEmployeeId(false);
+                          }}
+                          disabled={isSavingEmployeeId}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 13 }}>{selectedMember.employeeId || "Not assigned"}</span>
+                      {selectedMember.can_edit_employee_id && (
+                        <button
+                          type="button"
+                          className="people-btn people-btn-secondary"
+                          onClick={() => setIsEditingEmployeeId(true)}
+                        >
+                          Edit
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="form-group">
                   <label>Assigned Squad / Team</label>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#818cf8", fontWeight: 600, fontSize: 13 }}>
                     <Layers size={14} />
-                    <span>{selectedMember.team || "Core Platform Engineering"}</span>
+                    <span>{selectedMember.team || "Unassigned"}</span>
                   </div>
                 </div>
                 <div className="form-group">
@@ -1021,59 +1064,36 @@ export const PeoplePage = ({
                 </div>
               </div>
 
-              {isAdmin ? (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 14 }}>
-                  <div className="form-group">
-                    <label>Workspace Role (Permissions)</label>
-                    <select
-                      className="form-control"
-                      value={selectedMember.role}
-                      onChange={(e) => handleRoleChange(selectedMember.id, e.target.value)}
-                    >
-                      <option value="admin">Admin (Full Workspace Permissions)</option>
-                      <option value="team_lead">Team Lead (Sprint & Task Manager)</option>
-                      <option value="user">Member (Standard Contributor)</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>Reassign Squad / Team</label>
-                    <select
-                      className="form-control"
-                      value={selectedMember.team || "Frontend & UI Experience"}
-                      onChange={(e) => handleTeamChange(selectedMember.id, e.target.value)}
-                    >
-                      <option value="Frontend & UI Experience">Frontend & UI Experience</option>
-                      <option value="Core Platform Engineering">Core Platform Engineering</option>
-                      <option value="DevOps & Cloud Reliability">DevOps & Cloud Reliability</option>
-                      <option value="Product Strategy & Agile Operations">Product Strategy & Agile Operations</option>
-                      {teams.map((t) => (
-                        !["Frontend & UI Experience", "Core Platform Engineering", "DevOps & Cloud Reliability", "Product Strategy & Agile Operations"].includes(t.name) ? (
-                          <option key={t.id || t.name} value={t.name}>{t.name}</option>
-                        ) : null
-                      ))}
-                    </select>
-                  </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 14 }}>
+                <div className="form-group">
+                  <label>Workspace Role (Permissions)</label>
+                  <select
+                    className="form-control"
+                    value={selectedMember.role}
+                    onChange={(e) => handleRoleChange(selectedMember.id, e.target.value)}
+                  >
+                    <option value="admin">Admin (Full Workspace Permissions)</option>
+                    <option value="team_lead">Team Lead (Full Workspace Permissions)</option>
+                    <option value="user">Member (Full Workspace Permissions)</option>
+                  </select>
                 </div>
-              ) : (
-                <div className="form-group" style={{ marginTop: 12 }}>
-                  <label>Assigned Role</label>
-                  <span style={{ fontSize: 13, textTransform: "capitalize", fontWeight: 600 }}>{selectedMember.role}</span>
+                <div className="form-group">
+                  <label>Reassign Squad / Team</label>
+                  <select
+                    className="form-control"
+                    value={selectedMember.team || ""}
+                    onChange={(e) => handleTeamChange(selectedMember.id, e.target.value)}
+                  >
+                    <option value="">Unassigned</option>
+                    {teams.map((t) => (
+                      <option key={t.id || t.name} value={t.name}>{t.name}</option>
+                    ))}
+                  </select>
                 </div>
-              )}
+              </div>
             </div>
 
             <div className="people-modal-footer">
-              <button
-                type="button"
-                className="people-btn people-btn-primary"
-                onClick={() => {
-                  setSelectedMember(null);
-                  navigate("/work/inbox");
-                }}
-              >
-                <Send size={14} />
-                <span>Send Message</span>
-              </button>
               <button
                 type="button"
                 className="people-btn people-btn-secondary"
@@ -1134,9 +1154,9 @@ export const PeoplePage = ({
                       setInviteForm({ ...inviteForm, role })
                     }
                     options={[
-                      { value: "user", label: "Member (Standard Contributor)" },
-                      { value: "team_lead", label: "Team Lead (Sprint Manager)" },
-                      { value: "admin", label: "Admin (Organization Lead)" },
+                      { value: "user", label: "Member (Full Workspace Permissions)" },
+                      { value: "team_lead", label: "Team Lead (Full Workspace Permissions)" },
+                      { value: "admin", label: "Admin" },
                     ]}
                   />
                 </div>
@@ -1150,21 +1170,8 @@ export const PeoplePage = ({
                       setInviteForm({ ...inviteForm, team })
                     }
                     options={[
-                      { value: "Frontend & UI Experience", label: "Frontend & UI Experience" },
-                      { value: "Core Platform Engineering", label: "Core Platform Engineering" },
-                      { value: "DevOps & Cloud Reliability", label: "DevOps & Cloud Reliability" },
-                      { value: "Product Strategy & Agile Operations", label: "Product Strategy & Agile Operations" },
-                      ...teams
-                        .filter(
-                          (team) =>
-                            ![
-                              "Frontend & UI Experience",
-                              "Core Platform Engineering",
-                              "DevOps & Cloud Reliability",
-                              "Product Strategy & Agile Operations",
-                            ].includes(team.name)
-                        )
-                        .map((team) => ({ value: team.name, label: team.name })),
+                      { value: "", label: "Unassigned" },
+                      ...teams.map((team) => ({ value: team.name, label: team.name })),
                     ]}
                   />
                 </div>

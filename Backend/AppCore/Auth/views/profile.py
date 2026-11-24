@@ -1,12 +1,16 @@
 import base64
+import re
 from datetime import datetime, timezone
 
+from pymongo.errors import DuplicateKeyError
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ...db import get_database
+from ..role_permissions import is_configured_admin
+from ..serializers.signup import EMPLOYEE_ID_PATTERN
 from ..utils import profile_payload
 
 
@@ -20,11 +24,52 @@ class ProfileView(APIView):
                 {"detail": "User account is unavailable."},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        return Response(profile_payload(user_document), status=status.HTTP_200_OK)
+        return Response(
+            {
+                **profile_payload(user_document),
+                "can_edit_employee_id": is_configured_admin(request.user),
+            },
+            status=status.HTTP_200_OK,
+        )
 
     def patch(self, request):
+        employee_id_key = (
+            "employee_id" if "employee_id" in request.data else "employeeId"
+        )
+        has_employee_id = (
+            "employee_id" in request.data or "employeeId" in request.data
+        )
+        if has_employee_id and not is_configured_admin(request.user):
+            return Response(
+                {"error": "Only admins can change Employee ID."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         profile_fields = ("jobTitle", "mobile", "location", "birthday", "bio")
         updates = {}
+        employee_id_sequence = None
+        if has_employee_id:
+            employee_id = request.data[employee_id_key]
+            if not isinstance(employee_id, str):
+                return Response(
+                    {"error": "Employee ID must be a string."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            employee_id = employee_id.strip().upper()
+            if not re.fullmatch(EMPLOYEE_ID_PATTERN, employee_id):
+                return Response(
+                    {
+                        "error": (
+                            "Use LUX-SD-CHN-001 through LUX-SD-CHN-999, replacing "
+                            "CHN with BNG or HYD for your branch."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            employee_id_sequence = int(employee_id[-3:])
+            updates["employee_id"] = employee_id
+            updates["employee_id_sequence"] = employee_id_sequence
+
         for field in profile_fields:
             if field in request.data:
                 value = request.data[field]
@@ -51,17 +96,40 @@ class ProfileView(APIView):
             )
 
         database = get_database()
-        database.users.update_one(
-            {"_id": request.user.id},
-            {"$set": {**updates, "updated_at": datetime.now(timezone.utc)}},
-        )
+        if employee_id_sequence is not None and database.users.find_one(
+            {
+                "employee_id_sequence": employee_id_sequence,
+                "_id": {"$ne": request.user.id},
+            }
+        ):
+            return Response(
+                {"error": "This employee ID number is already assigned."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            database.users.update_one(
+                {"_id": request.user.id},
+                {"$set": {**updates, "updated_at": datetime.now(timezone.utc)}},
+            )
+        except DuplicateKeyError:
+            return Response(
+                {"error": "This employee ID number is already assigned."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         user_document = database.users.find_one({"_id": request.user.id})
         if user_document is None:
             return Response(
                 {"detail": "User account is unavailable."},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        return Response(profile_payload(user_document), status=status.HTTP_200_OK)
+        return Response(
+            {
+                **profile_payload(user_document),
+                "can_edit_employee_id": is_configured_admin(request.user),
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class ProfileAvatarView(APIView):

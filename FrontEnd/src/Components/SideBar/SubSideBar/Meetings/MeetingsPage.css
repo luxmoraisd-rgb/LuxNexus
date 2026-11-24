@@ -838,3 +838,58 @@
 [data-theme="light"] .meetings-empty-state h3 {
   color: #0f172a;
 }
+
+@media (max-width: 650px) {
+  .meetings-page-container {
+    height: auto;
+    min-height: 100%;
+    padding: 16px 14px 32px;
+    gap: 18px;
+  }
+
+  .meetings-header {
+    align-items: stretch;
+  }
+
+  .meetings-title-row {
+    gap: 10px;
+  }
+
+  .meetings-title {
+    font-size: 20px;
+  }
+
+  .schedule-meeting-btn {
+    justify-content: center;
+  }
+
+  .meetings-stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+    gap: 10px;
+  }
+
+  .meetings-stat-card {
+    padding: 12px;
+  }
+
+  .meeting-tabs-group {
+    max-width: 100%;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+
+  .meetings-modal {
+    max-height: calc(100vh - 32px);
+    max-height: calc(100dvh - 32px);
+  }
+
+  .meetings-modal-header,
+  .meetings-modal-body,
+  .meetings-modal-footer {
+    padding: 14px 16px;
+  }
+
+  .modal-form-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -55,12 +55,12 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser }) {
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [newGoal, setNewGoal] = useState({
     name: "",
-    team: "Engineering",
-    timePeriod: "Q1 FY26",
-    ownerName: "Franklin",
-    ownerInitials: "FR",
-    dueDate: "Apr 30, 2026",
-    statusSummary: "Initiated sprint planning and task breakdowns.",
+    team: "",
+    timePeriod: "",
+    ownerName: currentUser?.name || currentUser?.username || "",
+    ownerInitials: currentUser?.initials || "",
+    dueDate: "",
+    statusSummary: "",
   });
 
   const loadData = async () => {
@@ -163,12 +163,12 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser }) {
     setIsModalOpen(false);
     setNewGoal({
       name: "",
-      team: "Engineering",
-      timePeriod: "Q1 FY26",
-      ownerName: "Franklin",
-      ownerInitials: "FR",
-      dueDate: "Apr 30, 2026",
-      statusSummary: "Initiated sprint planning and task breakdowns.",
+      team: "",
+      timePeriod: "",
+      ownerName: currentUser?.name || currentUser?.username || "",
+      ownerInitials: currentUser?.initials || "",
+      dueDate: "",
+      statusSummary: "",
     });
   };
 
@@ -447,7 +447,7 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser }) {
                         </div>
 
                         <div className="col-period cell-period">
-                          <span className="period-badge">{goal.timePeriod || "Q1 FY26"}</span>
+                          <span className="period-badge">{goal.timePeriod || ""}</span>
                         </div>
 
                         <div className="col-due cell-due">
