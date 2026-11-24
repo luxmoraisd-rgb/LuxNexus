@@ -86,5 +86,10 @@ class GoalSerializer(serializers.Serializer):
         allow_blank=True,
         default=None,
     )
+    pillar_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)

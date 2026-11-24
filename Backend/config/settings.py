@@ -42,9 +42,16 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
+#     "http://localhost:5173",
+#     "http://127.0.0.1:5173",
+
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
+    origin.strip().rstrip("/")
+    for origin in os.getenv(
+        "CORS_ALLOWED_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173"
+    ).split(",")
+    if origin.strip()
 ]
 CORS_ALLOW_CREDENTIALS = True
 
@@ -67,7 +74,8 @@ REST_FRAMEWORK = {
         "AppCore.Auth.authentication.MongoTokenAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.AllowAny",
+        "rest_framework.permissions.IsAuthenticated",
+        "AppCore.Auth.role_permissions.RoleModulePermission",
     ],
     "UNAUTHENTICATED_USER": None,
 }
@@ -100,6 +108,11 @@ EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "false").lower() == "true"
 EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "10"))
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "noreply@example.com")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+NEXUS_ADMIN_EMAILS = frozenset(
+    email.strip().lower()
+    for email in os.getenv("NEXUS_ADMIN_EMAILS", "").split(",")
+    if email.strip()
+)
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
 USE_I18N = True

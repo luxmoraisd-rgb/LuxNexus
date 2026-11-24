@@ -89,7 +89,7 @@ export const peopleApi = {
   },
 
   sendInvitation: async (payload) => {
-    const response = await peopleClient.post("/people/invitations/", payload);
+    const response = await peopleClient.post("/auth/invitations/", payload);
     return response.data;
   },
 
@@ -103,21 +103,15 @@ export const peopleApi = {
   getStats: async () => {
     try {
       const response = await peopleClient.get("/people/stats/");
-      return (
-        response.data || {
-          totalMembers: 4,
-          activeNow: 4,
-          totalTeams: 4,
-          pendingInvitations: 0,
-        }
-      );
-    } catch {
-      return {
-        totalMembers: 4,
-        activeNow: 4,
-        totalTeams: 4,
+      return response.data || {
+        totalMembers: 0,
+        activeNow: 0,
+        totalTeams: 0,
         pendingInvitations: 0,
       };
+    } catch (error) {
+      console.error("[PeopleApi] Error fetching statistics:", error);
+      throw error;
     }
   },
 };

@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import authApi from '../../../../Auth/authApi';
 import { boardAssetApi } from './backlogApi';
+import { addCustomColumn } from './customColumns';
+import TaskOwnerAvatar from './TaskOwnerAvatar';
 import {
   CloseIcon,
   CheckIcon,
@@ -27,7 +29,6 @@ import {
 import {
   STATUS_CONFIG,
   TYPE_CONFIG,
-  TEAM_MEMBERS,
   generateUniqueTaskId,
   getNextJiraTaskId,
   isPastDate,
@@ -35,7 +36,13 @@ import {
   isTaskPastDueAndIncomplete,
 } from './TaskRowUtils';
 
-const getAnchorStyle = (anchorRect, { align = 'left', width = 180, offset = 4, flipThreshold = 220 } = {}) => {
+const getAnchorStyle = (anchorRect, {
+  align = 'left',
+  width = 180,
+  offset = 4,
+  flipThreshold = 220,
+  constrainToViewport = false,
+} = {}) => {
   if (!anchorRect) {
     return {
       position: 'fixed',
@@ -43,6 +50,7 @@ const getAnchorStyle = (anchorRect, { align = 'left', width = 180, offset = 4, f
       left: '50%',
       transform: 'translate(-50%, -50%)',
       zIndex: 10000,
+      ...(constrainToViewport && { maxHeight: 'calc(100vh - 24px)' }),
     };
   }
 
@@ -60,9 +68,15 @@ const getAnchorStyle = (anchorRect, { align = 'left', width = 180, offset = 4, f
   if (flipUp) {
     style.bottom = `${Math.round(window.innerHeight - anchorRect.top + offset)}px`;
     style.top = 'auto';
+    if (constrainToViewport) {
+      style.maxHeight = `${Math.max(0, anchorRect.top - offset - 12)}px`;
+    }
   } else {
     style.top = `${Math.round(anchorRect.bottom + offset)}px`;
     style.bottom = 'auto';
+    if (constrainToViewport) {
+      style.maxHeight = `${Math.max(0, window.innerHeight - anchorRect.bottom - offset - 12)}px`;
+    }
   }
 
   if (align === 'right') {
@@ -108,10 +122,12 @@ const CalendarIcon = () => (
 
 const BacklogModals = memo(({
   activeModal,
+  currentUser,
   onClose,
   anchorRect,
   activeTaskTarget,
   canUploadTaskAssets = false,
+  canDeleteSprint = false,
   sprint1Tasks,
   backlogTasks,
   allTasks = [],
@@ -132,12 +148,15 @@ const BacklogModals = memo(({
   onUpdateTypeColor,
   selectedPersonFilter,
   setSelectedPersonFilter,
-  personFilterMembers = TEAM_MEMBERS,
+  personFilterMembers = [],
   personFilterTitle = 'Filter by Person',
   statusFilter,
   setStatusFilter,
   typeFilter,
   setTypeFilter,
+  onApplyFilters,
+  onRemoveStatusFilter,
+  onRemoveTypeFilter,
   sortBy,
   setSortBy,
   onStatusChange,
@@ -164,12 +183,18 @@ const BacklogModals = memo(({
   onSelectAllTasks,
   onClearSelection,
   onSelectBoardView,
+  boardTabs = [],
   showToast,
   navigate,
 }) => {
   const [colorTab, setColorTab] = useState('status');
   const [commentInput, setCommentInput] = useState('');
-  const [selectedCommentAuthor, setSelectedCommentAuthor] = useState('Sivakumar');
+  const currentUserName =
+    currentUser?.name ||
+    currentUser?.username ||
+    currentUser?.email?.split('@')[0] ||
+    'You';
+  const [selectedCommentAuthor, setSelectedCommentAuthor] = useState(currentUserName);
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const [mentionFilter, setMentionFilter] = useState('');
 
@@ -197,6 +222,8 @@ const BacklogModals = memo(({
   const [taskStartDate, setTaskStartDate] = useState('');
   const [taskDueDate, setTaskDueDate] = useState('');
   const [taskSP, setTaskSP] = useState(3);
+  const [taskAssignee, setTaskAssignee] = useState('');
+  const [assigneeMenuOpen, setAssigneeMenuOpen] = useState(false);
   const [customTaskId, setCustomTaskId] = useState('');
   const [showCustomKeyEditor, setShowCustomKeyEditor] = useState(false);
   const [newProjectKeyInput, setNewProjectKeyInput] = useState('LUX');
@@ -204,7 +231,7 @@ const BacklogModals = memo(({
   const [isEditingDrawerTaskId, setIsEditingDrawerTaskId] = useState(false);
   const [drawerTaskIdInput, setDrawerTaskIdInput] = useState('');
   const [sprintName, setSprintName] = useState(`Sprint ${(sprints?.length || 1) + 1}`);
-  const [sprintGoal, setSprintGoal] = useState('Deliver core features and authentication');
+  const [sprintGoal, setSprintGoal] = useState('');
   const [sprintDatesInput, setSprintDatesInput] = useState('');
   const [showSprintDatePicker, setShowSprintDatePicker] = useState(false);
   const [sprintStartDateDraft, setSprintStartDateDraft] = useState('');
@@ -224,10 +251,7 @@ const BacklogModals = memo(({
   const [isUploadingTaskAsset, setIsUploadingTaskAsset] = useState(false);
   const [taskAssetPendingDelete, setTaskAssetPendingDelete] = useState(null);
   const taskAssetFileInputRef = useRef(null);
-  const [standupUpdates, setStandupUpdates] = useState([
-    { id: 1, author: 'Sivakumar', update: 'Yesterday: Built Google OAuth UI. Today: Adding full interactions to Backlog. Blockers: None.' },
-    { id: 2, author: 'Franklin ', update: 'Yesterday: Setup Postgres schema. Today: Unit tests for sprint controllers. Blockers: None.' },
-  ]);
+  const [standupUpdates, setStandupUpdates] = useState([]);
 
   // Sync manual date editor with active sprint target whenever modal opens
   useEffect(() => {
@@ -256,6 +280,8 @@ const BacklogModals = memo(({
       setTaskSprint(sprints?.[0]?.id || 'backlog');
       setTaskStartDate('');
       setTaskDueDate('');
+      setTaskAssignee('');
+      setAssigneeMenuOpen(false);
     }
   }, [activeModal, allTasks, projectKey, sprints]);
 
@@ -765,9 +791,9 @@ const BacklogModals = memo(({
                     value={inviteRole}
                     onChange={(e) => setInviteRole(e.target.value)}
                   >
-                    {canInviteElevatedRoles && <option value="admin">Admin (Full Control)</option>}
-                    {canInviteElevatedRoles && <option value="team_lead">Team Lead (Manage Tasks & Sprints)</option>}
-                    <option value="user">User (Standard Access)</option>
+                    {canInviteElevatedRoles && <option value="admin">Admin (Full Access)</option>}
+                    {canInviteElevatedRoles && <option value="team_lead">Team Lead (Full Access)</option>}
+                    <option value="user">Member (Full Access)</option>
                   </select>
                 </div>
               </div>
@@ -802,26 +828,6 @@ const BacklogModals = memo(({
               }}
             >
               <span>📥 Export Board as CSV</span>
-            </button>
-            <button
-              type="button"
-              className="backlog-popover-list-item"
-              onClick={() => {
-                showToast('Board permissions updated', 'info');
-                onClose();
-              }}
-            >
-              <span>🔒 Board Permissions</span>
-            </button>
-            <button
-              type="button"
-              className="backlog-popover-list-item"
-              onClick={() => {
-                showToast('Notification preferences saved', 'info');
-                onClose();
-              }}
-            >
-              <span>🔔 Notification Settings</span>
             </button>
           </div>
         </div>
@@ -955,7 +961,7 @@ const BacklogModals = memo(({
                     </svg>
                   ),
                 },
-              ].map((view) => (
+              ].filter((view) => ['Table', 'Kanban'].includes(view.label) && !boardTabs.includes(view.label)).map((view) => (
                 <button
                   key={view.id}
                   type="button"
@@ -1023,6 +1029,7 @@ const BacklogModals = memo(({
                     type: taskType,
                     status: taskStatus,
                     sp: Number(taskSP) || null,
+                    owner: taskAssignee || null,
                     customTaskId: resolvedTaskId,
                     startDate: taskStartDate,
                     dueDate: taskDueDate,
@@ -1033,6 +1040,8 @@ const BacklogModals = memo(({
                   setTaskStatus('Ready to start');
                   setTaskStartDate('');
                   setTaskDueDate('');
+                  setTaskAssignee('');
+                  setAssigneeMenuOpen(false);
                   onClose();
                 }}
               >
@@ -1168,6 +1177,73 @@ const BacklogModals = memo(({
                     </div>
                   )}
                   <div className="dialog-field-group">
+                    <label htmlFor="create-task-assignee">Assignee</label>
+                    <div className="task-assignee-dropdown">
+                      <button
+                        id="create-task-assignee"
+                        type="button"
+                        className="task-assignee-trigger"
+                        aria-haspopup="listbox"
+                        aria-expanded={assigneeMenuOpen}
+                        onClick={() => setAssigneeMenuOpen((open) => !open)}
+                      >
+                        {(() => {
+                          const selectedMember = personFilterMembers.find(
+                            (member) => String(member.id) === String(taskAssignee)
+                          );
+                          return (
+                            <>
+                              {selectedMember ? (
+                                <TaskOwnerAvatar owner={selectedMember} className="task-assignee-avatar" />
+                              ) : (
+                                <span className="task-assignee-placeholder-avatar">—</span>
+                              )}
+                              <span className="task-assignee-trigger-label">
+                                {selectedMember?.name || 'Unassigned'}
+                              </span>
+                              <span className="task-assignee-chevron" aria-hidden="true">⌄</span>
+                            </>
+                          );
+                        })()}
+                      </button>
+                      {assigneeMenuOpen && (
+                        <div className="task-assignee-menu" role="listbox">
+                          <button
+                            type="button"
+                            role="option"
+                            aria-selected={!taskAssignee}
+                            className={`task-assignee-option ${!taskAssignee ? 'selected' : ''}`}
+                            onClick={() => {
+                              setTaskAssignee('');
+                              setAssigneeMenuOpen(false);
+                            }}
+                          >
+                            <span className="task-assignee-placeholder-avatar">—</span>
+                            <span>Unassigned</span>
+                            {!taskAssignee && <CheckIcon size={14} />}
+                          </button>
+                          {personFilterMembers.map((member) => (
+                            <button
+                              key={member.id}
+                              type="button"
+                              role="option"
+                              aria-selected={String(taskAssignee) === String(member.id)}
+                              className={`task-assignee-option ${String(taskAssignee) === String(member.id) ? 'selected' : ''}`}
+                              onClick={() => {
+                                setTaskAssignee(String(member.id));
+                                setAssigneeMenuOpen(false);
+                              }}
+                            >
+                              <TaskOwnerAvatar owner={member} className="task-assignee-avatar" />
+                              <span>{member.name}</span>
+                              {String(taskAssignee) === String(member.id) && <CheckIcon size={14} />}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="dialog-field-group">
                     <label htmlFor="create-task-sprint">Sprint / Location</label>
                     <select
                       id="create-task-sprint"
@@ -1231,15 +1307,16 @@ const BacklogModals = memo(({
                   </div>
                   <div className="dialog-field-group">
                     <label htmlFor="create-task-sp">Estimated Story Points</label>
-                    <input
+                    <select
                       id="create-task-sp"
-                      type="number"
-                      min="1"
-                      max="40"
-                      className="dialog-input"
+                      className="dialog-select"
                       value={taskSP}
                       onChange={(e) => setTaskSP(Number(e.target.value))}
-                    />
+                    >
+                      {[1, 2, 3, 5, 7, 9, 10, 12, 13].map((value) => (
+                        <option key={value} value={value}>{value} SP</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
                 <div className="backlog-dialog-footer">
@@ -1410,8 +1487,12 @@ const BacklogModals = memo(({
       {activeModal === 'filterMenu' && (
         <div className="backlog-popover-backdrop" onClick={onClose}>
           <div
-            className="backlog-popover-dialog anchored-picker"
-            style={getAnchorStyle(anchorRect, { align: 'left', width: 260 })}
+            className="backlog-popover-dialog anchored-picker filter-menu-popover"
+            style={getAnchorStyle(anchorRect, {
+              align: 'left',
+              width: 260,
+              constrainToViewport: true,
+            })}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="backlog-popover-title">Filter by Status</div>
@@ -1419,14 +1500,25 @@ const BacklogModals = memo(({
               <button
                 key={st}
                 type="button"
-                className={`backlog-popover-list-item ${statusFilter === st ? 'active' : ''}`}
+                className={`backlog-popover-list-item ${
+                  (st === 'all' ? statusFilter.length === 0 : statusFilter.includes(st)) ? 'active' : ''
+                }`}
+                aria-pressed={st === 'all' ? statusFilter.length === 0 : statusFilter.includes(st)}
                 onClick={() => {
-                  setStatusFilter(st);
-                  onClose();
+                  if (st === 'all') {
+                    setStatusFilter([]);
+                  } else if (statusFilter.includes(st)) {
+                    setStatusFilter(statusFilter.filter((status) => status !== st));
+                    onRemoveStatusFilter?.(st);
+                  } else {
+                    setStatusFilter([...statusFilter, st]);
+                  }
                 }}
               >
                 <span>{st === 'all' ? 'All Statuses' : st}</span>
-                {statusFilter === st && <CheckIcon size={14} />}
+                {(st === 'all' ? statusFilter.length === 0 : statusFilter.includes(st)) && (
+                  <CheckIcon size={14} />
+                )}
               </button>
             ))}
             <div className="backlog-drawer-divider" />
@@ -1435,32 +1527,49 @@ const BacklogModals = memo(({
               <button
                 key={tp}
                 type="button"
-                className={`backlog-popover-list-item ${typeFilter === tp ? 'active' : ''}`}
+                className={`backlog-popover-list-item ${
+                  (tp === 'all' ? typeFilter.length === 0 : typeFilter.includes(tp)) ? 'active' : ''
+                }`}
+                aria-pressed={tp === 'all' ? typeFilter.length === 0 : typeFilter.includes(tp)}
                 onClick={() => {
-                  setTypeFilter(tp);
-                  onClose();
+                  if (tp === 'all') {
+                    setTypeFilter([]);
+                  } else if (typeFilter.includes(tp)) {
+                    setTypeFilter(typeFilter.filter((type) => type !== tp));
+                    onRemoveTypeFilter?.(tp);
+                  } else {
+                    setTypeFilter([...typeFilter, tp]);
+                  }
                 }}
               >
                 <span>{tp === 'all' ? 'All Types' : tp}</span>
-                {typeFilter === tp && <CheckIcon size={14} />}
+                {(tp === 'all' ? typeFilter.length === 0 : typeFilter.includes(tp)) && (
+                  <CheckIcon size={14} />
+                )}
               </button>
             ))}
-            {(statusFilter !== 'all' || typeFilter !== 'all') && (
+            {(statusFilter.length > 0 || typeFilter.length > 0) && (
               <>
                 <div className="backlog-drawer-divider" />
                 <button
                   type="button"
                   className="backlog-popover-list-item backlog-popover-clear-item"
                   onClick={() => {
-                    setStatusFilter('all');
-                    setTypeFilter('all');
-                    onClose();
+                    setStatusFilter([]);
+                    setTypeFilter([]);
                   }}
                 >
                   <span>Reset All Filters</span>
                 </button>
               </>
             )}
+            <button
+              type="button"
+              className="backlog-btn-primary-blue filter-menu-apply-btn"
+              onClick={onApplyFilters}
+            >
+              Apply Filters
+            </button>
           </div>
         </div>
       )}
@@ -1530,7 +1639,7 @@ const BacklogModals = memo(({
             >
               📦 Move all tasks to Backlog
             </button>
-            {sprints && sprints.length > 1 && (
+            {canDeleteSprint && sprints && sprints.length > 1 && (
               <button
                 type="button"
                 className="backlog-popover-list-item"
@@ -1568,19 +1677,19 @@ const BacklogModals = memo(({
               <button
                 key={m.id}
                 type="button"
-                className={`backlog-popover-list-item ${selectedPersonFilter === m.id ? 'active' : ''}`}
+                className={`backlog-popover-list-item ${String(selectedPersonFilter) === String(m.id) ? 'active' : ''}`}
                 onClick={() => {
-                  setSelectedPersonFilter(m.id);
+                  setSelectedPersonFilter((current) => (
+                    String(current) === String(m.id) ? 'all' : m.id
+                  ));
                   onClose();
                 }}
               >
                 <div className="flex-row-center">
-                  <div className="tiny-avatar" style={{ backgroundColor: m.avatarBg }}>
-                    {m.initial}
-                  </div>
+                  <TaskOwnerAvatar key={m.avatar || m.id} owner={m} className="tiny-avatar" />
                   <span>{m.name}</span>
                 </div>
-                {selectedPersonFilter === m.id && <CheckIcon size={14} />}
+                {String(selectedPersonFilter) === String(m.id) && <CheckIcon size={14} />}
               </button>
             )) : (
               <div className="backlog-popover-list-item">No board members yet</div>
@@ -1886,7 +1995,7 @@ const BacklogModals = memo(({
           >
             <div className="backlog-popover-title">Story Points Capacity</div>
             <div style={{ padding: '4px' }}>
-              {TEAM_MEMBERS.map((m) => (
+              {personFilterMembers.length ? personFilterMembers.map((m) => (
                 <div
                   key={m.id}
                   style={{
@@ -1898,14 +2007,14 @@ const BacklogModals = memo(({
                   }}
                 >
                   <div className="flex-row-center" style={{ gap: '8px' }}>
-                    <div className="tiny-avatar" style={{ backgroundColor: m.avatarBg }}>
-                      {m.initial}
-                    </div>
+                    <TaskOwnerAvatar key={m.avatar || m.id} owner={m} className="tiny-avatar" />
                     <span style={{ fontSize: '13px', color: '#e0e4f6' }}>{m.name}</span>
                   </div>
-                  <span style={{ fontSize: '12px', fontWeight: 600, color: '#ffab40' }}>10 SP</span>
+                  <span style={{ fontSize: '12px', fontWeight: 600, color: '#ffab40' }}>
+                    {m.capacity ?? m.storyPointsCapacity ?? '—'} SP
+                  </span>
                 </div>
-              ))}
+              )) : <p>No capacity data available.</p>}
             </div>
           </div>
         </div>
@@ -1923,6 +2032,7 @@ const BacklogModals = memo(({
             </div>
             <div className="backlog-dialog-body">
               <div className="standup-feed">
+                {standupUpdates.length === 0 && <p>No standup updates yet.</p>}
                 {standupUpdates.map((su) => (
                   <div key={su.id} className="standup-card">
                     <span className="standup-author">{su.author}</span>
@@ -1936,7 +2046,7 @@ const BacklogModals = memo(({
                   if (!standupText.trim()) return;
                   setStandupUpdates((prev) => [
                     ...prev,
-                    { id: Date.now(), author: 'Sivakumar', update: standupText.trim() },
+                    { id: Date.now(), author: 'You', update: standupText.trim() },
                   ]);
                   setStandupText('');
                   showToast('Your daily standup update was shared!', 'success');
@@ -2042,7 +2152,6 @@ const BacklogModals = memo(({
       {(activeModal === 'taskComments' || activeModal === 'taskDetails') && activeTaskTarget && (() => {
         const liveTask = allTasks.find((t) => t.id === activeTaskTarget.id) || activeTaskTarget;
         const currentSprint = sprints.find((s) => s.id === liveTask.sprintId);
-        const ownerObj = TEAM_MEMBERS.find((m) => m.id === liveTask.owner);
         const comments = liveTask.comments || [];
         const checklist = liveTask.checklist || [];
         const completedChecklistCount = checklist.filter((item) => item.done).length;
@@ -2640,7 +2749,7 @@ const BacklogModals = memo(({
                                   className="composer-author-avatar"
                                   style={{
                                     backgroundColor:
-                                      TEAM_MEMBERS.find((m) => m.name === selectedCommentAuthor)?.avatarBg || '#137333',
+                                      personFilterMembers.find((m) => m.name === selectedCommentAuthor)?.avatarColor || '#6366f1',
                                   }}
                                 >
                                   {(selectedCommentAuthor || 'S')[0]}
@@ -2650,7 +2759,7 @@ const BacklogModals = memo(({
                                   value={selectedCommentAuthor}
                                   onChange={(e) => setSelectedCommentAuthor(e.target.value)}
                                 >
-                                  {TEAM_MEMBERS.map((m) => (
+                                  {personFilterMembers.map((m) => (
                                     <option key={m.id} value={m.name}>
                                       {m.name} ({m.role || 'Dev'})
                                     </option>
@@ -2704,7 +2813,7 @@ const BacklogModals = memo(({
                                     </div>
 
                                     <div className="mention-members-list">
-                                      {TEAM_MEMBERS.filter((m) =>
+                                      {personFilterMembers.filter((m) =>
                                         !mentionFilter.trim() ||
                                         m.name.toLowerCase().includes(mentionFilter.toLowerCase()) ||
                                         (m.role && m.role.toLowerCase().includes(mentionFilter.toLowerCase()))
@@ -2716,12 +2825,7 @@ const BacklogModals = memo(({
                                           onClick={() => handleSelectMention(m.name)}
                                         >
                                           <div className="mention-avatar-wrapper">
-                                            <div
-                                              className="tiny-avatar mention-avatar"
-                                              style={{ backgroundColor: m.avatarBg }}
-                                            >
-                                              {m.initial}
-                                            </div>
+                                            <TaskOwnerAvatar owner={m} className="tiny-avatar mention-avatar" />
                                             <span className="mention-online-dot" />
                                           </div>
                                           <div className="mention-member-info">
@@ -2784,20 +2888,20 @@ const BacklogModals = memo(({
                         <div className="monday-comments-feed">
                           {comments.length > 0 ? (
                             comments.map((c) => {
-                              const authorMember = TEAM_MEMBERS.find((m) => m.name === c.author);
-                              const avatarBg = c.avatarBg || authorMember?.avatarBg || '#1a73e8';
+                              const authorMember = personFilterMembers.find((m) => m.name === c.author);
                               const role = c.role || authorMember?.role || 'Developer';
                               const initial = c.initial || c.author?.[0] || 'D';
+                              const avatarOwner = {
+                                ...authorMember,
+                                ...c,
+                                name: c.author,
+                                initial,
+                                avatarBg: c.avatarBg || authorMember?.avatarColor || '#6366f1',
+                              };
 
                               return (
                                 <div key={c.id} className="monday-comment-item">
-                                  <div
-                                    className="developer-comment-avatar"
-                                    style={{ backgroundColor: avatarBg }}
-                                  >
-                                    {initial}
-                                    <span className="online-indicator" />
-                                  </div>
+                                  <TaskOwnerAvatar key={c.id} owner={avatarOwner} className="developer-comment-avatar" />
 
                                   <div className="developer-comment-card">
                                     <div className="developer-comment-header">
@@ -2863,22 +2967,7 @@ const BacklogModals = memo(({
                     ) : (
                       /* ACTIVITY LOG TAB */
                       <div className="jira-activity-log-wrapper">
-                        <div className="activity-timeline-item">
-                          <span className="timeline-dot" />
-                          <div className="timeline-content">
-                            <strong>{ownerObj ? ownerObj.name : 'Team'}</strong> updated this task status to{' '}
-                            <span className="timeline-status-badge">{liveTask.status}</span>
-                            <span className="timeline-time">Recently</span>
-                          </div>
-                        </div>
-                        <div className="activity-timeline-item">
-                          <span className="timeline-dot" />
-                          <div className="timeline-content">
-                            <strong>Franklin</strong> created task{' '}
-                            <span className="timeline-key">{liveTask.taskId}</span>
-                            <span className="timeline-time">Sprint iteration</span>
-                          </div>
-                        </div>
+                        <p>No activity recorded.</p>
                       </div>
                     )}
                   </div>
@@ -2916,7 +3005,8 @@ const BacklogModals = memo(({
                           value={liveTask.owner || ''}
                           onChange={(e) => onOwnerChange && onOwnerChange(liveTask.id, e.target.value)}
                         >
-                          {TEAM_MEMBERS.map((m) => (
+                          <option value="">Unassigned</option>
+                          {personFilterMembers.map((m) => (
                             <option key={m.id} value={m.id}>
                               {m.name} ({m.role || 'Member'})
                             </option>
@@ -2929,7 +3019,9 @@ const BacklogModals = memo(({
                     <div className="sidebar-attr-row">
                       <span className="sidebar-attr-label">Reporter</span>
                       <div className="sidebar-attr-value">
-                        <span className="sidebar-text-readonly">Franklin (QA Lead)</span>
+                        <span className="sidebar-text-readonly">
+                          {liveTask.reporter || liveTask.createdBy || '—'}
+                        </span>
                       </div>
                     </div>
 
@@ -3083,7 +3175,7 @@ const BacklogModals = memo(({
                           }}
                         >
                           <option value="">None</option>
-                          {['Infrastructure', 'Database Maintenance', 'Automation - Website Services', 'Operations', ...(allTasks || []).map((t) => t.epic).filter(Boolean)]
+                          {[...(allTasks || []).map((t) => t.epic).filter(Boolean)]
                             .filter((val, idx, arr) => arr.indexOf(val) === idx)
                             .map((name) => (
                               <option key={name} value={name}>
@@ -3100,11 +3192,11 @@ const BacklogModals = memo(({
                     <div className="sidebar-dates-box">
                       <div className="date-meta-item">
                         <span>Created:</span>
-                        <strong>Oct 1, 2026</strong>
+                        <strong>{liveTask.createdAt || liveTask.created_at || '—'}</strong>
                       </div>
                       <div className="date-meta-item">
                         <span>Updated:</span>
-                        <strong>Just now</strong>
+                        <strong>{liveTask.updatedAt || liveTask.updated_at || '—'}</strong>
                       </div>
                     </div>
 
@@ -3142,7 +3234,7 @@ const BacklogModals = memo(({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="backlog-popover-title">Assign to</div>
-            {TEAM_MEMBERS.map((m) => (
+            {personFilterMembers.length ? personFilterMembers.map((m) => (
               <button
                 key={m.id}
                 type="button"
@@ -3150,14 +3242,12 @@ const BacklogModals = memo(({
                 onClick={() => onOwnerChange(activeTaskTarget.id, m.id)}
               >
                 <div className="flex-row-center">
-                  <div className="tiny-avatar" style={{ backgroundColor: m.avatarBg }}>
-                    {m.initial}
-                  </div>
+                  <TaskOwnerAvatar key={m.avatar || m.id} owner={m} className="tiny-avatar" />
                   <span>{m.name}</span>
                 </div>
                 {activeTaskTarget.owner === m.id && <CheckIcon size={14} />}
               </button>
-            ))}
+            )) : <p>No people available.</p>}
           </div>
         </div>
       )}
@@ -3228,7 +3318,7 @@ const BacklogModals = memo(({
           >
             <div className="backlog-popover-title">Estimated Story Points</div>
             <div className="sp-grid-options">
-              {[1, 2, 3, 5, 8, 13, null].map((val) => (
+              {[1, 2, 3, 5, 7, 9, 10, 12, 13, null].map((val) => (
                 <button
                   key={val === null ? 'none' : val}
                   type="button"
@@ -3535,7 +3625,11 @@ const BacklogModals = memo(({
                 type="button"
                 className="backlog-popover-list-item"
                 onClick={() => {
-                  showToast(`Column "${col}" added to table!`, 'success');
+                  const wasAdded = addCustomColumn(col);
+                  showToast(
+                    wasAdded ? `Column "${col}" added to table!` : `Column "${col}" is already in the table`,
+                    wasAdded ? 'success' : 'info'
+                  );
                   onClose();
                 }}
               >

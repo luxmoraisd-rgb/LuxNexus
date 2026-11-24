@@ -50,22 +50,6 @@ const detectClientLocation = () => {
   return "Chennai, Tamil Nadu, IN";
 };
 
-const fetchPublicIp = async () => {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
-    const res = await fetch("https://api.ipify.org?format=json", { signal: controller.signal });
-    clearTimeout(timeoutId);
-    if (res.ok) {
-      const data = await res.json();
-      if (data.ip) return data.ip;
-    }
-  } catch {
-    // network fallback
-  }
-  return null;
-};
-
 const getActiveTimezone = () => {
   return (
     localStorage.getItem("nexus_timezone") ||
@@ -400,15 +384,7 @@ const SessionHistoryPage = ({ onLogout }) => {
     let isMounted = true;
 
     const loadSessions = async () => {
-      let realIp = sessionStorage.getItem("session_ip");
-      if (!realIp || realIp === "127.0.0.1" || realIp === "::1") {
-        const fetched = await fetchPublicIp();
-        if (fetched) {
-          realIp = fetched;
-          sessionStorage.setItem("session_ip", fetched);
-        }
-      }
-
+      const sessionIp = sessionStorage.getItem("session_ip");
       const clientDevice = parseClientDevice();
       const clientLocation = detectClientLocation();
 
@@ -416,11 +392,8 @@ const SessionHistoryPage = ({ onLogout }) => {
         const res = await authApi.getSessions();
         if (isMounted && res?.data && Array.isArray(res.data) && res.data.length > 0) {
           const list = res.data.map((item, idx) => {
-            const isCurr = item.isCurrent || idx === 0;
-            const finalIp =
-              item.ip && item.ip !== "127.0.0.1" && item.ip !== "::1"
-                ? item.ip
-                : realIp || item.ip || "127.0.0.1";
+            const isCurr = Boolean(item.isCurrent);
+            const finalIp = item.ip || (isCurr ? sessionIp : null) || "127.0.0.1";
 
             const rawTimestamp = isCurr
               ? (item.lastUsedAt || sessionStorage.getItem("session_login_time") || new Date().toISOString())
@@ -451,7 +424,7 @@ const SessionHistoryPage = ({ onLogout }) => {
             id: "current-session",
             device: clientDevice,
             location: clientLocation,
-            ip: realIp || "127.0.0.1",
+            ip: sessionIp || "127.0.0.1",
             lastUsage: formatSessionDate(loginTime),
             time: formatSessionTime(loginTime),
             isCurrent: true,

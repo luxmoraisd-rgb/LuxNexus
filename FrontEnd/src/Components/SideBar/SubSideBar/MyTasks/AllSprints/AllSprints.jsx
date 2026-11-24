@@ -1,4 +1,5 @@
 import { memo, useState, useMemo } from 'react';
+import { Trash2 } from 'lucide-react';
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -12,6 +13,7 @@ import {
 import TaskRow from '../Backlog/TaskRow';
 import { STATUS_CONFIG, TYPE_CONFIG, isTaskPastDueAndIncomplete } from '../Backlog/TaskRowUtils';
 import InlineTaskInput from '../Backlog/InlineTaskInput';
+import { useCustomColumns } from '../Backlog/customColumns';
 import '../Backlog/Backlog.css';
 import './AllSprints.css';
 
@@ -23,10 +25,13 @@ import './AllSprints.css';
 const AllSprints = memo(({
   sprints = [],
   allTasks = [],
+  teamMembers = [],
   processedTasks = [],
   selectedTaskIds = new Set(),
   statusConfig = {},
   typeConfig = {},
+  currentUser,
+  rolePermissions,
   onToggleTask,
   onToggleAllSprint,
   onToggleSprintExpand,
@@ -37,16 +42,24 @@ const AllSprints = memo(({
   onOpenTypePicker,
   onOpenSPPicker,
   onOpenEpicPicker,
-  onMoveTask,
   onDeleteTask,
   onRemoveEpic,
   onAddTaskToSprint,
   onCreateSprint,
+  onDeleteSprint,
   showToast,
   onGoToBacklog,
 }) => {
+  const effectiveRole = rolePermissions?.current_role || currentUser?.role || 'user';
+  const isElevatedRole = effectiveRole === 'admin' || effectiveRole === 'team_lead';
+  const canManageTasks = isElevatedRole &&
+    (rolePermissions ? rolePermissions.manage_tasks !== false : true);
+  const canManageSprints = isElevatedRole &&
+    (rolePermissions ? rolePermissions.manage_sprints !== false : true);
+  const canDeleteSprints = effectiveRole === 'admin' && canManageSprints;
   // Filter state: 'all' | 'active' | 'planned' | 'completed'
   const [filterState, setFilterState] = useState('all');
+  const customColumns = useCustomColumns();
 
   // Breakdown counts
   const activeSprintsCount = useMemo(
@@ -105,7 +118,7 @@ const AllSprints = memo(({
             to start organizing tasks, estimating story points, and tracking velocity.
           </p>
           <div className="all-sprints-empty-actions">
-            {onCreateSprint && (
+            {canManageSprints && onCreateSprint && (
               <button
                 type="button"
                 className="all-sprints-btn-primary"
@@ -147,7 +160,7 @@ const AllSprints = memo(({
           </div>
 
           <div className="all-sprints-banner-actions">
-            {onCreateSprint && (
+            {canManageSprints && onCreateSprint && (
               <button
                 type="button"
                 className="all-sprints-btn-create"
@@ -322,13 +335,13 @@ const AllSprints = memo(({
                     </button>
                     <h2 className="backlog-group-title sprint-1-title">{sprint.name}</h2>
 
-                    {sprint.isStarted ? (
+                    {canManageSprints && (sprint.isStarted ? (
                       <span className="sprint-status-badge active">Active</span>
                     ) : sprint.isCompleted ? (
                       <span className="sprint-status-badge completed">Completed</span>
                     ) : (
                       <span className="sprint-status-badge planned">Planned</span>
-                    )}
+                    ))}
 
                     <span className="backlog-task-count-pill">
                       {sprintTasks.length} {sprintTasks.length === 1 ? 'issue' : 'issues'}
@@ -368,7 +381,7 @@ const AllSprints = memo(({
                       </div>
                     )}
 
-                    {sprint.isStarted ? (
+                    {canManageSprints && (sprint.isStarted ? (
                       <button
                         type="button"
                         className="backlog-btn-complete-sprint"
@@ -387,6 +400,18 @@ const AllSprints = memo(({
                       >
                         <PlayIcon size={13} />
                         <span>Start sprint</span>
+                      </button>
+                    ))}
+
+                    {canDeleteSprints && onDeleteSprint && (
+                      <button
+                        type="button"
+                        className="backlog-header-icon-btn backlog-delete-sprint-btn"
+                        onClick={() => onDeleteSprint(sprint.id)}
+                        title={`Delete ${sprint.name}`}
+                        aria-label={`Delete ${sprint.name}`}
+                      >
+                        <Trash2 size={16} />
                       </button>
                     )}
 
@@ -415,6 +440,7 @@ const AllSprints = memo(({
                         <col className="col-sp" />
                         <col className="col-epic" />
                         <col className="col-actions" />
+                        {customColumns.map((column) => <col key={column} style={{ width: 120 }} />)}
                         <col className="col-add" />
                       </colgroup>
 
@@ -455,6 +481,9 @@ const AllSprints = memo(({
                             </div>
                           </th>
                           <th className="th-actions">Actions</th>
+                          {customColumns.map((column) => (
+                            <th key={column} className="th-custom-column" style={{ minWidth: 120 }}>{column}</th>
+                          ))}
                           <th className="th-add-col">
                             <button
                               type="button"
@@ -487,22 +516,24 @@ const AllSprints = memo(({
                             onOpenEditTaskId={(targetTask, e) =>
                               onOpenModal && onOpenModal('editTaskId', targetTask, e)
                             }
-                            onMoveTask={(taskId) => onMoveTask && onMoveTask(taskId, 'backlog')}
                             onDeleteTask={onDeleteTask}
                             onRemoveEpic={onRemoveEpic}
                             showToast={showToast}
+                            customColumns={customColumns}
+                            teamMembers={teamMembers}
                           />
                         ))}
 
                         {/* Inline Add Task Row for this sprint */}
-                        <InlineTaskInput
+                        {canManageTasks && <InlineTaskInput
                           onAddTask={(title, type) =>
                             onAddTaskToSprint && onAddTaskToSprint(sprint.id, title, type)
                           }
                           isSprint1={sprint.isStarted}
                           availableTypes={Object.keys(typeConfig || TYPE_CONFIG)}
                           defaultType="Frontend"
-                        />
+                          colSpan={9 + customColumns.length}
+                        />}
                       </tbody>
 
                       <tfoot>
@@ -555,6 +586,7 @@ const AllSprints = memo(({
 
                           <td className="td-epic" />
                           <td className="td-actions" />
+                          {customColumns.map((column) => <td className="td-custom-column" key={column} />)}
                           <td className="td-empty" />
                         </tr>
                       </tfoot>

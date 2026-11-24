@@ -37,6 +37,7 @@ class Sprint(models.Model):
     )
 
     board = models.ForeignKey(Board, on_delete=models.CASCADE, related_name='sprints')
+    project_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
     name = models.CharField(max_length=255, help_text="e.g. Sprint 1, Sprint 2")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='future')
     start_date = models.DateField(null=True, blank=True)
@@ -148,6 +149,7 @@ class Task(models.Model):
 
     board = models.ForeignKey(Board, on_delete=models.CASCADE, related_name='tasks')
     sprint = models.ForeignKey(Sprint, on_delete=models.SET_NULL, null=True, blank=True, related_name='tasks')
+    project_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
     task_key = models.CharField(max_length=50, blank=True, help_text="e.g. LUX-004")
     title = models.CharField(max_length=500)
     description = models.TextField(blank=True, default="")
@@ -157,7 +159,6 @@ class Task(models.Model):
     estimated_sp = models.IntegerField(default=3, help_text="Estimated Story Points")
     epic = models.CharField(max_length=255, blank=True, default="")
     comments_count = models.IntegerField(default=0)
-    start_date = models.CharField(max_length=100, blank=True, null=True, default="")
     due_date = models.CharField(max_length=100, blank=True, null=True, default="")
     order = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)

@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ...db import get_database
-from ..utils import parse_device
+from ..utils import get_client_ip, parse_device
 
 
 class SessionHistoryView(APIView):
@@ -30,6 +30,7 @@ class SessionHistoryView(APIView):
             if current_token
             else None
         )
+        current_client_ip = get_client_ip(request)
 
         tokens = list(
             database.tokens.find(
@@ -74,7 +75,7 @@ class SessionHistoryView(APIView):
                     "id": str(doc["_id"]),
                     "device": doc.get("device") or parse_device(doc.get("user_agent")),
                     "location": doc.get("location") or "Current Location",
-                    "ip": doc.get("ip") or "127.0.0.1",
+                    "ip": current_client_ip if is_current else doc.get("ip") or "127.0.0.1",
                     "lastUsage": last_usage_str,
                     "time": time_str,
                     "isCurrent": is_current,
@@ -90,7 +91,7 @@ class SessionHistoryView(APIView):
                     "id": "current",
                     "device": parse_device(request.META.get("HTTP_USER_AGENT", "")),
                     "location": "Current Location",
-                    "ip": request.META.get("REMOTE_ADDR", "127.0.0.1"),
+                    "ip": current_client_ip,
                     "lastUsage": now_local.strftime("%d %b, %Y"),
                     "time": now_local.strftime("%I:%M %p").lstrip("0"),
                     "isCurrent": True,

@@ -19,6 +19,25 @@
   background-color: transparent;
 }
 
+.goal-group-row {
+  border-bottom: 1px solid #26282e;
+  background-color: #1c1d22;
+}
+
+.goal-group-row th {
+  padding: 9px 14px;
+  color: #d1d5db;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.goal-group-count {
+  margin-left: 8px;
+  color: #8d9096;
+  font-weight: 400;
+}
+
 .th-cell {
   padding: 8px 14px;
   font-weight: 500;
@@ -125,6 +144,19 @@
 [data-theme="light"] .goals-header-row {
   border-top-color: #e2e8f0;
   border-bottom-color: #e2e8f0;
+}
+
+[data-theme="light"] .goal-group-row {
+  border-bottom-color: #e2e8f0;
+  background-color: #f8fafc;
+}
+
+[data-theme="light"] .goal-group-row th {
+  color: #334155;
+}
+
+[data-theme="light"] .goal-group-count {
+  color: #64748b;
 }
 
 [data-theme="light"] .th-cell {

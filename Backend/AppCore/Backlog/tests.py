@@ -2,11 +2,12 @@
 Comprehensive automated test suite for Agile Sprints & Board Views API.
 Tests all endpoints from Sections 01 through 05.
 """
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from unittest.mock import patch
 from zipfile import ZipFile
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -18,6 +19,7 @@ from .models import Board, Sprint, BoardView, BoardColumn, Task
 User = get_user_model()
 
 
+@override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
 class AgileBoardAPITests(TestCase):
     def setUp(self):
         self.client = APIClient()
@@ -27,7 +29,8 @@ class AgileBoardAPITests(TestCase):
         self.user_franklin = User.objects.create_user(username='franklin', first_name='Franklin', last_name='Delano')
         self.user_s.role = "admin"
         self.user_s.is_staff = True
-        self.user_s.save(update_fields=["is_staff"])
+        self.user_s.email = "admin@example.com"
+        self.user_s.save(update_fields=["email", "is_staff"])
         self.client.force_authenticate(user=self.user_s)
         
         # Create Board
@@ -95,6 +98,147 @@ class AgileBoardAPITests(TestCase):
         self.assertEqual(len(response.data), 2)
         self.assertEqual(response.data[0]['name'], "Sprint 1")
 
+    def test_project_sprint_task_relationship_ids(self):
+        project_id = "507f1f77bcf86cd799439011"
+
+        sprint_response = self.client.post(
+            '/api/backlog/sprints/',
+            {
+                'name': 'Project Sprint',
+                'project_id': project_id,
+                'board_id': str(self.board.id),
+            },
+            format='json',
+        )
+        self.assertEqual(sprint_response.status_code, status.HTTP_201_CREATED)
+        sprint_id = sprint_response.data['id']
+        other_sprint = Sprint.objects.create(
+            board=self.board,
+            project_id="507f1f77bcf86cd799439012",
+            name="Other project sprint",
+        )
+
+        filtered_sprints = self.client.get(
+            "/api/backlog/sprints/",
+            {"project_id": project_id},
+        )
+        self.assertEqual(filtered_sprints.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [str(sprint["id"]) for sprint in filtered_sprints.data],
+            [str(sprint_id)],
+        )
+        self.assertNotIn(str(other_sprint.id), [str(sprint["id"]) for sprint in filtered_sprints.data])
+
+        task_response = self.client.post(
+            '/api/backlog/tasks/',
+            {
+                'title': 'Project task',
+                'taskId': 'LUX-PROJECT-1',
+                'project_id': project_id,
+                'sprint_id': str(sprint_id),
+                'owner': str(self.user_franklin.id),
+            },
+            format='json',
+        )
+        self.assertEqual(task_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(task_response.data['project_id'], project_id)
+
+        filtered_tasks = self.client.get(
+            '/api/backlog/tasks/',
+            {'project_id': project_id},
+        )
+        self.assertEqual(filtered_tasks.status_code, status.HTTP_200_OK)
+        self.assertTrue(
+            any(str(task['id']) == str(task_response.data['id']) for task in filtered_tasks.data)
+        )
+
+    def test_project_task_filter_does_not_change_other_projects_tasks(self):
+        project_id = "507f1f77bcf86cd799439011"
+        other_project_id = "507f1f77bcf86cd799439012"
+        other_sprint = Sprint.objects.create(
+            board=self.board,
+            project_id=other_project_id,
+            name="Other project sprint",
+        )
+        other_task = Task.objects.create(
+            board=self.board,
+            sprint=other_sprint,
+            project_id=other_project_id,
+            title="Other project overdue task",
+            due_date=(datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat(),
+        )
+
+        response = self.client.get(
+            "/api/backlog/tasks/",
+            {"project_id": project_id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(any(task["project_id"] == other_project_id for task in response.data))
+        other_task.refresh_from_db()
+        self.assertEqual(other_task.sprint_id, other_sprint.id)
+
+    def test_member_cannot_create_tasks_or_sprints_or_complete_sprints(self):
+        member = User.objects.create_user(
+            username='member',
+            email='member@example.com',
+        )
+        self.client.force_authenticate(user=member)
+
+        task_response = self.client.post(
+            '/api/backlog/tasks/',
+            {'title': 'Member task', 'taskId': 'LUX-MEMBER'},
+            format='json',
+        )
+        sprint_response = self.client.post(
+            '/api/backlog/sprints/',
+            {'name': 'Member sprint', 'board_id': str(self.board.id)},
+            format='json',
+        )
+        complete_response = self.client.post(
+            f'/api/backlog/sprints/{self.sprint_2.id}/complete/',
+            {},
+            format='json',
+        )
+
+        self.assertEqual(task_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(sprint_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(complete_response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_task_owner_can_be_assigned_and_cleared(self):
+        task = Task.objects.first()
+
+        assign_response = self.client.put(
+            f'/api/backlog/tasks/{task.id}/',
+            {'owner': str(self.user_franklin.id)},
+            format='json',
+        )
+        self.assertEqual(assign_response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.owner_id, self.user_franklin.id)
+
+        clear_response = self.client.put(
+            f'/api/backlog/tasks/{task.id}/',
+            {'owner': ''},
+            format='json',
+        )
+        self.assertEqual(clear_response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertIsNone(task.owner_id)
+
+    def test_batch_task_update_can_clear_owner(self):
+        task = Task.objects.first()
+
+        response = self.client.post(
+            '/api/backlog/tasks/batch/',
+            {'taskIds': [str(task.id)], 'updates': {'owner': ''}},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertIsNone(task.owner_id)
+
     def test_frontend_backlog_endpoints(self):
         sprints_res = self.client.get('/api/backlog/sprints')
         self.assertEqual(sprints_res.status_code, status.HTTP_200_OK)
@@ -138,6 +282,7 @@ class AgileBoardAPITests(TestCase):
                 'type': 'Frontend',
                 'sp': 3,
                 'sprintId': str(self.sprint_2.id),
+                'owner': str(self.user_franklin.id),
             },
             format='json',
         )
@@ -146,6 +291,7 @@ class AgileBoardAPITests(TestCase):
         self.assertEqual(response.data['title'], 'Kanban inline task')
         self.assertEqual(response.data['status'], 'Ready to start')
         self.assertEqual(str(response.data['sprintId']), str(self.sprint_2.id))
+        self.assertEqual(str(response.data['owner']['id']), str(self.user_franklin.id))
 
     def test_create_backlog_task_accepts_frontend_backlog_sprint_marker(self):
         response = self.client.post(

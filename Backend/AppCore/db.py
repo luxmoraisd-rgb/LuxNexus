@@ -18,6 +18,11 @@ def get_database():
 
     database.users.create_index([("email", ASCENDING)], unique=True)
     database.users.create_index([("username", ASCENDING)], unique=True)
+    database.users.create_index(
+        [("employee_id_sequence", ASCENDING)],
+        unique=True,
+        sparse=True,
+    )
     database.tokens.create_index([("token_hash", ASCENDING)], unique=True)
     database.tokens.create_index("expires_at", expireAfterSeconds=0)
     database.projects.create_index(
@@ -45,6 +50,16 @@ def get_database():
     )
     database.team_invitations.create_index("expires_at", expireAfterSeconds=0)
     database.board_assets.create_index([("created_at", -1)])
+    database.chat_messages.create_index(
+        [("conversation_id", ASCENDING), ("created_at", ASCENDING)]
+    )
+    database.chat_messages.create_index(
+        [
+            ("conversation_id", ASCENDING),
+            ("sender_id", ASCENDING),
+            ("read_by", ASCENDING),
+        ]
+    )
 
     return database
 

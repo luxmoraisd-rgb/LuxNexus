@@ -1,28 +1,19 @@
-from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
-from accounts.serializers import UserSerializer
-from jira_clone.models import ResourceAllocation, ResourcingProject
-from .common import StringPrimaryKeyRelatedField
 
-User = get_user_model()
-
-
-class ResourceAllocationSerializer(serializers.ModelSerializer):
+class UserSerializer(serializers.Serializer):
     id = serializers.CharField(read_only=True)
-    project = StringPrimaryKeyRelatedField(
-        queryset=ResourcingProject.objects.all(),
-        pk_field=serializers.CharField(),
-    )
-    user = StringPrimaryKeyRelatedField(
-        queryset=User.objects.all(),
-        pk_field=serializers.CharField(),
-    )
-    user_details = UserSerializer(source="user", read_only=True)
+    username = serializers.CharField(read_only=True)
+    email = serializers.EmailField(read_only=True)
 
-    class Meta:
-        model = ResourceAllocation
-        fields = ["id", "project", "user", "user_details", "month", "hours"]
+
+class ResourceAllocationSerializer(serializers.Serializer):
+    id = serializers.CharField(read_only=True)
+    project = serializers.CharField()
+    user = serializers.CharField()
+    user_details = UserSerializer(source="user", read_only=True)
+    month = serializers.DateField()
+    hours = serializers.DecimalField(max_digits=8, decimal_places=2)
 
     def validate_month(self, value):
         if value.day != 1:

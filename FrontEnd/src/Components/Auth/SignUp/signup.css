@@ -345,7 +345,6 @@
   background: linear-gradient(90deg, #6366f1 0%, #06b6d4 50%, #a855f7 100%);
   background-size: 200% auto;
   -webkit-background-clip: text;
-  background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: textShimmer 4s ease infinite;
 }
@@ -448,6 +447,12 @@
   color: var(--text-muted);
   letter-spacing: 0.3px;
   transition: color 0.15s ease;
+}
+
+.auth-field-hint {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.4;
 }
 
 .auth-field-group:focus-within .auth-field-label {

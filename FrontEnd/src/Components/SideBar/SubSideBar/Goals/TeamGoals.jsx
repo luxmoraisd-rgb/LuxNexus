@@ -13,26 +13,54 @@ import {
   X,
   Building2,
   Check,
+  Pencil,
 } from "lucide-react";
 import Header from "./Header";
 import Tabs from "./Tabs";
 import { goalsApi } from "./goalsApi";
 import "./TeamGoals.css";
 
-function TeamGoals({ onSelectTab, onNavigateGoal }) {
+const getDateInputValue = (value) => {
+  const dateValue = String(value || "").trim();
+  const isoDate = dateValue.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (isoDate) return isoDate[1];
+
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return "";
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+};
+
+const formatGoalDate = (value) => {
+  if (!value) return "";
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+};
+
+function TeamGoals({ onSelectTab, onNavigateGoal, currentUser }) {
   const [teamData, setTeamData] = useState({ teams: [], metrics: {} });
   const [loading, setLoading] = useState(true);
   const [selectedTeam, setSelectedTeam] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editGoal, setEditGoal] = useState(null);
+  const [editError, setEditError] = useState("");
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [newGoal, setNewGoal] = useState({
     name: "",
-    team: "Engineering",
-    timePeriod: "Q1 FY26",
-    ownerName: "Franklin",
-    ownerInitials: "FR",
-    dueDate: "Apr 30, 2026",
-    statusSummary: "Initiated sprint planning and task breakdowns.",
+    team: "",
+    timePeriod: "",
+    ownerName: currentUser?.name || currentUser?.username || "",
+    ownerInitials: currentUser?.initials || "",
+    dueDate: "",
+    statusSummary: "",
   });
 
   const loadData = async () => {
@@ -53,6 +81,10 @@ function TeamGoals({ onSelectTab, onNavigateGoal }) {
 
   const teams = teamData.teams || [];
   const metrics = teamData.metrics || {};
+  const userEmail = String(currentUser?.email || currentUser?.id || "")
+    .trim()
+    .toLowerCase();
+  const canEditGoals = userEmail === "franklin@gmail.com";
 
   const teamListOptions = useMemo(() => {
     const set = new Set(teams.map((t) => t.teamName));
@@ -131,13 +163,51 @@ function TeamGoals({ onSelectTab, onNavigateGoal }) {
     setIsModalOpen(false);
     setNewGoal({
       name: "",
-      team: "Engineering",
-      timePeriod: "Q1 FY26",
-      ownerName: "Franklin",
-      ownerInitials: "FR",
-      dueDate: "Apr 30, 2026",
-      statusSummary: "Initiated sprint planning and task breakdowns.",
+      team: "",
+      timePeriod: "",
+      ownerName: currentUser?.name || currentUser?.username || "",
+      ownerInitials: currentUser?.initials || "",
+      dueDate: "",
+      statusSummary: "",
     });
+  };
+
+  const handleUpdateTeamGoal = async (e) => {
+    e.preventDefault();
+    if (!String(editGoal?.name || "").trim()) return;
+
+    const owner =
+      typeof editGoal.owner === "object" && editGoal.owner
+        ? editGoal.owner
+        : {};
+    const ownerName = String(owner.name || "").trim();
+    const payload = {
+      name: editGoal.name.trim(),
+      status: editGoal.status,
+      progress: Number(editGoal.progress),
+      timePeriod: editGoal.timePeriod || "",
+      dueDate: editGoal.dueDate || "",
+      owner: ownerName
+        ? {
+            ...owner,
+            name: ownerName,
+            initials: ownerName.slice(0, 2).toUpperCase(),
+          }
+        : null,
+    };
+
+    setIsSavingEdit(true);
+    setEditError("");
+    try {
+      await goalsApi.updateTeamGoal(editGoal.id, payload);
+      setEditGoal(null);
+      await loadData();
+    } catch (err) {
+      console.error("[TeamGoals] Update goal error:", err);
+      setEditError("Unable to save this goal. Please try again.");
+    } finally {
+      setIsSavingEdit(false);
+    }
   };
 
   return (
@@ -296,6 +366,10 @@ function TeamGoals({ onSelectTab, onNavigateGoal }) {
                 <div className="dept-table-body">
                   {(t.goals || []).map((goal) => {
                     const st = String(goal.status || "on track").toLowerCase();
+                    const ownerName =
+                      typeof goal.owner === "string"
+                        ? goal.owner
+                        : goal.owner?.name || "";
                     return (
                       <div
                         key={goal.id}
@@ -304,7 +378,32 @@ function TeamGoals({ onSelectTab, onNavigateGoal }) {
                         title="Click to view details"
                       >
                         <div className="col-name cell-name">
-                          <span className="row-goal-title">{goal.name}</span>
+                          <div className="row-goal-title-line">
+                            <span className="row-goal-title">{goal.name}</span>
+                            {canEditGoals && (
+                              <button
+                                type="button"
+                                className="team-goal-edit-button"
+                                aria-label={`Edit ${goal.name}`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setEditGoal({
+                                    ...goal,
+                                    owner: {
+                                      ...(typeof goal.owner === "object"
+                                        ? goal.owner
+                                        : {}),
+                                      name: ownerName,
+                                    },
+                                  });
+                                  setEditError("");
+                                }}
+                              >
+                                <Pencil size={13} />
+                                Edit
+                              </button>
+                            )}
+                          </div>
                           {goal.statusSummary && (
                             <span className="row-goal-summary">
                               {goal.statusSummary}
@@ -348,7 +447,7 @@ function TeamGoals({ onSelectTab, onNavigateGoal }) {
                         </div>
 
                         <div className="col-period cell-period">
-                          <span className="period-badge">{goal.timePeriod || "Q1 FY26"}</span>
+                          <span className="period-badge">{goal.timePeriod || ""}</span>
                         </div>
 
                         <div className="col-due cell-due">
@@ -438,11 +537,14 @@ function TeamGoals({ onSelectTab, onNavigateGoal }) {
                 <label>
                   <span>Due Date</span>
                   <input
-                    type="text"
-                    placeholder="e.g. May 30, 2026"
-                    value={newGoal.dueDate}
+                    type="date"
+                    value={getDateInputValue(newGoal.dueDate)}
+                    onFocus={(e) => e.currentTarget.showPicker?.()}
                     onChange={(e) =>
-                      setNewGoal({ ...newGoal, dueDate: e.target.value })
+                      setNewGoal({
+                        ...newGoal,
+                        dueDate: formatGoalDate(e.target.value),
+                      })
                     }
                   />
                 </label>
@@ -470,6 +572,148 @@ function TeamGoals({ onSelectTab, onNavigateGoal }) {
                 </button>
                 <button type="submit" className="modal-submit-btn">
                   Create Goal
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {editGoal && canEditGoals && (
+        <div
+          className="team-modal-backdrop"
+          onClick={() => !isSavingEdit && setEditGoal(null)}
+        >
+          <div
+            className="team-modal-window"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-team-goal-title"
+          >
+            <div className="team-modal-header">
+              <h3 id="edit-team-goal-title">Edit Team Goal</h3>
+              <button
+                type="button"
+                className="modal-close-btn"
+                aria-label="Close edit goal"
+                disabled={isSavingEdit}
+                onClick={() => setEditGoal(null)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateTeamGoal} className="team-modal-form">
+              <label>
+                <span>Goal Title *</span>
+                <input
+                  type="text"
+                  required
+                  value={editGoal.name || ""}
+                  onChange={(e) =>
+                    setEditGoal({ ...editGoal, name: e.target.value })
+                  }
+                />
+              </label>
+
+              <div className="form-row-2">
+                <label>
+                  <span>Status</span>
+                  <select
+                    value={editGoal.status || "on track"}
+                    onChange={(e) =>
+                      setEditGoal({ ...editGoal, status: e.target.value })
+                    }
+                  >
+                    <option value="on track">On track</option>
+                    <option value="at risk">At risk</option>
+                    <option value="off track">Off track</option>
+                    <option value="achieved">Achieved</option>
+                  </select>
+                </label>
+
+                <label>
+                  <span>Progress (%)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={editGoal.progress ?? 0}
+                    onChange={(e) =>
+                      setEditGoal({
+                        ...editGoal,
+                        progress: Number(e.target.value),
+                      })
+                    }
+                  />
+                </label>
+              </div>
+
+              <div className="form-row-2">
+                <label>
+                  <span>Period</span>
+                  <input
+                    type="text"
+                    value={editGoal.timePeriod || ""}
+                    onChange={(e) =>
+                      setEditGoal({ ...editGoal, timePeriod: e.target.value })
+                    }
+                  />
+                </label>
+
+                <label>
+                  <span>Due Date</span>
+                  <input
+                    type="date"
+                    value={getDateInputValue(editGoal.dueDate)}
+                    onFocus={(e) => e.currentTarget.showPicker?.()}
+                    onChange={(e) =>
+                      setEditGoal({
+                        ...editGoal,
+                        dueDate: formatGoalDate(e.target.value),
+                      })
+                    }
+                  />
+                </label>
+              </div>
+
+              <label>
+                <span>Owner</span>
+                <input
+                  type="text"
+                  value={editGoal.owner?.name || ""}
+                  onChange={(e) =>
+                    setEditGoal({
+                      ...editGoal,
+                      owner: { ...editGoal.owner, name: e.target.value },
+                    })
+                  }
+                />
+              </label>
+
+              {editError && (
+                <p className="team-goal-edit-error" role="alert">
+                  {editError}
+                </p>
+              )}
+
+              <div className="team-modal-actions">
+                <button
+                  type="button"
+                  className="modal-cancel-btn"
+                  disabled={isSavingEdit}
+                  onClick={() => setEditGoal(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="modal-submit-btn"
+                  disabled={isSavingEdit || !editGoal.name.trim()}
+                >
+                  {isSavingEdit ? "Saving..." : "Save Changes"}
                 </button>
               </div>
             </form>

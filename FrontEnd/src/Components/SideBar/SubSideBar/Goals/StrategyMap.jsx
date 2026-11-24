@@ -16,20 +16,47 @@ import {
 } from "lucide-react";
 import Header from "./Header";
 import Tabs from "./Tabs";
+import GoalDetails from "./GoalDetails";
 import { goalsApi } from "./goalsApi";
 import "./StrategyMap.css";
 
-function StrategyMap({ onSelectTab, onNavigateGoal }) {
+const getTodayDate = () => {
+  const today = new Date();
+  today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+  return today.toISOString().slice(0, 10);
+};
+
+const formatDueDate = (value) => {
+  if (!value) return "";
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Date(`${value}T00:00:00`)
+    : new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+};
+
+const getOwnerName = (owner) =>
+  typeof owner === "string" ? owner : owner?.name || "";
+
+function StrategyMap({ onSelectTab, currentUser }) {
   const [strategyData, setStrategyData] = useState({ pillars: [], metrics: {} });
   const [loading, setLoading] = useState(true);
   const [selectedTag, setSelectedTag] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [selectedGoal, setSelectedGoal] = useState(null);
+  const [isSavingGoal, setIsSavingGoal] = useState(false);
   const [newObjective, setNewObjective] = useState({
     title: "",
     pillarId: "",
-    targetPeriod: "Q2 FY26",
-    owner: "Engineering Lead",
+    targetPeriod: "",
+    owner: "",
+    dueDate: getTodayDate(),
   });
 
   const loadData = async () => {
@@ -75,42 +102,95 @@ function StrategyMap({ onSelectTab, onNavigateGoal }) {
     if (!newObjective.title.trim()) return;
 
     const targetPillar = pillars.find((p) => p.id === newObjective.pillarId) || pillars[0];
-    const newGoalObj = {
-      id: `sm-goal-${Date.now()}`,
+    if (!targetPillar) return;
+
+    const createdGoal = await goalsApi.createGoal({
       name: newObjective.title.trim(),
       status: "on track",
       progress: 0,
-      team: targetPillar?.tag || "Engineering",
+      team: targetPillar.tag || "Engineering",
       owner: newObjective.owner,
-      dueDate: "Jun 30, 2026",
+      dueDate: newObjective.dueDate,
+      timePeriod: newObjective.targetPeriod,
+      pillarId: targetPillar.id,
+    });
+    const newGoalObj = {
+      ...createdGoal,
+      name: createdGoal.name || newObjective.title.trim(),
+      team: createdGoal.team || targetPillar.tag || "Engineering",
+      dueDate: createdGoal.dueDate || newObjective.dueDate,
+      timePeriod: createdGoal.timePeriod || newObjective.targetPeriod,
     };
 
-    const updatedPillars = pillars.map((p) => {
-      if (p.id === targetPillar?.id) {
-        return {
-          ...p,
-          goals: [newGoalObj, ...(p.goals || [])],
-        };
+    setStrategyData((prev) => {
+      const updated = {
+        ...prev,
+        pillars: prev.pillars.map((pillar) =>
+          pillar.id === targetPillar.id
+            ? { ...pillar, goals: [newGoalObj, ...(pillar.goals || [])] }
+            : pillar
+        ),
+        metrics: {
+          ...prev.metrics,
+          totalGoals: (prev.metrics.totalGoals || 0) + 1,
+        },
+      };
+      try {
+        localStorage.setItem("nexus_strategy_map_cache", JSON.stringify(updated));
+      } catch (error) {
+        console.warn("[StrategyMap] Could not cache the updated strategy map:", error);
       }
-      return p;
+      return updated;
     });
-
-    setStrategyData((prev) => ({
-      ...prev,
-      pillars: updatedPillars,
-      metrics: {
-        ...prev.metrics,
-        totalGoals: (prev.metrics.totalGoals || 0) + 1,
-      },
-    }));
 
     setIsAddModalOpen(false);
     setNewObjective({
       title: "",
       pillarId: "",
-      targetPeriod: "Q2 FY26",
-      owner: "Engineering Lead",
+      targetPeriod: "",
+      owner: "",
+      dueDate: getTodayDate(),
     });
+  };
+
+  const handleSaveGoal = async (updatedGoal) => {
+    setSelectedGoal(updatedGoal);
+    setStrategyData((prev) => {
+      const updated = {
+        ...prev,
+        pillars: prev.pillars.map((pillar) => ({
+          ...pillar,
+          goals: (pillar.goals || []).map((goal) =>
+            goal.id === updatedGoal.id ? { ...goal, ...updatedGoal } : goal
+          ),
+        })),
+      };
+      try {
+        localStorage.setItem("nexus_strategy_map_cache", JSON.stringify(updated));
+      } catch (error) {
+        console.warn("[StrategyMap] Could not cache the updated goal:", error);
+      }
+      return updated;
+    });
+
+    setIsSavingGoal(true);
+    try {
+      const savedGoal = await goalsApi.updateGoal(updatedGoal.id, updatedGoal);
+      setSelectedGoal(savedGoal);
+      setStrategyData((prev) => ({
+        ...prev,
+        pillars: prev.pillars.map((pillar) => ({
+          ...pillar,
+          goals: (pillar.goals || []).map((goal) =>
+            goal.id === savedGoal.id ? { ...goal, ...savedGoal } : goal
+          ),
+        })),
+      }));
+    } catch (error) {
+      console.error("[StrategyMap] Failed to save goal:", error);
+    } finally {
+      setIsSavingGoal(false);
+    }
   };
 
   return (
@@ -280,7 +360,15 @@ function StrategyMap({ onSelectTab, onNavigateGoal }) {
                         <div
                           key={goal.id}
                           className="strategic-goal-card"
-                          onClick={() => onNavigateGoal && onNavigateGoal(goal)}
+                          onClick={() => setSelectedGoal(goal)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              setSelectedGoal(goal);
+                            }
+                          }}
+                          role="button"
+                          tabIndex={0}
                           title="Click to view details"
                         >
                           <div className="goal-card-header">
@@ -314,12 +402,12 @@ function StrategyMap({ onSelectTab, onNavigateGoal }) {
                           <div className="goal-card-footer">
                             <span className="goal-owner-pill">
                               <User size={11} />
-                              <span>{goal.owner || "Owner"}</span>
+                              <span>{getOwnerName(goal.owner)}</span>
                             </span>
                             {goal.dueDate && (
                               <span className="goal-due-pill">
                                 <CalendarDays size={11} />
-                                <span>{goal.dueDate}</span>
+                                <span>{formatDueDate(goal.dueDate)}</span>
                               </span>
                             )}
                           </div>
@@ -426,6 +514,21 @@ function StrategyMap({ onSelectTab, onNavigateGoal }) {
                 </label>
               </div>
 
+              <label>
+                <span>Due Date</span>
+                <input
+                  type="date"
+                  value={newObjective.dueDate}
+                  min={getTodayDate()}
+                  onChange={(e) =>
+                    setNewObjective({
+                      ...newObjective,
+                      dueDate: e.target.value,
+                    })
+                  }
+                />
+              </label>
+
               <div className="strategy-modal-actions">
                 <button
                   type="button"
@@ -440,6 +543,31 @@ function StrategyMap({ onSelectTab, onNavigateGoal }) {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {selectedGoal && (
+        <div
+          className="strategy-goal-details-overlay"
+          onClick={() => setSelectedGoal(null)}
+        >
+          <aside
+            className="strategy-goal-details-panel"
+            aria-label="Goal Details Panel"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <GoalDetails
+              goal={selectedGoal}
+              onClose={() => setSelectedGoal(null)}
+              onSave={handleSaveGoal}
+              currentUser={currentUser}
+            />
+            {isSavingGoal && (
+              <span className="strategy-goal-save-status" role="status">
+                Saving...
+              </span>
+            )}
+          </aside>
         </div>
       )}
     </div>

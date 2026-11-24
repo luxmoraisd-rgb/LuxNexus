@@ -1,13 +1,24 @@
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
+import logging
+import mimetypes
 import re
+from pathlib import PurePosixPath
 
 from bson import ObjectId
+from django.http import FileResponse
 from rest_framework import status
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from gridfs import GridFSBucket
+from gridfs.errors import NoFile
 
+from AppCore.Auth.role_permissions import RoleModulePermission
 from AppCore.db import get_database
+
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_SETTINGS = {
@@ -43,9 +54,31 @@ def _notification_filter(request, notification_id):
     return {**_user_filter(request), "_id": {"$in": id_condition}}
 
 
+def _serialize_reply(reply):
+    value = dict(reply)
+    attachments = value.get("attachments")
+    if isinstance(attachments, list):
+        value["attachments"] = [
+            {
+                key: item
+                for key, item in attachment.items()
+                if key != "gridfs_id"
+            }
+            for attachment in attachments
+            if isinstance(attachment, dict)
+        ]
+    return value
+
+
 def _serialize_notification(document):
     value = dict(document)
     value["id"] = str(value.pop("_id"))
+    replies = value.get("replies")
+    if isinstance(replies, list):
+        value["replies"] = [
+            _serialize_reply(reply) if isinstance(reply, dict) else reply
+            for reply in replies
+        ]
     created_at = value.get("created_at")
     if isinstance(created_at, datetime):
         value["created_at"] = created_at.isoformat()
@@ -53,196 +86,24 @@ def _serialize_notification(document):
             value["time"] = created_at.strftime("%I:%M %p")
         if not value.get("date"):
             value["date"] = created_at.strftime("%b %d, %Y")
-    deleted_at = value.get("deleted_at")
-    if isinstance(deleted_at, datetime):
-        value["deleted_at"] = deleted_at.isoformat()
     if isinstance(value.get("user_id"), ObjectId):
         value["user_id"] = str(value["user_id"])
     return value
 
 
-def seed_initial_notifications_for_user(user_id, username="Alex", email=""):
-    now = datetime.now(timezone.utc)
-    user_key = str(user_id)
-
-    defaults = [
-        {
-            "user_id": user_key,
-            "title": "Sprint 4 Backlog Grooming & Task Estimates",
-            "snippet": "Estimate story points for LUXNEX-20 API Integration before tomorrow's team sync.",
-            "description": "Please review the active backlog stories assigned for Sprint 4. Ensure story point estimates, dependencies, and acceptance criteria are updated before tomorrow's team sync.",
-            "author": "Alex Rivera",
-            "author_email": "alex.rivera@nexusapp.io",
-            "avatar": "AR",
-            "avatarColor": "#8b5cf6",
-            "type": "task",
-            "unread": True,
-            "starred": True,
-            "archived": False,
-            "deleted": False,
-            "mentioned": False,
-            "section": "Today",
-            "tags": ["Sprint", "Backlog", "Frontend"],
-            "time": "10:30 AM",
-            "date": now.strftime("%b %d, %Y"),
-            "tasks": [
-                {
-                    "id": "t1",
-                    "title": "Estimate story points for LUXNEX-20 API Integration",
-                    "date": "Today, 5:00 PM",
-                    "color": "purple",
-                    "completed": False,
-                },
-                {
-                    "id": "t2",
-                    "title": "Verify MongoDB 27017 connection with Django backend",
-                    "date": "Today, 6:00 PM",
-                    "color": "green",
-                    "completed": True,
-                },
-                {
-                    "id": "t3",
-                    "title": "Submit PR for review and team approval",
-                    "date": "Tomorrow, 11:00 AM",
-                    "color": "blue",
-                    "completed": False,
-                },
-            ],
-            "replies": [
-                {
-                    "id": str(ObjectId()),
-                    "author": "Alex Rivera",
-                    "text": "Hey, let me know if you need any clarification on the sprint backlog items!",
-                    "time": "10:35 AM",
-                    "date": now.strftime("%b %d, %Y"),
-                    "created_at": now.isoformat(),
-                }
-            ],
-            "created_at": now,
-        },
-        {
-            "user_id": user_key,
-            "title": "Mentioned in #api-architecture channel",
-            "snippet": f"@{username} can you check the MongoDB connection pooling on mongodb://localhost:27017/?",
-            "description": f"@{username} the staging environment has been linked to the local MongoDB instance on mongodb://localhost:27017/. All collections (users, notifications, sprints, tasks) are verified.",
-            "author": "DevOps Lead",
-            "author_email": "devops@nexusapp.io",
-            "avatar": "DL",
-            "avatarColor": "#10b981",
-            "type": "mention",
-            "unread": True,
-            "starred": False,
-            "archived": False,
-            "deleted": False,
-            "mentioned": True,
-            "section": "Today",
-            "tags": ["Mention", "DevOps", "Database"],
-            "time": "09:15 AM",
-            "date": now.strftime("%b %d, %Y"),
-            "tasks": [],
-            "replies": [],
-            "created_at": now,
-        },
-        {
-            "user_id": user_key,
-            "title": "Connected Workspace Integrations Live",
-            "snippet": "Sync commits, pull requests, and real-time alerts straight into your project board.",
-            "description": "Your Nexus Workspace is fully configured with real-time database synchronization on mongodb://localhost:27017/. All inbox actions, star flags, archive status, and replies persist instantly to the database.",
-            "author": "Hynux",
-            "author_email": "notifications@hynux.io",
-            "avatar": "HN",
-            "avatarColor": "#6366f1",
-            "type": "message",
-            "unread": False,
-            "starred": False,
-            "archived": False,
-            "deleted": False,
-            "mentioned": False,
-            "section": "Yesterday",
-            "tags": ["System", "Integrations"],
-            "time": "Yesterday",
-            "date": "Yesterday",
-            "tasks": [],
-            "replies": [
-                {
-                    "id": str(ObjectId()),
-                    "author": "Hynux Bot",
-                    "text": "Try submitting a reply in this thread to test database persistence!",
-                    "time": "04:20 PM",
-                    "date": "Yesterday",
-                    "created_at": now.isoformat(),
-                }
-            ],
-            "created_at": now,
-        },
-        {
-            "user_id": user_key,
-            "title": "Sprint 3 Completion Report & Velocity Stats",
-            "snippet": "Sprint 3 closed with 94% story point delivery. Archived for record keeping.",
-            "description": "Congratulations to the team! Sprint 3 concluded with 47 of 50 planned story points delivered. Quality metrics: 0 critical regressions, full test coverage on auth and data layers.",
-            "author": "Scrum Master",
-            "author_email": "scrum@nexusapp.io",
-            "avatar": "SM",
-            "avatarColor": "#ec4899",
-            "type": "message",
-            "unread": False,
-            "starred": False,
-            "archived": True,
-            "deleted": False,
-            "mentioned": False,
-            "section": "Earlier this month",
-            "tags": ["Report", "Sprint 3"],
-            "time": "Oct 10",
-            "date": "Oct 10, 2026",
-            "tasks": [],
-            "replies": [],
-            "created_at": now,
-        },
-    ]
-
-    collection = get_database().notifications
-    collection.insert_many(defaults)
-
-
 class InboxView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
 
     def get(self, request):
         collection = get_database().notifications
         user_query = _user_filter(request)
 
-        # Check if the user has any notifications; if 0, auto-seed default notifications once
-        has_any = collection.count_documents(user_query)
-        if has_any == 0:
-            seed_initial_notifications_for_user(
-                user_id=request.user.id,
-                username=getattr(request.user, "username", "Team Member"),
-                email=getattr(request.user, "email", ""),
-            )
-
-        # Automatically purge trash messages older than 30 days
-        thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
-        collection.delete_many({
-            **_user_filter(request),
-            "deleted": True,
-            "$or": [
-                {"deleted_at": {"$lt": thirty_days_ago}},
-                {"deleted_at": {"$exists": False}, "created_at": {"$lt": thirty_days_ago}},
-            ],
-        })
-
         query = _user_filter(request)
         folder = request.query_params.get("folder")
-        include_deleted = request.query_params.get("include_deleted") == "true"
-
-        if folder == "trash":
-            query["deleted"] = True
-        elif folder == "archive":
+        if folder == "archive":
             query["archived"] = True
-            query["deleted"] = {"$ne": True}
         elif folder:
             query["archived"] = {"$ne": True}
-            query["deleted"] = {"$ne": True}
             if folder == "unread":
                 query["unread"] = True
             elif folder == "starred":
@@ -251,9 +112,6 @@ class InboxView(APIView):
                 query["mentioned"] = True
             elif folder == "tasks":
                 query["type"] = "task"
-        elif not include_deleted:
-            query["deleted"] = {"$ne": True}
-
         if request.query_params.get("type"):
             query["type"] = request.query_params["type"]
         if request.query_params.get("search"):
@@ -264,6 +122,7 @@ class InboxView(APIView):
                 {"description": {"$regex": search, "$options": "i"}},
                 {"snippet": {"$regex": search, "$options": "i"}},
             ]
+        query["deleted"] = {"$ne": True}
         notifications = collection.find(query).sort("created_at", -1)
         return Response([_serialize_notification(item) for item in notifications])
 
@@ -282,22 +141,53 @@ class InboxView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        recipient_email = str(data.get("recipient_email", "")).strip().lower()
+        if not recipient_email:
+            return Response(
+                {"recipient_email": ["This field is required."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        database = get_database()
+        recipient = database.users.find_one(
+            {
+                "email": {
+                    "$regex": f"^{re.escape(recipient_email)}$",
+                    "$options": "i",
+                }
+            }
+        )
+        if recipient is None:
+            return Response(
+                {"recipient_email": ["No account matches this email address."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        recipient_name = " ".join(
+            part.strip()
+            for part in (
+                recipient.get("first_name", ""),
+                recipient.get("last_name", ""),
+            )
+            if part and part.strip()
+        ) or recipient.get("username") or recipient_email.split("@", 1)[0]
+
         now = datetime.now(timezone.utc)
-        doc = {
-            "user_id": str(request.user.id),
+        notification = {
             "title": title,
             "snippet": data.get("snippet") or str(data.get("description", ""))[:120],
             "description": data.get("description", ""),
-            "author": data.get("author") or getattr(request.user, "username", "System"),
-            "author_email": data.get("author_email") or getattr(request.user, "email", ""),
-            "avatar": data.get("avatar") or (data.get("author", "N")[:2].upper() if data.get("author") else "N"),
+            "author": getattr(request.user, "username", "System"),
+            "author_email": getattr(request.user, "email", ""),
+            "avatar": data.get("avatar") or getattr(request.user, "username", "N")[:2].upper(),
             "avatarColor": data.get("avatarColor", "#6366f1"),
+            "recipient_name": recipient_name,
+            "recipient_email": recipient_email,
             "type": data.get("type", "message"),
-            "unread": data.get("unread", True),
             "starred": data.get("starred", False),
             "archived": data.get("archived", False),
             "deleted": False,
-            "mentioned": data.get("mentioned", False),
+            "mentioned": data.get("type") == "mention",
             "section": data.get("section", "Today"),
             "tags": data.get("tags", []),
             "time": data.get("time") or now.strftime("%I:%M %p"),
@@ -307,13 +197,35 @@ class InboxView(APIView):
             "created_at": now,
         }
 
-        result = get_database().notifications.insert_one(doc)
-        doc["_id"] = result.inserted_id
-        return Response(_serialize_notification(doc), status=status.HTTP_201_CREATED)
+        recipient_doc = {
+            **notification,
+            "user_id": str(recipient["_id"]),
+            "unread": True,
+            "isSent": False,
+        }
+        recipient_result = database.notifications.insert_one(recipient_doc)
+        recipient_doc["_id"] = recipient_result.inserted_id
+
+        if str(recipient["_id"]) == str(request.user.id):
+            return Response(
+                _serialize_notification(recipient_doc),
+                status=status.HTTP_201_CREATED,
+            )
+
+        sender_doc = {
+            **notification,
+            "user_id": str(request.user.id),
+            "unread": False,
+            "isSent": True,
+            "mentioned": False,
+        }
+        sender_result = database.notifications.insert_one(sender_doc)
+        sender_doc["_id"] = sender_result.inserted_id
+        return Response(_serialize_notification(sender_doc), status=status.HTTP_201_CREATED)
 
 
 class NotificationDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
 
     def get(self, request, notification_id):
         query = _notification_filter(request, notification_id)
@@ -326,46 +238,16 @@ class NotificationDetailView(APIView):
 
     def delete(self, request, notification_id):
         query = _notification_filter(request, notification_id)
-        if query is None:
-            return Response({"detail": "Notification not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        collection = get_database().notifications
-        existing = collection.find_one(query)
-        if existing is None:
-            return Response({"detail": "Notification not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        permanent = request.query_params.get("permanent") == "true" or existing.get("deleted") is True
-        if permanent:
-            collection.delete_one(query)
-            return Response(status=status.HTTP_204_NO_CONTENT)
-
-        now = datetime.now(timezone.utc)
-        collection.update_one(query, {"$set": {"deleted": True, "deleted_at": now}})
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-class NotificationRestoreView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def patch(self, request, notification_id):
-        query = _notification_filter(request, notification_id)
-        if query is None:
-            return Response({"detail": "Notification not found."}, status=status.HTTP_404_NOT_FOUND)
-
         result = get_database().notifications.update_one(
-            query,
-            {"$set": {"deleted": False}, "$unset": {"deleted_at": ""}},
+            query or {"_id": None}, {"$set": {"deleted": True}}
         )
         if not result.matched_count:
             return Response({"detail": "Notification not found."}, status=status.HTTP_404_NOT_FOUND)
-        return Response({"id": str(notification_id), "deleted": False})
-
-    def post(self, request, notification_id):
-        return self.patch(request, notification_id)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class NotificationFlagView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
     flag_name = ""
 
     def patch(self, request, notification_id):
@@ -410,7 +292,7 @@ class NotificationArchiveView(NotificationFlagView):
 
 
 class MarkAllReadView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
 
     def post(self, request):
         result = get_database().notifications.update_many(
@@ -421,7 +303,7 @@ class MarkAllReadView(APIView):
 
 
 class NotificationBulkView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
     flag_actions = {
         "read": ("unread", False),
         "unread": ("unread", True),
@@ -431,17 +313,11 @@ class NotificationBulkView(APIView):
     }
 
     def post(self, request):
-        action = request.data.get("action")
-        collection = get_database().notifications
-
-        if action == "empty_trash":
-            result = collection.delete_many({**_user_filter(request), "deleted": True})
-            return Response({"deleted": result.deleted_count})
-
         ids = request.data.get("ids")
+        action = request.data.get("action")
         if not isinstance(ids, list) or not ids:
             return Response({"ids": ["Provide at least one notification id."]}, status=status.HTTP_400_BAD_REQUEST)
-
+        
         id_objects = []
         for val in ids:
             s_val = str(val)
@@ -449,17 +325,10 @@ class NotificationBulkView(APIView):
             if ObjectId.is_valid(s_val):
                 id_objects.append(ObjectId(s_val))
 
+        collection = get_database().notifications
         query = {**_user_filter(request), "_id": {"$in": id_objects}}
         if action == "delete":
-            now = datetime.now(timezone.utc)
-            result = collection.update_many(query, {"$set": {"deleted": True, "deleted_at": now}})
-        elif action == "restore":
-            result = collection.update_many(
-                query,
-                {"$set": {"deleted": False}, "$unset": {"deleted_at": ""}},
-            )
-        elif action == "permanent_delete":
-            result = collection.delete_many(query)
+            result = collection.update_many(query, {"$set": {"deleted": True}})
         elif action in self.flag_actions:
             flag, value = self.flag_actions[action]
             result = collection.update_many(query, {"$set": {flag: value}})
@@ -469,7 +338,7 @@ class NotificationBulkView(APIView):
 
 
 class NotificationTaskView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
 
     def patch(self, request, notification_id, task_id):
         query = _notification_filter(request, notification_id)
@@ -494,33 +363,154 @@ class NotificationTaskView(APIView):
 
 
 class NotificationRepliesView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    max_file_size = 25 * 1024 * 1024
+    max_total_size = 100 * 1024 * 1024
 
     def post(self, request, notification_id):
         query = _notification_filter(request, notification_id)
         if query is None:
             return Response({"detail": "Notification not found."}, status=status.HTTP_404_NOT_FOUND)
         text = str(request.data.get("text", "")).strip()
-        if not text:
+        files = request.FILES.getlist("files")
+        if not text and not files:
             return Response({"text": ["This field is required."]}, status=status.HTTP_400_BAD_REQUEST)
+        if any(upload.size > self.max_file_size for upload in files):
+            return Response(
+                {"files": ["Each attachment must be 25 MB or smaller."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if sum(upload.size for upload in files) > self.max_total_size:
+            return Response(
+                {"files": ["The combined attachments must be 100 MB or smaller."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         document = get_database().notifications.find_one(query, {"replies": 1})
         if document is None:
             return Response({"detail": "Notification not found."}, status=status.HTTP_404_NOT_FOUND)
         now = datetime.now(timezone.utc)
+        reply_id = str(ObjectId())
         reply = {
-            "id": str(ObjectId()),
+            "id": reply_id,
+            "sender_id": str(request.user.id),
             "author": getattr(request.user, "username", "User"),
             "text": text,
             "time": now.strftime("%I:%M %p"),
             "date": now.strftime("%b %d, %Y"),
             "created_at": now.isoformat(),
+            "attachments": [],
         }
-        get_database().notifications.update_one(query, {"$push": {"replies": reply}})
-        return Response(reply, status=status.HTTP_201_CREATED)
+        database = get_database()
+        bucket = GridFSBucket(database, bucket_name="inbox_attachments")
+        stored_file_ids = []
+        try:
+            for uploaded in files:
+                filename = PurePosixPath(uploaded.name.replace("\\", "/")).name or "attachment"
+                content_type = uploaded.content_type or mimetypes.guess_type(filename)[0]
+                content_type = content_type or "application/octet-stream"
+                attachment_id = str(ObjectId())
+                gridfs_id = bucket.upload_from_stream(
+                    filename,
+                    uploaded,
+                    metadata={
+                        "content_type": content_type,
+                        "notification_id": str(notification_id),
+                        "reply_id": reply_id,
+                    },
+                )
+                stored_file_ids.append(gridfs_id)
+                reply["attachments"].append(
+                    {
+                        "id": attachment_id,
+                        "filename": filename,
+                        "size": uploaded.size,
+                        "content_type": content_type,
+                        "gridfs_id": gridfs_id,
+                        "download_url": (
+                            f"/api/inbox/{notification_id}/replies/{reply_id}/"
+                            f"attachments/{attachment_id}/"
+                        ),
+                    }
+                )
+
+            result = database.notifications.update_one(query, {"$push": {"replies": reply}})
+            if not result.matched_count:
+                for gridfs_id in stored_file_ids:
+                    bucket.delete(gridfs_id)
+                return Response(
+                    {"detail": "Notification not found."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+        except Exception:
+            logger.exception("Unable to save Inbox reply or its attachments.")
+            for gridfs_id in stored_file_ids:
+                bucket.delete(gridfs_id)
+            return Response(
+                {"detail": "Unable to save the reply and its attachments."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(_serialize_reply(reply), status=status.HTTP_201_CREATED)
+
+
+class NotificationReplyAttachmentView(APIView):
+    permission_classes = [IsAuthenticated, RoleModulePermission]
+
+    def get(self, request, notification_id, reply_id, attachment_id):
+        query = _notification_filter(request, notification_id)
+        query["replies"] = {
+            "$elemMatch": {
+                "id": reply_id,
+                "attachments.id": attachment_id,
+            }
+        }
+        document = get_database().notifications.find_one(query)
+        if document is None:
+            return Response(
+                {"detail": "Reply attachment not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        reply = next(
+            (item for item in document.get("replies", []) if item.get("id") == reply_id),
+            None,
+        )
+        attachment = next(
+            (
+                item
+                for item in (reply or {}).get("attachments", [])
+                if item.get("id") == attachment_id
+            ),
+            None,
+        )
+        if attachment is None:
+            return Response(
+                {"detail": "Reply attachment not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            file_stream = GridFSBucket(
+                get_database(), bucket_name="inbox_attachments"
+            ).open_download_stream(attachment["gridfs_id"])
+        except NoFile:
+            return Response(
+                {"detail": "Stored attachment data is missing."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return FileResponse(
+            file_stream,
+            as_attachment=True,
+            filename=attachment["filename"],
+            content_type=attachment.get("content_type") or "application/octet-stream",
+        )
 
 
 class NotificationSettingsView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
 
     def get(self, request):
         document = get_database().notification_settings.find_one(_user_filter(request))

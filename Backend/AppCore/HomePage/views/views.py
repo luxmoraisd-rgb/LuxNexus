@@ -11,6 +11,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 
 from AppCore.Auth.role_permissions import (
     RoleCapabilityPermission,
+    RoleModulePermission,
     TaskViewSetRolePermission,
 )
 from AppCore.HomePage.models import Workspace, Project, Task, DashboardWidget
@@ -24,7 +25,7 @@ from AppCore.HomePage.serializers import (
     DashboardWidgetSerializer,
 )
 from AppCore.HomePage.authentication import get_tokens_for_user
-from AppCore.HomePage.db import check_db_connection, seed_dashboard_data
+from AppCore.HomePage.db import check_db_connection
 
 
 def get_active_user(request):
@@ -74,7 +75,7 @@ class LoginView(APIView):
 
 class CurrentUserView(APIView):
     """Returns currently authenticated user profile."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
 
     def get(self, request):
         user = get_active_user(request)
@@ -87,7 +88,7 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
     """ViewSet for managing Workspaces (e.g., 'Work')."""
     queryset = Workspace.objects.all()
     serializer_class = WorkspaceSerializer
-    permission_classes = [IsAuthenticated, RoleCapabilityPermission]
+    permission_classes = [IsAuthenticated, RoleModulePermission, RoleCapabilityPermission]
     role_capabilities = {
         "GET": "view_tasks",
         "POST": "manage_team",
@@ -115,7 +116,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     """ViewSet for managing Projects (e.g., 'Franklin\\'s first project')."""
     queryset = Project.objects.all()
     serializer_class = ProjectSerializer
-    permission_classes = [IsAuthenticated, RoleCapabilityPermission]
+    permission_classes = [IsAuthenticated, RoleModulePermission, RoleCapabilityPermission]
     role_capabilities = {
         "GET": "view_tasks",
         "POST": "manage_tasks",
@@ -164,7 +165,7 @@ class TaskViewSet(viewsets.ModelViewSet):
     """ViewSet for managing Tasks with category filtering."""
     queryset = Task.objects.all()
     serializer_class = TaskSerializer
-    permission_classes = [IsAuthenticated, TaskViewSetRolePermission]
+    permission_classes = [IsAuthenticated, RoleModulePermission, TaskViewSetRolePermission]
 
     def get_queryset(self):
         qs = Task.objects.all()
@@ -238,7 +239,7 @@ class DashboardWidgetViewSet(viewsets.ModelViewSet):
     """Manage widgets for dashboard customizing."""
     queryset = DashboardWidget.objects.all()
     serializer_class = DashboardWidgetSerializer
-    permission_classes = [IsAuthenticated, RoleCapabilityPermission]
+    permission_classes = [IsAuthenticated, RoleModulePermission, RoleCapabilityPermission]
     role_capabilities = {
         "GET": "view_tasks",
         "POST": "update_assigned_tasks",
@@ -270,7 +271,7 @@ class DashboardSummaryView(APIView):
     - Projects: Franklin's first project (2 tasks due soon)
     - Workspaces: sidebar links
     """
-    permission_classes = [IsAuthenticated, RoleCapabilityPermission]
+    permission_classes = [IsAuthenticated, RoleModulePermission, RoleCapabilityPermission]
     role_capabilities = {"GET": "view_tasks"}
 
     def get(self, request):
@@ -354,17 +355,4 @@ class HealthCheckView(APIView):
             "api_status": "online",
             "timestamp": timezone.now().isoformat(),
             "database": db_status,
-        })
-
-
-class SeedDataView(APIView):
-    """Endpoint to trigger initial seeding matching Franklin's dashboard."""
-    permission_classes = [IsAuthenticated, RoleCapabilityPermission]
-    role_capabilities = {"POST": "manage_board"}
-
-    def post(self, request):
-        result = seed_dashboard_data()
-        return Response({
-            "message": "Demo data populated successfully matching dashboard UI.",
-            "data": result,
         })

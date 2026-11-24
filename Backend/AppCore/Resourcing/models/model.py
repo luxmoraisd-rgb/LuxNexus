@@ -1,6 +1,14 @@
 from AppCore.db import get_database
 
 
+class ResourcingProject:
+    """Compatibility export for the MongoDB-backed resourcing API."""
+
+
+class ResourceAllocation:
+    """Compatibility export for the MongoDB-backed resourcing API."""
+
+
 def get_projects_collection():
     return get_database()["projects"]
 

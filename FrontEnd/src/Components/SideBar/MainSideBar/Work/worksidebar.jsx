@@ -3,12 +3,13 @@ import {
   Bell,
   CheckCircle,
   Briefcase,
+  FolderKanban,
 } from "lucide-react";
 import SubSidebarAurora from "../../Common/SubSidebarAurora";
 import "./worksidebar.css";
 
 const SubSidebar = ({ activeMenu = "tasks", onMenuSelect }) => {
-  const subMenu = [
+  const allSubMenu = [
     {
       id: "home",
       label: "Home",
@@ -28,11 +29,18 @@ const SubSidebar = ({ activeMenu = "tasks", onMenuSelect }) => {
     },
 
     {
+      id: "projects",
+      label: "Projects",
+      icon: <FolderKanban size={20} />,
+    },
+
+    {
       id: "portfolios",
       label: "Portfolios",
       icon: <Briefcase size={20} />,
     },
   ];
+  const subMenu = allSubMenu;
 
   return (
     <aside className="sub-sidebar">
@@ -54,6 +62,10 @@ const SubSidebar = ({ activeMenu = "tasks", onMenuSelect }) => {
                 import("../../SubSideBar/MyTasks/MyTasksScreen");
                 import("../../SubSideBar/MyTasks/Backlog/Backlog");
               }
+              if (item.id === "projects") {
+                import("../../SubSideBar/Projects/projects");
+                import("../../SubSideBar/Projects/ProjectDetails");
+              }
             }}
           >
             {item.icon}
@@ -61,8 +73,6 @@ const SubSidebar = ({ activeMenu = "tasks", onMenuSelect }) => {
           </button>
         ))}
       </nav>
-
-      {/* Pure Ambient Aurora & Stardust Canvas */}
       <SubSidebarAurora />
     </aside>
   );

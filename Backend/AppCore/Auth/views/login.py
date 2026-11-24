@@ -10,7 +10,7 @@ from ...api_utils import validation_error
 from ...db import get_database
 from ...models import MongoUser
 from ..serializers import LoginSerializer
-from ..utils import create_token, user_payload
+from ..utils import create_token, get_client_ip, user_payload
 
 
 class LoginView(APIView):
@@ -65,18 +65,14 @@ class LoginView(APIView):
             )
 
         user = MongoUser.from_document(user_document)
-        client_ip = (
-            request.data.get("client_ip")
-            or (request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip() if request.META.get("HTTP_X_FORWARDED_FOR") else None)
-            or request.META.get("REMOTE_ADDR", "").strip()
-            or "127.0.0.1"
-        )
+        client_ip = get_client_ip(request)
         user_agent = request.META.get("HTTP_USER_AGENT", "")
         token = create_token(
             user.id,
             database,
             ip=client_ip,
             user_agent=user_agent,
+            expires_in_days=30 if values.get("remember_me") else 14,
         )
         return Response(
             {

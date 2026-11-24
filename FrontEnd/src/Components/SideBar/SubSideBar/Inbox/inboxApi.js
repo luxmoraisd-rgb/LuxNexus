@@ -42,15 +42,15 @@ export const inboxApi = {
    * @param {Object} params - Query filters (e.g. { folder, type, search })
    */
   getAll: async (params = {}) => {
-    try {
-      const response = await inboxClient.get("/inbox/", {
-        params: { include_deleted: true, ...params },
-      });
-      return response.data || [];
-    } catch {
-      // Return empty list gracefully if endpoint not yet published on backend
-      return [];
-    }
+    const response = await inboxClient.get("/inbox/", {
+      params: { include_deleted: true, ...params },
+    });
+    return response.data || [];
+  },
+
+  getRecipients: async () => {
+    const response = await inboxClient.get("/people/");
+    return response.data || [];
   },
 
   /**
@@ -58,13 +58,8 @@ export const inboxApi = {
    * POST /api/inbox/
    */
   create: async (payload) => {
-    try {
-      const response = await inboxClient.post("/inbox/", payload);
-      return response.data;
-    } catch (err) {
-      console.warn("[inboxApi] create failed:", err);
-      return null;
-    }
+    const response = await inboxClient.post("/inbox/", payload);
+    return response.data;
   },
 
   /**
@@ -222,15 +217,27 @@ export const inboxApi = {
    * Send a reply in a notification thread
    * POST /api/inbox/:notifId/replies/
    */
-  sendReply: async (notifId, replyText) => {
-    try {
-      const response = await inboxClient.post(`/inbox/${notifId}/replies/`, {
-        text: replyText,
-      });
-      return response.data;
-    } catch {
-      return { notifId, text: replyText, timestamp: new Date().toISOString() };
-    }
+  sendReply: async (notifId, replyText, files = []) => {
+    const formData = new FormData();
+    formData.append("text", replyText);
+    files.forEach((file) => formData.append("files", file));
+    const response = await inboxClient.post(
+      `/inbox/${notifId}/replies/`,
+      formData,
+      {
+        headers: { "Content-Type": undefined },
+        timeout: 120000,
+      }
+    );
+    return response.data;
+  },
+
+  downloadReplyAttachment: async (notifId, replyId, attachmentId) => {
+    const response = await inboxClient.get(
+      `/inbox/${notifId}/replies/${replyId}/attachments/${attachmentId}/`,
+      { responseType: "blob", timeout: 120000 }
+    );
+    return response.data;
   },
 
   /**

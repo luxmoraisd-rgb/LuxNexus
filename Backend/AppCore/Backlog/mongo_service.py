@@ -38,7 +38,6 @@ def serialize_task(t):
             sprint_id_str = "backlog"
 
     due_date = str(t.get("due_date") or t.get("dueDate") or "")
-    start_date = str(t.get("start_date") or t.get("startDate") or "")
     # Jira & Monday.com style: Incomplete tasks with past due dates automatically belong to the Backlog
     if due_date and str(status_val).strip().lower() != "done":
         try:
@@ -67,8 +66,6 @@ def serialize_task(t):
         "sp": sp_val,
         "estimated_sp": sp_val,
         "epic": t.get("epic", ""),
-        "start_date": start_date,
-        "startDate": start_date,
         "due_date": due_date,
         "dueDate": due_date,
         "sprint_id": resolved_sprint_id,
@@ -254,7 +251,6 @@ def create_task(data):
         except (ValueError, TypeError):
             resolved_sprint_id = None
 
-    start_date = str(data.get("startDate") or data.get("start_date") or "").strip()
     due_date = str(data.get("dueDate") or data.get("due_date") or "").strip()
     if due_date and str(status_val).strip().lower() != "done":
         try:
@@ -280,8 +276,6 @@ def create_task(data):
         "estimated_sp": sp_val,
         "sp": sp_val,
         "epic": data.get("epic", ""),
-        "start_date": start_date,
-        "startDate": start_date,
         "due_date": due_date,
         "dueDate": due_date,
         "comments": data.get("comments", []),
@@ -332,10 +326,6 @@ def update_task(task_identifier, updates):
         set_fields["epic"] = updates["epic"]
     if "owner" in updates:
         set_fields["owner"] = updates["owner"]
-    if "start_date" in updates or "startDate" in updates:
-        s_val = str(updates.get("start_date") or updates.get("startDate") or "").strip()
-        set_fields["start_date"] = s_val
-        set_fields["startDate"] = s_val
     if "due_date" in updates or "dueDate" in updates:
         d_val = str(updates.get("due_date") or updates.get("dueDate") or "").strip()
         set_fields["due_date"] = d_val

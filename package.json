@@ -6,7 +6,7 @@
     "frontend": "npm --prefix FrontEnd run dev -- --host 127.0.0.1",
     "backend": "Backend\\.venv\\Scripts\\python.exe Backend\\manage.py runserver 127.0.0.1:8000",
     "server": "npm run backend",
-    "backend:install": "\"%LOCALAPPDATA%\\Programs\\Python\\Launcher\\py.exe\" -3.13 -m venv Backend\\.venv && Backend\\.venv\\Scripts\\python.exe -m pip install -r Backend\\requirements.txt",
+    "backend:install": "py -3.13 -m venv Backend\\.venv && Backend\\.venv\\Scripts\\python.exe -m pip install -r Backend\\requirements.txt",
     "build:frontend": "npm --prefix FrontEnd run build"
   },
   "dependencies": {

@@ -7,7 +7,8 @@ import {
   Download,
   Layers,
 } from 'lucide-react';
-import { STATUS_CONFIG, TYPE_CONFIG, isTaskAssignedToUser } from '../Backlog/TaskRowUtils';
+import { STATUS_CONFIG, TYPE_CONFIG, isTaskAssignedToPerson } from '../Backlog/TaskRowUtils';
+import TaskOwnerAvatar from '../Backlog/TaskOwnerAvatar';
 import './KanbanBoard.css';
 
 const DEFAULT_COLUMNS = [
@@ -19,7 +20,6 @@ const DEFAULT_COLUMNS = [
 
 const KanbanBoard = ({
   allTasks = [],
-  currentUser,
   statusConfig = STATUS_CONFIG,
   typeConfig = TYPE_CONFIG,
   onUpdateTaskStatus,
@@ -31,8 +31,8 @@ const KanbanBoard = ({
   searchQuery = '',
   selectedPersonFilter = 'all',
   personFilterMembers = [],
-  typeFilter = 'all',
-  statusFilter = 'all',
+  typeFilter = [],
+  statusFilter = [],
   sortBy = null,
 }) => {
   // Drag and drop state
@@ -51,40 +51,21 @@ const KanbanBoard = ({
         if (!matchesTitle && !matchesKey && !matchesEpic) return false;
       }
       // Person filter
-      if (selectedPersonFilter === 'my-tasks') {
-        if (!isTaskAssignedToUser(task, currentUser)) return false;
-      } else if (selectedPersonFilter !== 'all') {
+      if (selectedPersonFilter !== 'all') {
         const selectedPerson = personFilterMembers.find(
           (member) => String(member.id) === String(selectedPersonFilter)
         );
-        const ownerValues = [
-          task.owner?.id,
-          task.owner?.username,
-          task.owner?.name,
-          task.owner?.email,
-          typeof task.owner === 'string' ? task.owner : '',
-        ]
-          .filter(Boolean)
-          .map((value) => String(value).trim().toLowerCase());
-        const selectedValues = [
-          selectedPerson?.id,
-          selectedPerson?.username,
-          selectedPerson?.name,
-          selectedPerson?.email,
-          selectedPersonFilter,
-        ]
-          .filter(Boolean)
-          .map((value) => String(value).trim().toLowerCase());
-        if (!ownerValues.some((owner) => selectedValues.includes(owner))) return false;
+        if (!isTaskAssignedToPerson(task.owner, selectedPerson || { id: selectedPersonFilter })) return false;
       }
       // Type filter
-      if (typeFilter !== 'all') {
-        if (task.type?.toLowerCase() !== typeFilter.toLowerCase()) return false;
+      if (typeFilter.length > 0) {
+        const taskType = task.type?.toLowerCase() || '';
+        if (!typeFilter.some((type) => taskType === type.toLowerCase())) return false;
       }
       // Status filter
-      if (statusFilter !== 'all') {
-        const status = task.status || 'Ready to start';
-        if (status.toLowerCase() !== statusFilter.toLowerCase()) return false;
+      if (statusFilter.length > 0) {
+        const status = (task.status || 'Ready to start').toLowerCase();
+        if (!statusFilter.some((selectedStatus) => status === selectedStatus.toLowerCase())) return false;
       }
       return true;
     });
@@ -327,9 +308,32 @@ const KanbanBoard = ({
                 {tasks.map((task) => {
                   const typeBg = typeConfig[task.type]?.bg || '#579bfc';
                   const isTaskDragging = draggingTaskId === task.id;
-                  const ownerName = task.owner?.name || task.owner || 'Unassigned';
-                  const ownerInitial = task.owner?.initial || (ownerName ? ownerName[0].toUpperCase() : 'U');
-                  const ownerBg = task.owner?.avatarBg || '#6366f1';
+                  const matchedOwner = personFilterMembers.find((person) =>
+                    isTaskAssignedToPerson(task.owner, person)
+                  );
+                  const ownerRecord = {
+                    ...(matchedOwner || {}),
+                    ...(typeof task.owner === 'object' && task.owner ? task.owner : {}),
+                  };
+                  const rawOwnerLabel =
+                    typeof task.owner === 'string' && !/^[a-f\d]{24}$/i.test(task.owner.trim())
+                      ? task.owner.trim()
+                      : '';
+                  const ownerName =
+                    ownerRecord.name ||
+                    ownerRecord.display_name ||
+                    ownerRecord.username ||
+                    ownerRecord.email ||
+                    rawOwnerLabel ||
+                    'Unassigned';
+                  const ownerInitial =
+                    ownerRecord.initial ||
+                    ownerRecord.initials ||
+                    (ownerName ? ownerName[0].toUpperCase() : 'U');
+                  const ownerBg = ownerRecord.avatarBg || ownerRecord.avatarColor || '#6366f1';
+                  ownerRecord.name = ownerName;
+                  ownerRecord.initial = ownerInitial;
+                  ownerRecord.avatarBg = ownerBg;
 
                   return (
                     <article
@@ -373,9 +377,11 @@ const KanbanBoard = ({
                       {/* Footer: Assignee & Quick Actions */}
                       <div className="kanban-card-footer" onClick={(e) => e.stopPropagation()}>
                         <div className="kanban-card-assignee" title={`Assigned to ${ownerName}`}>
-                          <div className="kanban-avatar" style={{ backgroundColor: ownerBg }}>
-                            {ownerInitial}
-                          </div>
+                          <TaskOwnerAvatar
+                            key={ownerRecord.avatar || ownerRecord.avatarUrl || ownerRecord.name}
+                            owner={ownerRecord}
+                            className="kanban-avatar"
+                          />
                           <span className="kanban-assignee-name">{ownerName}</span>
                         </div>
 

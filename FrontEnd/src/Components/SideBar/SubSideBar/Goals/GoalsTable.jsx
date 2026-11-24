@@ -1,16 +1,44 @@
 import React from "react";
 import "./GoalsTable.css";
 import GoalRow from "./GoalRow";
-import { PlusIcon } from "./Icons";
 
 function GoalsTable({
   goals = [],
+  groupBy = "none",
   selectedGoalId = null,
+  selectedGoalIds = [],
   onSelectGoal,
+  onToggleGoalSelection,
   onUpdateGoal,
-  onDeleteGoal,
-  onAddInlineGoal,
 }) {
+  const groupedGoals = groupBy === "none"
+    ? null
+    : goals.reduce((groups, goal) => {
+        const rawGroupValue = groupBy === "owner"
+          ? (typeof goal.owner === "object" ? goal.owner?.name : goal.owner)
+          : goal[groupBy];
+        const label = String(rawGroupValue || "Unassigned");
+        const group = groups.find((item) => item.label === label);
+        if (group) {
+          group.goals.push(goal);
+        } else {
+          groups.push({ label, goals: [goal] });
+        }
+        return groups;
+      }, []);
+
+  const renderGoal = (goal) => (
+    <GoalRow
+      key={goal.id}
+      goal={goal}
+      isSelected={goal.id === selectedGoalId}
+      isBulkSelected={selectedGoalIds.includes(String(goal.id))}
+      onSelectGoal={onSelectGoal}
+      onToggleSelection={onToggleGoalSelection}
+      onUpdateGoal={onUpdateGoal}
+    />
+  );
+
   return (
     <div className="goals-table-container">
       <table className="goals-table">
@@ -49,24 +77,17 @@ function GoalsTable({
           </tr>
         </thead>
         <tbody>
-          {goals.map((goal) => (
-            <GoalRow
-              key={goal.id}
-              goal={goal}
-              isSelected={goal.id === selectedGoalId}
-              onSelectGoal={onSelectGoal}
-              onUpdateGoal={onUpdateGoal}
-              onDeleteGoal={onDeleteGoal} />
-          ))}
-
-          <tr className="goal-inline-add-row" onClick={onAddInlineGoal}>
-            <td colSpan="6" className="inline-add-cell">
-              <div className="inline-add-content">
-                <PlusIcon size={13} className="inline-add-icon" />
-                <span>Add goal...</span>
-              </div>
-            </td>
-          </tr>
+          {groupedGoals
+            ? groupedGoals.flatMap((group) => [
+                <tr className="goal-group-row" key={`group-${group.label}`}>
+                  <th colSpan={6} scope="rowgroup">
+                    <span>{group.label}</span>
+                    <span className="goal-group-count">{group.goals.length}</span>
+                  </th>
+                </tr>,
+                ...group.goals.map(renderGoal),
+              ])
+            : goals.map(renderGoal)}
         </tbody>
       </table>
     </div>

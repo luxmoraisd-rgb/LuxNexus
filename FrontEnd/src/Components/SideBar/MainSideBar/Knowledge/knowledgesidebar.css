@@ -211,7 +211,7 @@
 
 .chevron-icon {
   color: var(--app-muted, #c7cef8);
-
+  transform: rotate(-90deg);
   transition: transform 0.2s ease;
 }
 

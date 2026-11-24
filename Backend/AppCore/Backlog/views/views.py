@@ -30,8 +30,11 @@ from gridfs import GridFSBucket
 from gridfs.errors import NoFile
 
 from ...db import get_database
+from ...task_assignees import list_task_assignees
 from ...Auth.role_permissions import (
+    AdminOnlyDeletePermission,
     RoleCapabilityPermission,
+    RoleModulePermission,
     TaskDetailRolePermission,
     has_role_permission,
 )
@@ -56,7 +59,7 @@ User = get_user_model()
 
 
 class RoleProtectedAPIView(APIView):
-    permission_classes = [IsAuthenticated, RoleCapabilityPermission]
+    permission_classes = [IsAuthenticated, RoleModulePermission, RoleCapabilityPermission]
 
 
 class TaskCommentRolePermission(BasePermission):
@@ -115,6 +118,9 @@ class SprintCreateView(RoleProtectedAPIView):
         board_id = request.query_params.get('board_id')
         if board_id:
             sprints = sprints.filter(board_id=board_id)
+        project_id = request.query_params.get('project_id')
+        if project_id:
+            sprints = sprints.filter(project_id=project_id)
         return Response(
             SprintSerializer(sprints, many=True).data,
             status=status.HTTP_200_OK,
@@ -131,6 +137,8 @@ class SprintCreateView(RoleProtectedAPIView):
         
         data = request.data.copy()
         data['board_id'] = board_id
+        project_id = data.get('project_id') or data.get('projectId') or ""
+        data['project_id'] = str(project_id)
         if "goal" in data and "goals" not in data:
             data["goals"] = data.pop("goal")
         if "dates" in data and "duration_text" not in data:
@@ -237,6 +245,12 @@ class SprintStartView(RoleProtectedAPIView):
 
 
 class SprintDetailView(RoleProtectedAPIView):
+    permission_classes = [
+        IsAuthenticated,
+        RoleModulePermission,
+        RoleCapabilityPermission,
+        AdminOnlyDeletePermission,
+    ]
     role_capabilities = {
         "GET": "view_tasks",
         "PATCH": "manage_sprints",
@@ -504,9 +518,7 @@ class UserListView(RoleProtectedAPIView):
     """
     @extend_schema(summary="Retrieve user list for assignee/filter dropdowns", responses={200: UserSerializer(many=True)})
     def get(self, request):
-        users = User.objects.all().order_by('id')
-        serializer = UserSerializer(users, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(list_task_assignees(UserSerializer), status=status.HTTP_200_OK)
 
 
 # ==============================================================================
@@ -927,10 +939,13 @@ class TaskCreateListView(RoleProtectedAPIView):
     @extend_schema(summary="List all tasks", responses={200: TaskSerializer(many=True)})
     def get(self, request):
         tasks = Task.objects.all().select_related('board', 'sprint', 'owner')
+        project_id = request.query_params.get('project_id')
         board_id = request.query_params.get('board_id')
         sprint_id = request.query_params.get('sprint_id')
         status_filter = request.query_params.get('status')
         type_filter = request.query_params.get('type')
+        if project_id:
+            tasks = tasks.filter(project_id=project_id)
 
         # Rollover past-due incomplete tasks to Backlog (like Jira & Monday.com)
         today = datetime.now(timezone.utc).date()
@@ -947,7 +962,7 @@ class TaskCreateListView(RoleProtectedAPIView):
 
         if board_id:
             tasks = tasks.filter(board_id=board_id)
-        if sprint_id:
+        if sprint_id not in (None, "", "backlog") and ObjectId.is_valid(str(sprint_id)):
             tasks = tasks.filter(sprint_id=sprint_id)
         if status_filter:
             tasks = tasks.filter(status=status_filter)
@@ -960,16 +975,18 @@ class TaskCreateListView(RoleProtectedAPIView):
     @extend_schema(summary="Create a new task", request=TaskSerializer, responses={201: TaskSerializer})
     def post(self, request):
         data = request.data.copy()
+        sprint_id = data.get('sprint_id') or data.get('sprintId')
+        if sprint_id not in (None, "", "backlog") and ObjectId.is_valid(str(sprint_id)):
+            sprint = Sprint.objects.filter(pk=sprint_id).first()
+            if sprint:
+                data['project_id'] = str(data.get('project_id') or data.get('projectId') or sprint.project_id)
+        else:
+            data['project_id'] = str(data.get('project_id') or data.get('projectId') or "")
         for sprint_field in ('sprint_id', 'sprintId'):
             if data.get(sprint_field) in ('', 'backlog'):
                 data[sprint_field] = None
 
         # Jira & Monday.com style: If a task has a past due date and is incomplete, automatically route to Backlog
-        start_val = data.get('startDate') or data.get('start_date')
-        if start_val:
-            data['start_date'] = start_val
-            data['startDate'] = start_val
-
         due_val = data.get('dueDate') or data.get('due_date')
         status_val = data.get('status', 'Ready to start')
         if due_val and str(status_val).strip().lower() != 'done':
@@ -1011,7 +1028,7 @@ class TaskCreateListView(RoleProtectedAPIView):
 
 
 class TaskDetailView(APIView):
-    permission_classes = [IsAuthenticated, TaskDetailRolePermission]
+    permission_classes = [IsAuthenticated, RoleModulePermission, TaskDetailRolePermission]
     """
     GET /api/tasks/{taskId} - Retrieve task detail
     PUT /api/tasks/{taskId} - Update task detail
@@ -1041,7 +1058,7 @@ class TaskDetailView(APIView):
 
 
 class TaskMoveView(APIView):
-    permission_classes = [IsAuthenticated, TaskDetailRolePermission]
+    permission_classes = [IsAuthenticated, RoleModulePermission, TaskDetailRolePermission]
 
     def post(self, request, task_id):
         task = get_object_or_404(Task, pk=task_id)
@@ -1065,7 +1082,7 @@ class TaskMoveView(APIView):
 
 
 class TaskBatchUpdateView(APIView):
-    permission_classes = [IsAuthenticated, TaskDetailRolePermission]
+    permission_classes = [IsAuthenticated, RoleModulePermission, TaskDetailRolePermission]
 
     def post(self, request):
         task_ids = request.data.get("taskIds")
@@ -1091,6 +1108,8 @@ class TaskBatchUpdateView(APIView):
             normalized["sprint_id"] = None
         if "owner" in normalized and "owner_id" not in normalized:
             normalized["owner_id"] = normalized.pop("owner")
+        if normalized.get("owner_id") == "":
+            normalized["owner_id"] = None
         serializers = [TaskSerializer(task, data=normalized, partial=True) for task in tasks]
         for serializer in serializers:
             if not serializer.is_valid():
@@ -1102,7 +1121,7 @@ class TaskBatchUpdateView(APIView):
 
 
 class TaskCommentView(APIView):
-    permission_classes = [IsAuthenticated, TaskCommentRolePermission]
+    permission_classes = [IsAuthenticated, RoleModulePermission, TaskCommentRolePermission]
 
     @staticmethod
     def _task_comments(task_id):
@@ -1153,7 +1172,7 @@ class TaskCommentView(APIView):
 
 
 class TaskCommentDetailView(APIView):
-    permission_classes = [IsAuthenticated, TaskCommentRolePermission]
+    permission_classes = [IsAuthenticated, RoleModulePermission, TaskCommentRolePermission]
 
     def delete(self, request, task_id, comment_id):
         task = get_object_or_404(Task, pk=task_id)

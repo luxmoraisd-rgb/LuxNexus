@@ -1,40 +1,31 @@
 import { useEffect, useState } from "react";
 import {
   Triangle,
-  GitBranch,
+  BarChart3,
   Gauge,
 } from "lucide-react";
 
 import SubSidebarAurora from "../../Common/SubSidebarAurora";
 import "./trackersidebar.css";
 
-/* =========================================
-   Compound Sidebar
-========================================= */
+
 
 const TrackerSidebar = ({ children }) => {
   return <aside className="tracker-sidebar">{children}</aside>;
 };
 
-/* =========================================
-   Sidebar Header
-========================================= */
 
 TrackerSidebar.Header = ({ children }) => {
   return <div className="tracker-header">{children}</div>;
 };
 
-/* =========================================
-   Navigation
-========================================= */
+
 
 TrackerSidebar.Navigation = ({ children }) => {
   return <nav className="tracker-navigation">{children}</nav>;
 };
 
-/* =========================================
-   Navigation Item
-========================================= */
+
 
 TrackerSidebar.NavItem = ({
   icon: Icon,
@@ -54,11 +45,9 @@ TrackerSidebar.NavItem = ({
   );
 };
 
-/* =========================================
-   Main Component
-========================================= */
 
-export default function TrackerSidebarExample({ onSelectionChange, selectedItem }) {
+
+export default function TrackerSidebarExample({ onSelectionChange, selectedItem, reportsOnly = false }) {
   const [selected, setSelected] = useState(selectedItem || "Goals");
 
   useEffect(() => {
@@ -81,26 +70,30 @@ export default function TrackerSidebarExample({ onSelectionChange, selectedItem 
 
       <TrackerSidebar.Navigation>
 
-        <TrackerSidebar.NavItem
-          icon={Triangle}
-          label="Goals"
-          active={selected === "Goals" || selected === "My goals"}
-          onClick={() => handleSelect("Goals")}
-        />
+        {!reportsOnly && (
+          <TrackerSidebar.NavItem
+            icon={Triangle}
+            label="Goals"
+            active={selected === "Goals" || selected === "My goals"}
+            onClick={() => handleSelect("Goals")}
+          />
+        )}
 
         <TrackerSidebar.NavItem
-          icon={GitBranch}
-          label="Reporting"
-          active={selected === "Reporting"}
-          onClick={() => handleSelect("Reporting")}
+          icon={BarChart3}
+          label="Reports"
+          active={selected === "Reports"}
+          onClick={() => handleSelect("Reports")}
         />
 
-        <TrackerSidebar.NavItem
-          icon={Gauge}
-          label="Resourcing"
-          active={selected === "Resourcing"}
-          onClick={() => handleSelect("Resourcing")}
-        />
+        {!reportsOnly && (
+          <TrackerSidebar.NavItem
+            icon={Gauge}
+            label="Resourcing"
+            active={selected === "Resourcing"}
+            onClick={() => handleSelect("Resourcing")}
+          />
+        )}
 
       </TrackerSidebar.Navigation>
 

@@ -154,7 +154,7 @@ def sync_django_models_to_mongo() -> dict:
     Synchronize all Boards, Sprints, Columns, Views, and Tasks to MongoDB collections.
     Ensures MongoDB holds up-to-date document records for the Agile board.
     """
-    from appcore.models import Board, Sprint, BoardColumn, BoardView, Task
+    from AppCore.ActiveSprint.models import Board, Sprint, BoardColumn, BoardView, Task
     
     db = get_mongo_db()
     

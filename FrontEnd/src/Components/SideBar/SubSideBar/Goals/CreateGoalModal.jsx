@@ -2,12 +2,24 @@ import React, { useState, useEffect } from "react";
 import "./CreateGoalModel.css";
 import { CloseIcon } from "./Icons";
 
-const AVAILABLE_OWNERS = [
-  { id: "1", name: "Jagadeep", role: " Developer" },
-  { id: "2", name: "Sarah Chen", role: "Engineering Lead" },
-  { id: "3", name: "Alex Rivera", role: "Design Lead" },
-  { id: "4", name: "Michael Chang", role: "Operations" },
-];
+const OTHER_OWNERS = [];
+
+const getCurrentOwner = (currentUser) => {
+  const accountName =
+    currentUser?.name ||
+    currentUser?.username ||
+    currentUser?.email?.split("@")[0] ||
+    "";
+  const name = accountName.split("@")[0].trim();
+  const displayName = name.charAt(0).toUpperCase() + name.slice(1);
+
+  return {
+    id: `current-${currentUser?.id || currentUser?.email || "user"}`,
+    name: displayName,
+    role: currentUser?.role || "Member",
+    email: currentUser?.email,
+  };
+};
 
 const TIME_PERIODS = [
   "Q1 FY26",
@@ -26,14 +38,15 @@ const TEAMS = [
   "Operations",
 ];
 
-function CreateGoalModal({ isOpen, onClose, onCreateGoal }) {
+function CreateGoalModal({ isOpen, onClose, onCreateGoal, currentUser }) {
   const [goalName, setGoalName] = useState("");
   const [status, setStatus] = useState("on track");
-  const [ownerId, setOwnerId] = useState("");
-  const [timePeriod, setTimePeriod] = useState("Q1 FY26");
-  const [team, setTeam] = useState("Engineering");
+  const [ownerId, setOwnerId] = useState(() => getCurrentOwner(currentUser).id);
+  const [timePeriod, setTimePeriod] = useState("");
+  const [team, setTeam] = useState("");
   const [progress, setProgress] = useState(0);
   const [privacy, setPrivacy] = useState("public");
+  const availableOwners = [getCurrentOwner(currentUser), ...OTHER_OWNERS];
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -60,15 +73,15 @@ function CreateGoalModal({ isOpen, onClose, onCreateGoal }) {
     if (!goalName.trim()) return;
 
     const selectedOwner = ownerId
-      ? AVAILABLE_OWNERS.find((o) => o.id === ownerId) || null
+      ? availableOwners.find((owner) => owner.id === ownerId) || null
       : null;
 
     onCreateGoal({
       name: goalName.trim(),
       status: status || "on track",
       progress: Number(progress) || 0,
-      timePeriod: timePeriod || "Q1 FY26",
-      team: team || "Engineering",
+      timePeriod,
+      team,
       owner: selectedOwner,
       privacy: privacy || "public",
       isPlaceholder: false,
@@ -128,7 +141,7 @@ function CreateGoalModal({ isOpen, onClose, onCreateGoal }) {
                   value={ownerId}
                   onChange={(e) => setOwnerId(e.target.value)} >
                   <option value="">Unassigned</option>
-                  {AVAILABLE_OWNERS.map((owner) => (
+                  {availableOwners.map((owner) => (
                     <option key={owner.id} value={owner.id}>
                       {owner.name} ({owner.role})
                     </option>
