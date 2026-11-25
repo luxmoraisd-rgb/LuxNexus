@@ -1,21 +1,16 @@
 from rest_framework import serializers
 
-from accounts.serializers import UserSerializer
-from jira_clone.models import ResourcingProject
 from .allocations import ResourceAllocationSerializer
+from .allocations import UserSerializer
 
 
-class ResourcingProjectSerializer(serializers.ModelSerializer):
+class ResourcingProjectSerializer(serializers.Serializer):
     id = serializers.CharField(read_only=True)
     created_by = UserSerializer(read_only=True)
     allocations = ResourceAllocationSerializer(many=True, read_only=True)
-
-    class Meta:
-        model = ResourcingProject
-        fields = [
-            "id", "name", "start_date", "end_date", "created_by",
-            "allocations", "created_at", "updated_at",
-        ]
+    name = serializers.CharField(max_length=200)
+    start_date = serializers.DateField()
+    end_date = serializers.DateField()
 
     def validate(self, attrs):
         start_date = attrs.get("start_date", getattr(self.instance, "start_date", None))

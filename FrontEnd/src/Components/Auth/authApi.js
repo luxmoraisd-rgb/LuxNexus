@@ -79,7 +79,7 @@ export const authApi = {
     username: credentials.email || credentials.username,
     email: credentials.email,
     password: credentials.password,
-    rememberMe: credentials.rememberMe,
+    remember_me: Boolean(credentials.rememberMe),
   };
 
   return await authClient.post('/login/', payload);
@@ -88,7 +88,7 @@ export const authApi = {
   /**
    * User Sign Up
    * POST /signup/ or /register
-   * @param {{ fullName: string, name: string, email: string, password: string }} userData
+   * @param {{ fullName: string, name: string, email: string, employee_id: string, password: string }} userData
    */
   signup: async (userData) => {
   const payload = {
@@ -99,6 +99,7 @@ export const authApi = {
         : userData.email?.split('@')[0]),
     fullName: userData.fullName || userData.name,
     email: userData.email,
+    employee_id: userData.employee_id,
     password: userData.password,
     confirm_password:
       userData.confirmPassword ||

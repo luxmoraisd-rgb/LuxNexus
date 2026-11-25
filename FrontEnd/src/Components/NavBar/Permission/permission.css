@@ -67,8 +67,7 @@
 }
 
 .permission-close-btn,
-.permission-secondary-btn,
-.permission-save-btn {
+.permission-secondary-btn {
   border: 1px solid var(--app-border, rgba(255, 255, 255, 0.1));
   border-radius: 8px;
   cursor: pointer;
@@ -181,11 +180,14 @@
 .permission-toggle {
   width: 38px;
   height: 22px;
+  display: inline-flex;
+  align-items: center;
   padding: 2px;
   border: 0;
   border-radius: 999px;
   background: #4b5563;
-  cursor: pointer;
+  cursor: default;
+  opacity: 0.72;
   transition: background 0.16s ease;
 }
 
@@ -206,15 +208,9 @@
   transform: translateX(16px);
 }
 
-.permission-toggle:disabled {
-  cursor: not-allowed;
-  opacity: 0.62;
-}
-
 .permission-toggle:focus-visible,
 .permission-close-btn:focus-visible,
-.permission-secondary-btn:focus-visible,
-.permission-save-btn:focus-visible {
+.permission-secondary-btn:focus-visible {
   outline: 2px solid #818cf8;
   outline-offset: 2px;
 }

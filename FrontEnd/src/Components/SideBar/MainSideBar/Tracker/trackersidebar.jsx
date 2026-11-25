@@ -47,7 +47,7 @@ TrackerSidebar.NavItem = ({
 
 
 
-export default function TrackerSidebarExample({ onSelectionChange, selectedItem }) {
+export default function TrackerSidebarExample({ onSelectionChange, selectedItem, reportsOnly = false }) {
   const [selected, setSelected] = useState(selectedItem || "Goals");
 
   useEffect(() => {
@@ -70,12 +70,14 @@ export default function TrackerSidebarExample({ onSelectionChange, selectedItem 
 
       <TrackerSidebar.Navigation>
 
-        <TrackerSidebar.NavItem
-          icon={Triangle}
-          label="Goals"
-          active={selected === "Goals" || selected === "My goals"}
-          onClick={() => handleSelect("Goals")}
-        />
+        {!reportsOnly && (
+          <TrackerSidebar.NavItem
+            icon={Triangle}
+            label="Goals"
+            active={selected === "Goals" || selected === "My goals"}
+            onClick={() => handleSelect("Goals")}
+          />
+        )}
 
         <TrackerSidebar.NavItem
           icon={BarChart3}
@@ -84,12 +86,14 @@ export default function TrackerSidebarExample({ onSelectionChange, selectedItem 
           onClick={() => handleSelect("Reports")}
         />
 
-        <TrackerSidebar.NavItem
-          icon={Gauge}
-          label="Resourcing"
-          active={selected === "Resourcing"}
-          onClick={() => handleSelect("Resourcing")}
-        />
+        {!reportsOnly && (
+          <TrackerSidebar.NavItem
+            icon={Gauge}
+            label="Resourcing"
+            active={selected === "Resourcing"}
+            onClick={() => handleSelect("Resourcing")}
+          />
+        )}
 
       </TrackerSidebar.Navigation>
 

@@ -2,11 +2,10 @@ import hashlib
 import csv
 import io
 import json
-import random
 import re
 import zipfile
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 from bson import ObjectId
 from django.db import DatabaseError
@@ -15,6 +14,7 @@ from openpyxl import load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
 from pymongo.errors import DuplicateKeyError, PyMongoError
 from rest_framework import status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
@@ -22,8 +22,13 @@ from rest_framework.views import APIView
 import xlrd
 
 from AppCore.Backlog.models import Board, Sprint, Task
-from AppCore.Auth.role_permissions import has_role_permission
+from AppCore.Auth.role_permissions import get_effective_role
 from AppCore.db import get_database
+from AppCore.project_access import (
+    accessible_project_ids,
+    is_project_admin,
+    require_project_access,
+)
 from ..models import get_eod_reports_collection
 from ..serializers.reports import ReportImportSerializer, ReportWriteSerializer
 
@@ -52,7 +57,7 @@ REPORT_FIELDS = (
 
 class EODReportRolePermission(BasePermission):
     def has_permission(self, request, view):
-        return has_role_permission(request.user, "view_reports")
+        return get_effective_role(request.user) in {"admin", "team_lead", "user"}
 
 
 def _user_id(request):
@@ -75,7 +80,7 @@ def _serialize_report(document):
     return result
 
 
-def _eod_comment_reports():
+def _eod_comment_reports(user=None):
     database = get_database()
     comments = list(database.backlog_task_comments.find({}).sort("created_at", -1).limit(5000))
     comments = [
@@ -106,8 +111,13 @@ def _eod_comment_reports():
             for task in queryset:
                 tasks[str(task.pk)] = {
                     "task_id": str(task.pk),
-                    "board_id": str(task.board_id or ""),
-                    "project": task.board.name if task.board_id else "",
+                    "board_id": str(
+                        getattr(task, "project_id", "") or task.board_id or ""
+                    ),
+                    "project": _project_name(
+                        database, getattr(task, "project_id", "")
+                    )
+                    or (task.board.name if task.board_id else ""),
                     "sprint_id": str(task.sprint_id or ""),
                     "sprint": task.sprint.name if task.sprint_id else "",
                     "employee_id": str(task.owner_id or ""),
@@ -201,7 +211,94 @@ def _eod_comment_reports():
             "period": "",
             "entry_count": 1,
         })
-    return rows
+    return _scope_report_rows(user, rows) if user is not None else rows
+
+
+def _project_name(database, project_id):
+    if not project_id:
+        return ""
+    project = database.projects.find_one({
+        "$or": [
+            {"_id": ObjectId(project_id) if ObjectId.is_valid(str(project_id)) else project_id},
+            {"id": str(project_id)},
+            {"key": str(project_id)},
+        ]
+    })
+    return _as_text((project or {}).get("name") or (project or {}).get("key"))
+
+
+def _scope_report_rows(user, rows):
+    if is_project_admin(user):
+        return rows
+    allowed_ids = accessible_project_ids(user) or set()
+    database = get_database()
+    scoped_rows = []
+    for row in rows:
+        project_id = str(row.get("project_id") or "").strip()
+        sprint_id = str(row.get("sprint_id") or "").strip()
+        project_allowed = project_id in allowed_ids
+        sprint_allowed = False
+        if sprint_id:
+            sprint_project_id = _report_sprint_project_id(sprint_id, database)
+            sprint_allowed = sprint_project_id in allowed_ids
+        if (project_allowed or sprint_allowed) and (
+            not project_id or project_allowed
+        ) and (not sprint_id or sprint_allowed):
+            scoped_rows.append(row)
+    return scoped_rows
+
+
+def _report_sprint_project_id(sprint_id, database=None):
+    sprint = (
+        Sprint.objects.filter(pk=sprint_id).first()
+        if ObjectId.is_valid(str(sprint_id))
+        else None
+    )
+    if sprint is not None:
+        return str(sprint.project_id or "")
+    database = database or get_database()
+    sprint = database.sprints.find_one({
+        "$or": [
+            {"sprint_id": str(sprint_id)},
+            {"id": str(sprint_id)},
+            {
+                "_id": ObjectId(sprint_id)
+                if ObjectId.is_valid(str(sprint_id))
+                else str(sprint_id)
+            },
+        ]
+    })
+    return str((sprint or {}).get("project_id") or "")
+
+
+def _validate_report_project(user, values):
+    if is_project_admin(user):
+        return
+    project_id = values.get("project_id")
+    project_name = str(values.get("project") or "").strip().casefold()
+    sprint_id = values.get("sprint_id")
+    if project_id:
+        require_project_access(user, project_id)
+    elif project_name:
+        from AppCore.project_access import get_accessible_projects
+
+        accessible_projects = get_accessible_projects(user) or []
+        if not any(
+            project_name
+            in {
+                str(project.get("name") or "").strip().casefold(),
+                str(project.get("key") or "").strip().casefold(),
+                str(project.get("id") or "").strip().casefold(),
+                str(project.get("_id") or "").strip().casefold(),
+            }
+            for project in accessible_projects
+        ):
+            raise PermissionDenied("You do not have access to this project.")
+    if sprint_id:
+        sprint_project_id = _report_sprint_project_id(sprint_id)
+        if not sprint_project_id:
+            raise PermissionDenied("You do not have access to this project.")
+        require_project_access(user, sprint_project_id)
 
 
 def _filter_reports(rows, params):
@@ -321,16 +418,25 @@ def _aggregate_reports(rows, report_type):
     return aggregated
 
 
-def _available_options():
+def _available_options(user=None):
     database = get_database()
+    allowed_ids = accessible_project_ids(user) if user is not None else None
+    is_admin = user is None or is_project_admin(user)
     projects = []
     seen_projects = set()
     for board in Board.objects.all().order_by("name"):
         board_id = str(board.pk)
+        if not is_admin and not (
+            board.sprints.filter(project_id__in=allowed_ids).exists()
+            or board.tasks.filter(project_id__in=allowed_ids).exists()
+        ):
+            continue
         projects.append({"id": board_id, "name": board.name})
         seen_projects.add(board_id)
     for project in database.projects.find({}).sort("name", 1).limit(1000):
         project_id = str(project.get("_id", project.get("id", "")))
+        if not is_admin and project_id not in allowed_ids:
+            continue
         if project_id in seen_projects:
             continue
         projects.append({
@@ -342,10 +448,16 @@ def _available_options():
             "id": str(sprint.pk),
             "name": sprint.name,
         }
-        for sprint in Sprint.objects.all().order_by("order", "name")[:1000]
+        for sprint in (
+            Sprint.objects.all()
+            if is_admin
+            else Sprint.objects.filter(project_id__in=allowed_ids)
+        ).order_by("order", "name")[:1000]
     ]
     for sprint in database.sprints.find({}).sort("order", 1).limit(1000):
         sprint_id = _as_text(sprint.get("sprint_id") or sprint.get("id") or sprint.get("_id"))
+        if not is_admin and str(sprint.get("project_id") or "") not in allowed_ids:
+            continue
         if any(option["id"] == sprint_id for option in sprints):
             continue
         sprints.append({
@@ -454,7 +566,7 @@ class ReportOptionsView(APIView):
 
     def get(self, request):
         try:
-            return Response(_available_options(), status=status.HTTP_200_OK)
+            return Response(_available_options(request.user), status=status.HTTP_200_OK)
         except PyMongoError:
             return Response({"error": "Unable to retrieve report filter options."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
@@ -490,7 +602,8 @@ class EODCommentsView(APIView):
         if validation_error:
             return Response({"error": validation_error}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            return Response(_filter_reports(_eod_comment_reports(), request.query_params), status=status.HTTP_200_OK)
+            rows = _eod_comment_reports(request.user)
+            return Response(_filter_reports(rows, request.query_params), status=status.HTTP_200_OK)
         except PyMongoError:
             return Response({"error": "Unable to retrieve EOD comments."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
@@ -507,11 +620,14 @@ class EODReportListCreateView(APIView):
                 _serialize_report(row)
                 for row in get_eod_reports_collection().find({}).sort("updated_at", -1).limit(5000)
             ]
-            comments = _eod_comment_reports()
+            comments = _eod_comment_reports(request.user)
             report_type = request.query_params.get("type", "daily").lower()
             if report_type not in {"daily", "monthly", "sprint", "project"}:
                 return Response({"error": "Unsupported report type."}, status=status.HTTP_400_BAD_REQUEST)
-            rows = _filter_reports(stored + comments, request.query_params)
+            rows = _filter_reports(
+                _scope_report_rows(request.user, stored + comments),
+                request.query_params,
+            )
             if report_type in {"monthly", "sprint", "project"}:
                 rows = _aggregate_reports(
                     [row for row in rows if row.get("report_type") == "daily"],
@@ -526,6 +642,7 @@ class EODReportListCreateView(APIView):
     def post(self, request):
         serializer = ReportWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        _validate_report_project(request.user, serializer.validated_data)
         try:
             now = timezone.now()
             document = {
@@ -543,106 +660,6 @@ class EODReportListCreateView(APIView):
             return Response({"error": "Unable to create report."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
-class EODReportSampleDataView(APIView):
-    permission_classes = [IsAuthenticated, EODReportRolePermission]
-
-    def post(self, request):
-        collection = get_eod_reports_collection()
-        user_id = _user_id(request)
-        try:
-            collection.create_index(
-                [("created_by", 1), ("sample_key", 1)],
-                unique=True,
-                partialFilterExpression={"sample_key": {"$exists": True}},
-                name="eod_sample_report_deduplication",
-            )
-            sample_options = _available_options()
-            existing = collection.find_one({
-                "created_by": user_id,
-                "source": "sample",
-                "sample_key": {"$exists": True},
-            })
-        except PyMongoError:
-            return Response({"error": "Unable to prepare sample reports."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-
-        if existing:
-            count = collection.count_documents({"created_by": user_id, "source": "sample"})
-            return Response(
-                {"created": 0, "existing": count, "message": "Sample reports have already been added for this account."},
-                status=status.HTTP_200_OK,
-            )
-
-        randomizer = random.SystemRandom()
-        employees = sample_options["employees"] or [{
-            "id": user_id,
-            "name": getattr(request.user, "username", "") or getattr(request.user, "email", "You"),
-        }]
-        projects = sample_options["projects"]
-        sprints = sample_options["sprints"]
-        activities = [
-            ("Completed API integration", "Connected the report views to the authenticated API.", "Verify the remaining edge cases."),
-            ("Improved task filtering", "Reviewed assigned tasks and refined the report filters.", "Confirm the sprint filter with the team."),
-            ("Updated project documentation", "Documented the latest implementation and rollout steps.", "Share the notes for review."),
-            ("Resolved a workflow issue", "Investigated and corrected a task workflow issue.", "Monitor the workflow after deployment."),
-            ("Prepared sprint updates", "Reviewed current sprint work and updated progress notes.", "Follow up on the remaining review items."),
-            ("Finished UI improvements", "Completed report table layout and responsive behavior.", "Collect feedback from the project team."),
-            ("Reviewed pending work", "Triaged outstanding work and clarified the next actions.", "Continue with the highest priority task."),
-            ("Tested the latest changes", "Ran checks against the updated project functionality.", "Address any issues found during review."),
-        ]
-        statuses = ("In Progress", "In Review", "Done", "Ready to start")
-        today = timezone.localdate()
-        documents = []
-        for index in range(12):
-            task, completed, next_step = randomizer.choice(activities)
-            employee = randomizer.choice(employees)
-            project = randomizer.choice(projects) if projects else {}
-            sprint = randomizer.choice(sprints) if sprints else {}
-            report_date = today - timedelta(days=randomizer.randrange(0, 30))
-            document = {
-                "title": f"Sample: {task}",
-                "report_type": "daily",
-                "report_date": report_date.isoformat(),
-                "project_id": project.get("id", ""),
-                "project": project.get("name", ""),
-                "sprint_id": sprint.get("id", ""),
-                "sprint": sprint.get("name", ""),
-                "employee_id": employee.get("id", ""),
-                "employee": employee.get("name", ""),
-                "task": task,
-                "activity": f"EOD: {completed}",
-                "work_completed": completed,
-                "status": randomizer.choice(statuses),
-                "progress": randomizer.randrange(15, 96),
-                "blockers": randomizer.choice(("", "", "", "Waiting for review from a teammate.")),
-                "next_steps": next_step,
-                "source_data": {"sample": True},
-                "created_by": user_id,
-                "source": "sample",
-                "sample_key": f"sample-v1-{index}",
-                "created_at": timezone.now(),
-                "updated_at": timezone.now(),
-            }
-            documents.append(document)
-
-        created = 0
-        try:
-            for document in documents:
-                try:
-                    collection.insert_one(document)
-                    created += 1
-                except DuplicateKeyError:
-                    continue
-        except PyMongoError:
-            return Response(
-                {"error": "Unable to save all sample reports.", "created": created},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        return Response(
-            {"created": created, "existing": 12 - created, "message": f"Added {created} sample reports."},
-            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
-        )
-
-
 class EODReportDetailView(APIView):
     permission_classes = [IsAuthenticated, EODReportRolePermission]
 
@@ -652,17 +669,22 @@ class EODReportDetailView(APIView):
         return get_eod_reports_collection().find_one({"_id": ObjectId(report_id)})
 
     def _can_edit(self, request, document):
-        return document.get("created_by") == _user_id(request) or getattr(request.user, "role", "") == "admin"
+        return (
+            document.get("created_by") == _user_id(request)
+            or get_effective_role(request.user) == "admin"
+        )
 
     def patch(self, request, report_id):
         try:
             document = self._find(report_id)
             if not document:
                 return Response({"error": "Report not found."}, status=status.HTTP_404_NOT_FOUND)
+            _validate_report_project(request.user, document)
             if not self._can_edit(request, document):
                 return Response({"error": "You do not have permission to edit this report."}, status=status.HTTP_403_FORBIDDEN)
             serializer = ReportWriteSerializer(data={**document, **request.data}, partial=True)
             serializer.is_valid(raise_exception=True)
+            _validate_report_project(request.user, serializer.validated_data)
             updates = dict(serializer.validated_data)
             if isinstance(updates.get("report_date"), date):
                 updates["report_date"] = updates["report_date"].isoformat()
@@ -677,6 +699,7 @@ class EODReportDetailView(APIView):
             document = self._find(report_id)
             if not document:
                 return Response({"error": "Report not found."}, status=status.HTTP_404_NOT_FOUND)
+            _validate_report_project(request.user, document)
             if not self._can_edit(request, document):
                 return Response({"error": "You do not have permission to delete this report."}, status=status.HTTP_403_FORBIDDEN)
             get_eod_reports_collection().delete_one({"_id": document["_id"]})
@@ -710,6 +733,7 @@ class EODReportImportView(APIView):
                 errors.append({"row": index, "errors": serializer.errors})
                 continue
             values = serializer.validated_data
+            _validate_report_project(request.user, values)
             canonical = {
                 **values,
                 "report_type": "daily",

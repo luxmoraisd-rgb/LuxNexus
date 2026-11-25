@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from django.contrib.auth.hashers import make_password
+from django.conf import settings
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 from rest_framework import status
@@ -26,12 +27,26 @@ class SignupView(APIView):
         values = serializer.validated_data
         database = get_database()
         email = values["email"]
+        employee_id = values["employee_id"]
+        employee_id_sequence = int(employee_id[-3:])
         if database.users.find_one({"email": email}) is not None:
             message = (
                 "An account with this email address already exists. Please sign in."
             )
             return Response(
                 {"error": message, "message": message, "errors": {"email": [message]}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if database.users.find_one(
+            {"employee_id_sequence": employee_id_sequence}
+        ) is not None:
+            message = "This employee ID number is already assigned. Please use a unique number."
+            return Response(
+                {
+                    "error": message,
+                    "message": message,
+                    "errors": {"employee_id": [message]},
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -42,6 +57,11 @@ class SignupView(APIView):
             if invitation is None or invitation["email"].lower() != email:
                 return Response(
                     {"invitation_token": ["This invitation is invalid, expired, or addressed to a different email."]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if invitation["role"] == "admin" and email not in settings.NEXUS_ADMIN_EMAILS:
+                return Response(
+                    {"invitation_token": ["This invitation is not valid for a configured Admin identity."]},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -58,6 +78,8 @@ class SignupView(APIView):
         user_document = {
             "username": username,
             "email": email,
+            "employee_id": employee_id,
+            "employee_id_sequence": employee_id_sequence,
             "password_hash": make_password(values["password"]),
             "first_name": raw_name,
             "last_name": "",
@@ -96,11 +118,19 @@ class SignupView(APIView):
                     {"email": email, "token_hash": _token_hash(invitation_token)},
                     {"$unset": {"accepted_at": "", "accepted_by_email": ""}},
                 )
-            message = (
-                "An account with this email address already exists. Please sign in."
+            duplicate_employee_id = database.users.find_one(
+                {"employee_id_sequence": employee_id_sequence}
             )
+            if duplicate_employee_id is not None:
+                message = "This employee ID number is already assigned. Please use a unique number."
+                field = "employee_id"
+            else:
+                message = (
+                    "An account with this email address already exists. Please sign in."
+                )
+                field = "email"
             return Response(
-                {"error": message, "message": message, "errors": {"email": [message]}},
+                {"error": message, "message": message, "errors": {field: [message]}},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception:

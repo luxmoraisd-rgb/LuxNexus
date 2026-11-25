@@ -9,7 +9,7 @@ const roleLabels = {
   user: 'User',
 };
 
-export default function AcceptInvite({ isAuthenticated, onInvitationAccepted, theme, onThemeToggle }) {
+export default function AcceptInvite({ isAuthenticated, onInvitationAccepted, theme }) {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const token = searchParams.get('token') || '';
@@ -57,11 +57,6 @@ export default function AcceptInvite({ isAuthenticated, onInvitationAccepted, th
 
   return (
     <div className="auth-wrapper" data-theme={theme}>
-      {onThemeToggle && (
-        <button type="button" className="auth-theme-toggle-btn" onClick={onThemeToggle}>
-          {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
-        </button>
-      )}
       <main className="auth-card invite-accept-card">
         <div className="auth-brand-badge"><span className="auth-brand-name">NEXUS</span></div>
         <div className="auth-card-header">

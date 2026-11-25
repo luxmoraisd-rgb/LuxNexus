@@ -5,7 +5,7 @@ import "./admin-chat.css";
 
 const POLL_INTERVAL_OPEN = 3000;
 const POLL_INTERVAL_CLOSED = 10000;
-const CAN_SEND_ROLES = new Set(["team_lead"]);
+const CAN_SEND_ROLES = new Set(["admin", "team_lead", "user"]);
 
 const getErrorMessage = (error, fallback) =>
   error.response?.data?.detail ||

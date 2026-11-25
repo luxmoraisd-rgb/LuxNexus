@@ -1,3 +1,4 @@
+from django.conf import settings
 from rest_framework.permissions import BasePermission
 
 from ..db import get_database
@@ -6,7 +7,7 @@ from ..db import get_database
 ROLE_LABELS = {
     "admin": "Admin",
     "team_lead": "Team Lead",
-    "user": "User",
+    "user": "Member",
 }
 
 PERMISSION_DEFINITIONS = (
@@ -45,30 +46,35 @@ PERMISSION_DEFINITIONS = (
         "label": "View reports",
         "description": "Access reporting and team progress information.",
     },
+    {
+        "key": "manage_portfolios",
+        "label": "Manage portfolios",
+        "description": "View, create, update, and delete portfolios.",
+    },
+    {
+        "key": "invite_members",
+        "label": "Invite and manage people",
+        "description": "Invite workspace members and manage directory and team settings.",
+    },
+    {
+        "key": "manage_own_profile",
+        "label": "Manage own profile and settings",
+        "description": "Update this user's profile, password, and personal settings.",
+    },
 )
 
 PERMISSION_KEYS = tuple(item["key"] for item in PERMISSION_DEFINITIONS)
 ROLE_POLICY_ID = "role_permissions"
 DEFAULT_ROLE_POLICIES = {
-    "admin": {key: True for key in PERMISSION_KEYS},
-    "team_lead": {
-        "view_tasks": True,
-        "manage_tasks": True,
-        "update_assigned_tasks": True,
-        "manage_sprints": True,
-        "manage_team": True,
-        "manage_board": False,
-        "view_reports": False,
-    },
-    "user": {
-        "view_tasks": True,
-        "manage_tasks": False,
-        "update_assigned_tasks": True,
-        "manage_sprints": False,
-        "manage_team": False,
-        "manage_board": False,
-        "view_reports": False,
-    },
+    role: {
+        key: (
+            False
+            if role == "user" and key in {"manage_tasks", "manage_sprints"}
+            else True
+        )
+        for key in PERMISSION_KEYS
+    }
+    for role in ROLE_LABELS
 }
 
 
@@ -79,13 +85,33 @@ def get_role_policies():
     return document["policies"]
 
 
-def has_role_permission(user, permission):
+def is_configured_admin(user):
+    email = str(getattr(user, "email", "") or "").strip().lower()
+    return (
+        getattr(user, "role", "user") == "admin"
+        and email in settings.NEXUS_ADMIN_EMAILS
+    )
+
+
+def get_effective_role(user):
     role = getattr(user, "role", "user")
+    if role == "admin" and not is_configured_admin(user):
+        return "user"
+    return role
+
+
+def has_role_permission(user, permission):
+    role = get_effective_role(user)
     if role not in ROLE_LABELS or permission not in PERMISSION_KEYS:
         return False
-    if role == "admin":
-        return True
-    return bool(get_role_policies()[role].get(permission, False))
+    if role == "user" and permission in {"manage_tasks", "manage_sprints"}:
+        return False
+    return True
+
+
+class RoleModulePermission(BasePermission):
+    def has_permission(self, request, view):
+        return get_effective_role(request.user) in ROLE_LABELS
 
 
 class RoleCapabilityPermission(BasePermission):
@@ -101,6 +127,14 @@ class RoleCapabilityPermission(BasePermission):
             method = "GET"
         capability = capabilities.get(method)
         return capability is not None and has_role_permission(request.user, capability)
+
+
+class AdminOnlyDeletePermission(BasePermission):
+    def has_permission(self, request, view):
+        return (
+            request.method != "DELETE"
+            or get_effective_role(request.user) == "admin"
+        )
 
 
 class TaskDetailRolePermission(BasePermission):

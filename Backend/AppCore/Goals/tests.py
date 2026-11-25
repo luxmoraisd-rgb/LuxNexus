@@ -12,25 +12,34 @@ class TeamGoalsUpdateTests(TestCase):
     def setUp(self):
         self.factory = APIRequestFactory()
 
-    def test_only_franklin_can_update_team_goals(self):
+    def test_empty_team_goals_response_does_not_seed_example_records(self):
+        collection = MagicMock()
+        collection.find.return_value = []
+        request = self.factory.get("/team-goals/")
+
+        with patch.object(
+            TeamGoalsView,
+            "goals_collection",
+            new_callable=PropertyMock,
+            return_value=collection,
+        ):
+            response = TeamGoalsView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["teams"], [])
+        self.assertEqual(response.data["metrics"]["totalGoals"], 0)
+        collection.insert_many.assert_not_called()
+
+    def test_team_goal_updates_require_authentication(self):
         request = self.factory.patch(
             "/team-goals/goal-id/",
             {"name": "Changed title"},
             format="json",
         )
-        force_authenticate(
-            request,
-            user=SimpleNamespace(
-                email="another.user@example.com",
-                is_authenticated=True,
-            ),
-        )
-
         response = TeamGoalsView.as_view()(request, pk="goal-id")
+        self.assertEqual(response.status_code, 401)
 
-        self.assertEqual(response.status_code, 403)
-
-    def test_franklin_can_update_only_supported_goal_fields(self):
+    def test_authenticated_user_can_update_only_supported_goal_fields(self):
         goal_id = ObjectId()
         existing_goal = {
             "_id": goal_id,
@@ -68,7 +77,7 @@ class TeamGoalsUpdateTests(TestCase):
         force_authenticate(
             request,
             user=SimpleNamespace(
-                email="franklin@gmail.com",
+                email="member@example.com",
                 is_authenticated=True,
             ),
         )
@@ -99,7 +108,7 @@ class TeamGoalsUpdateTests(TestCase):
             },
         )
 
-    def test_franklin_cannot_change_fields_outside_edit_list(self):
+    def test_authenticated_user_cannot_change_fields_outside_edit_list(self):
         request = self.factory.patch(
             "/team-goals/goal-id/",
             {"team": "Design"},
@@ -108,7 +117,7 @@ class TeamGoalsUpdateTests(TestCase):
         force_authenticate(
             request,
             user=SimpleNamespace(
-                email="franklin@gmail.com",
+                email="member@example.com",
                 is_authenticated=True,
             ),
         )

@@ -3,13 +3,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from resourcing.models import ResourcingProject
-from resourcing.serializers.projects import ResourcingProjectSerializer
+from AppCore.Resourcing.models import ResourcingProject
+from AppCore.Resourcing.serializers.projects import ResourcingProjectSerializer
+from AppCore.Auth.role_permissions import RoleModulePermission
 from .common import valid_object_id
 
 
 class ResourcingProjectListCreateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
 
     def get(self, request):
         projects = (
@@ -30,7 +31,7 @@ class ResourcingProjectListCreateView(APIView):
 
 
 class ResourcingProjectDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleModulePermission]
 
     def get_object(self, project_id, user):
         if not valid_object_id(project_id):

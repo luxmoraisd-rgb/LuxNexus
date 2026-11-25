@@ -70,16 +70,22 @@ const normalizeProfile = (profile) => {
 export const getLocalFallbackProfile = () => {
   try {
     const cachedProfile = localStorage.getItem('nexus_user_profile');
+    const sessionUserRaw = sessionStorage.getItem('user');
+    const sessionUser = sessionUserRaw ? JSON.parse(sessionUserRaw) : {};
     if (cachedProfile) {
-      return normalizeProfile(JSON.parse(cachedProfile));
+      const profile = JSON.parse(cachedProfile);
+      return normalizeProfile({
+        ...profile,
+        employee_id: sessionUser.employee_id || profile.employee_id || '',
+      });
     }
 
-    const sessionUser = sessionStorage.getItem('user');
-    if (sessionUser) {
-      const user = JSON.parse(sessionUser);
+    if (sessionUserRaw) {
+      const user = sessionUser;
       return normalizeProfile({
         name: user.name || user.fullName || user.username || 'User',
         email: user.email || '',
+        employee_id: user.employee_id || '',
         username: user.username || '',
         jobTitle: user.jobTitle || 'Full Stack Developer',
         role: user.role || 'Member',
@@ -98,6 +104,7 @@ export const getLocalFallbackProfile = () => {
   return {
     name: 'User',
     email: '',
+    employee_id: '',
     username: '',
     jobTitle: 'Full Stack Developer',
     role: 'Member',
@@ -125,6 +132,7 @@ export const saveLocalFallbackProfile = (updatedProfile) => {
       name: merged.name,
       fullName: merged.name,
       email: merged.email || sessionUser.email,
+      employee_id: merged.employee_id || sessionUser.employee_id || '',
       photo: merged.photo,
       avatar: merged.photo,
       mobile: merged.mobile,

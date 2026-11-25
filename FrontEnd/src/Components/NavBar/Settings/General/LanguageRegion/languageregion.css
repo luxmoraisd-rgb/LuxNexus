@@ -604,3 +604,46 @@
   border-color: #e2e8f0;
   color: #475569;
 }
+
+@media (max-width: 650px) {
+  .language-region {
+    padding: 20px 14px 28px;
+    border-radius: 12px;
+  }
+
+  .language-region__header {
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .language-region__header-text h1 {
+    font-size: clamp(20px, 6vw, 26px);
+  }
+
+  .language-region__live-preview-card {
+    padding: 14px;
+  }
+
+  .live-preview-header,
+  .live-preview-metrics {
+    flex-wrap: wrap;
+  }
+
+  .live-preview-divider {
+    display: none;
+  }
+
+  .live-preview-metrics {
+    gap: 12px;
+  }
+
+  .language-region__radio-group {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .language-region__radio-option {
+    min-width: 0;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+  }
+}

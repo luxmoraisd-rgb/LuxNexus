@@ -48,18 +48,18 @@ export const inboxApi = {
     return response.data || [];
   },
 
+  getRecipients: async () => {
+    const response = await inboxClient.get("/people/");
+    return response.data || [];
+  },
+
   /**
    * Create a new notification or message
    * POST /api/inbox/
    */
   create: async (payload) => {
-    try {
-      const response = await inboxClient.post("/inbox/", payload);
-      return response.data;
-    } catch (err) {
-      console.warn("[inboxApi] create failed:", err);
-      return null;
-    }
+    const response = await inboxClient.post("/inbox/", payload);
+    return response.data;
   },
 
   /**

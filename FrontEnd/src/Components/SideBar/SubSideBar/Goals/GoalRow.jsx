@@ -445,30 +445,7 @@ function GoalRow({
                   className="cell-popover owner-popover"
                   onClick={(e) => e.stopPropagation()}>
                   <div className="popover-title">Assign owner</div>
-                  {[
-                    { name: "Franklin", initials: "FR", role: "Member" },
-                    { name: "Sarah Chen", initials: "SC", role: "Engineering Lead" },
-                    { name: "Alex Rivera", initials: "AR", role: "Design Lead" },
-                  ].map((user) => (
-                    <button
-                      key={user.name}
-                      type="button"
-                      className="popover-item user-item"
-                      onClick={() => {
-                        onUpdateGoal({
-                          ...goal,
-                          owner: user,
-                          isPlaceholder: false,
-                        });
-                        setShowOwnerPicker(false);
-                      }}>
-                      <span className="owner-avatar-circle small">{user.initials}</span>
-                      <span className="user-info">
-                        <span className="user-name">{user.name}</span>
-                        <span className="user-role">{user.role}</span>
-                      </span>
-                    </button>
-                  ))}
+                  <span className="popover-empty-state">No people available</span>
                   {goal.owner && (
                     <button
                       type="button"

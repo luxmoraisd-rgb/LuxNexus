@@ -63,207 +63,13 @@ export const saveToStorage = (key, value) => {
   }
 };
 
-/**
- * Initial stored sprints seed if storage is empty
- */
-const DEFAULT_INITIAL_SPRINTS = [
-  {
-    id: '6ad0a29cb7b36f6c2e191d29',
-    name: 'Sprint 0',
-    status: 'active',
-    isStarted: true,
-    isCompleted: false,
-    dates: '1 Oct - 8 Oct (1 week)',
-    duration_text: '1 Oct - 8 Oct (1 week)',
-    goals: 'Deliver core schema and authentication',
-    capacityLimit: 20,
-    isExpanded: true,
-  },
-  {
-    id: '6ad31b29d690a64d6eb3e642',
-    name: 'Sprint 4',
-    status: 'active',
-    isStarted: true,
-    isCompleted: false,
-    dates: '10 Oct - 24 Oct (2 weeks)',
-    duration_text: '10 Oct - 24 Oct (2 weeks)',
-    goals: 'Complete API integrations and sprint stability',
-    capacityLimit: 25,
-    isExpanded: true,
-  },
-  {
-    id: '6ad098d7fb72ccd5b28d78fe',
-    name: 'Sprint 1',
-    status: 'completed',
-    isStarted: false,
-    isCompleted: true,
-    dates: '15 Sep - 22 Sep (1 week)',
-    duration_text: '15 Sep - 22 Sep (1 week)',
-    goals: 'Initial foundation setup',
-    capacityLimit: 20,
-    isExpanded: false,
-  },
-  {
-    id: '6ad0a29cb7b36f6c2e191d25',
-    name: 'Sprint 2',
-    status: 'completed',
-    isStarted: false,
-    isCompleted: true,
-    dates: '23 Sep - 30 Sep (1 week)',
-    duration_text: '23 Sep - 30 Sep (1 week)',
-    goals: 'Sprint reporting and analytics',
-    capacityLimit: 20,
-    isExpanded: false,
-  },
-];
-
-const DEFAULT_INITIAL_TASKS = [
-  {
-    id: 'task-7',
-    taskId: 'LUX-007',
-    title: 'Initial MongoDB schema setup on mongodb://localhost:27017/',
-    status: 'Done',
-    type: 'Frontend',
-    sp: 5,
-    owner: 'siva',
-    epic: 'Infrastructure',
-    sprintId: '6ad0a29cb7b36f6c2e191d29',
-  },
-  {
-    id: 'task-8',
-    taskId: 'LUX-008',
-    title: 'JWT token authentication and user management',
-    status: 'In Progress',
-    type: 'Feature',
-    sp: 5,
-    owner: 'siva',
-    epic: 'Security',
-    sprintId: '6ad0a29cb7b36f6c2e191d29',
-  },
-  {
-    id: 'task-9',
-    taskId: 'LUX-009',
-    title: 'Base React layout with dark mode design system',
-    status: 'Done',
-    type: 'Feature',
-    sp: 3,
-    owner: 'siva',
-    epic: 'Frontend UI',
-    sprintId: '6ad0a29cb7b36f6c2e191d29',
-  },
-  {
-    id: 'task-10',
-    taskId: 'LUX-010',
-    title: 'API contract validation and schema synchronization',
-    status: 'Ready to start',
-    type: 'Frontend',
-    sp: 3,
-    owner: 'siva',
-    epic: 'Backend',
-    sprintId: '6ad31b29d690a64d6eb3e642',
-  },
-  {
-    id: 'task-11',
-    taskId: 'LUX-011',
-    title: 'Cross-browser regression test suites',
-    status: 'In Progress',
-    type: 'Bug',
-    sp: 5,
-    owner: 'siva',
-    epic: 'QA',
-    sprintId: '6ad31b29d690a64d6eb3e642',
-  },
-  {
-    id: 'task-1',
-    taskId: 'LUX-001',
-    title: 'Navigation and responsive layout',
-    status: 'In Review',
-    type: 'Feature',
-    sp: 3,
-    owner: 'siva',
-    epic: 'UI',
-    sprintId: '6ad098d7fb72ccd5b28d78fe',
-  },
-  {
-    id: 'task-2',
-    taskId: 'LUX-002',
-    title: 'User session persistence and token caching',
-    status: 'Ready to start',
-    type: 'Feature',
-    sp: 4,
-    owner: 'siva',
-    epic: 'Auth',
-    sprintId: '6ad098d7fb72ccd5b28d78fe',
-  },
-  {
-    id: 'task-3',
-    taskId: 'LUX-003',
-    title: 'Dynamic theme switcher and aesthetic tokens',
-    status: 'In Review',
-    type: 'Feature',
-    sp: 2,
-    owner: 'siva',
-    epic: 'Design',
-    sprintId: '6ad098d7fb72ccd5b28d78fe',
-  },
-  {
-    id: 'task-4',
-    taskId: 'LUX-004',
-    title: 'Responsive layout & KPI summary for All Sprints',
-    status: 'Ready to start',
-    type: 'Frontend',
-    sp: 3,
-    owner: 'siva',
-    epic: 'Sprints',
-    sprintId: '6ad0a29cb7b36f6c2e191d25',
-  },
-  {
-    id: 'task-5',
-    taskId: 'LUX-005',
-    title: 'MongoDB aggregation pipeline for velocity & commitment tracking',
-    status: 'Ready to start',
-    type: 'Frontend',
-    sp: 5,
-    owner: 'siva',
-    epic: 'Database',
-    sprintId: '6ad0a29cb7b36f6c2e191d25',
-  },
-  {
-    id: 'task-6',
-    taskId: 'LUX-006',
-    title: 'Unit & integration test suites for all sprint endpoints',
-    status: 'In Progress',
-    type: 'Bug',
-    sp: 4,
-    owner: 'siva',
-    epic: 'Testing',
-    sprintId: '6ad0a29cb7b36f6c2e191d25',
-  },
-];
-
-/**
- * Active runtime in-memory stores backed by localStorage
- */
-let _inMemoryTasks = (() => {
-  const stored = loadFromStorage(STORAGE_KEYS.TASKS, null);
-  if (Array.isArray(stored) && stored.length > 0) return stored;
-  saveToStorage(STORAGE_KEYS.TASKS, DEFAULT_INITIAL_TASKS);
-  return DEFAULT_INITIAL_TASKS;
-})();
-
-let _inMemorySprints = (() => {
-  const stored = loadFromStorage(STORAGE_KEYS.SPRINTS, null);
-  if (Array.isArray(stored) && stored.length > 0) return stored;
-  saveToStorage(STORAGE_KEYS.SPRINTS, DEFAULT_INITIAL_SPRINTS);
-  return DEFAULT_INITIAL_SPRINTS;
-})();
-
+let _inMemoryTasks = [];
+let _inMemorySprints = [];
 let _inMemoryProjectKey = (() => {
   if (typeof window === 'undefined') return DEFAULT_PROJECT_KEY;
   return localStorage.getItem(STORAGE_KEYS.PROJECT_KEY) || DEFAULT_PROJECT_KEY;
 })();
 
-// Dispatch in-memory and storage events so all components across full app stay in sync
 const notifyTasksChanged = (tasks) => {
   _inMemoryTasks = Array.isArray(tasks) ? tasks : [];
   saveToStorage(STORAGE_KEYS.TASKS, _inMemoryTasks);
@@ -288,7 +94,6 @@ const notifyProjectKeyChanged = (key) => {
   }
 };
 
-// Storage readers and writers for components that import them
 export const getStoredTasks = () => _inMemoryTasks;
 export const getStoredSprints = () => _inMemorySprints;
 export const getStoredProjectKey = () => _inMemoryProjectKey;
@@ -305,38 +110,34 @@ export const taskApi = {
    * GET /backlog/tasks/ or /tasks/
    */
   getAll: async (params = {}) => {
-    try {
-      const response = await backlogClient.get('/backlog/tasks/', { params });
-      const data = response.data?.tasks || response.data?.data || response.data;
-      if (Array.isArray(data) && data.length > 0) {
-        const normalized = data.map((raw) => {
-          const rawStartDate = raw.startDate || raw.start_date || '';
-          const rawDueDate = raw.dueDate || raw.due_date || '';
-          const status = raw.status || 'Ready to start';
-          let sprintId = String(raw.sprint?.id || raw.sprint_id || raw.sprintId || 'backlog');
-          if (isTaskPastDueAndIncomplete({ dueDate: rawDueDate, status })) {
-            sprintId = 'backlog';
-          }
-          return {
-            ...raw,
-            id: String(raw.id || raw._id || raw.pk),
-            taskId: String(raw.task_key || raw.taskId || raw.key || `LUX-${raw.id}`),
-            sprintId,
-            status,
-            type: raw.task_type || raw.type || 'Frontend',
-            sp: raw.estimated_sp ?? raw.sp ?? null,
-            title: raw.title || 'Untitled task',
-            startDate: rawStartDate,
-            dueDate: rawDueDate,
-          };
-        });
-        notifyTasksChanged(normalized);
-        return normalized;
-      }
-    } catch (error) {
-      console.warn('[BacklogApi] Backend tasks fetch notice (using stored tasks):', error.message);
+    const response = await backlogClient.get('/backlog/tasks/', { params });
+    const data = response.data?.tasks || response.data?.data || response.data;
+    if (!Array.isArray(data)) {
+      throw new Error('The task response did not contain a list.');
     }
-    return _inMemoryTasks;
+    const normalized = data.map((raw) => {
+      const rawStartDate = raw.startDate || raw.start_date || '';
+      const rawDueDate = raw.dueDate || raw.due_date || '';
+      const taskStatus = raw.status || '';
+      let sprintId = String(raw.sprint?.id || raw.sprint_id || raw.sprintId || 'backlog');
+      if (isTaskPastDueAndIncomplete({ dueDate: rawDueDate, status: taskStatus })) {
+        sprintId = 'backlog';
+      }
+      return {
+        ...raw,
+        id: String(raw.id || raw._id || raw.pk),
+        taskId: String(raw.task_key || raw.taskId || raw.key || ''),
+        sprintId,
+        status: taskStatus,
+        type: raw.task_type || raw.type || '',
+        sp: raw.estimated_sp ?? raw.sp ?? null,
+        title: raw.title || '',
+        startDate: rawStartDate,
+        dueDate: rawDueDate,
+      };
+    });
+    notifyTasksChanged(normalized);
+    return normalized;
   },
 
   /**
@@ -344,12 +145,8 @@ export const taskApi = {
    * GET /backlog/tasks/:id/
    */
   getById: async (taskId) => {
-    try {
-      const response = await backlogClient.get(`/backlog/tasks/${taskId}/`);
-      return response.data?.task || response.data;
-    } catch (err) {
-      return _inMemoryTasks.find((t) => String(t.id) === String(taskId)) || null;
-    }
+    const response = await backlogClient.get(`/backlog/tasks/${taskId}/`);
+    return response.data?.task || response.data;
   },
 
   /**
@@ -370,11 +167,7 @@ export const taskApi = {
       startDate: rawStartDate,
       dueDate: rawDueDate,
     };
-    const updated = [..._inMemoryTasks, normalized];
-    notifyTasksChanged(updated);
-
-    try {
-      const response = await backlogClient.post('/backlog/tasks/', {
+    const response = await backlogClient.post('/backlog/tasks/', {
         ...taskData,
         sprint_id: targetSprintId === 'backlog' ? null : targetSprintId,
         sprintId: targetSprintId === 'backlog' ? null : targetSprintId,
@@ -383,20 +176,15 @@ export const taskApi = {
         due_date: rawDueDate,
         dueDate: rawDueDate,
       });
-      const serverTask = response.data?.task || response.data?.data || response.data;
-      if (serverTask && (serverTask.id || serverTask.pk)) {
-        const serverId = String(serverTask.id || serverTask.pk);
-        const serverSprint = isPastIncomplete ? 'backlog' : String(serverTask.sprintId || serverTask.sprint || normalized.sprintId);
-        const synced = updated.map((t) =>
-          t.id === normalized.id ? { ...t, ...serverTask, id: serverId, sprintId: serverSprint, startDate: rawStartDate, dueDate: rawDueDate } : t
-        );
-        notifyTasksChanged(synced);
-        return { ...normalized, ...serverTask, id: serverId, sprintId: serverSprint };
-      }
-    } catch (error) {
-      console.warn('[BacklogApi] Server task creation notice (saved locally in storage):', error?.message);
+    const serverTask = response.data?.task || response.data?.data || response.data;
+    if (!serverTask || !(serverTask.id || serverTask.pk)) {
+      throw new Error('The task was created without a server identifier.');
     }
-    return normalized;
+    const serverId = String(serverTask.id || serverTask.pk);
+    const serverSprint = isPastIncomplete ? 'backlog' : String(serverTask.sprintId || serverTask.sprint || normalized.sprintId);
+    const created = { ...normalized, ...serverTask, id: serverId, sprintId: serverSprint };
+    notifyTasksChanged([..._inMemoryTasks, created]);
+    return created;
   },
 
   /**
@@ -404,6 +192,7 @@ export const taskApi = {
    * PUT /backlog/tasks/:id/
    */
   update: async (taskId, updates) => {
+    await backlogClient.put(`/backlog/tasks/${taskId}/`, updates);
     const updated = _inMemoryTasks.map((t) => {
       if (String(t.id) === String(taskId)) {
         const merged = { ...t, ...updates };
@@ -415,12 +204,6 @@ export const taskApi = {
       return t;
     });
     notifyTasksChanged(updated);
-
-    try {
-      await backlogClient.put(`/backlog/tasks/${taskId}/`, updates);
-    } catch (error) {
-      console.warn('[BacklogApi] PUT task notice (saved locally in storage):', error?.message);
-    }
     return updated;
   },
 
@@ -429,14 +212,9 @@ export const taskApi = {
    * DELETE /backlog/tasks/:id/
    */
   delete: async (taskId) => {
+    await backlogClient.delete(`/backlog/tasks/${taskId}/`);
     const updated = _inMemoryTasks.filter((t) => String(t.id) !== String(taskId));
     notifyTasksChanged(updated);
-
-    try {
-      await backlogClient.delete(`/backlog/tasks/${taskId}/`);
-    } catch (error) {
-      console.warn('[BacklogApi] DELETE task notice (deleted locally in storage):', error?.message);
-    }
     return updated;
   },
 
@@ -446,14 +224,9 @@ export const taskApi = {
    */
   move: async (taskId, { sprintId, position = null }) => {
     const payload = { sprintId, position };
+    await backlogClient.post(`/backlog/tasks/${taskId}/move/`, payload);
     const updated = _inMemoryTasks.map((t) => (String(t.id) === String(taskId) ? { ...t, sprintId: String(sprintId) } : t));
     notifyTasksChanged(updated);
-
-    try {
-      await backlogClient.post(`/backlog/tasks/${taskId}/move/`, payload);
-    } catch (error) {
-      console.warn('[BacklogApi] POST move task notice (moved locally in storage):', error?.message);
-    }
     return updated;
   },
 
@@ -463,14 +236,9 @@ export const taskApi = {
    */
   batchUpdate: async (taskIds, updates) => {
     const idSet = new Set((taskIds || []).map(String));
+    await backlogClient.post('/backlog/tasks/batch/', { taskIds, updates });
     const updated = _inMemoryTasks.map((t) => (idSet.has(String(t.id)) ? { ...t, ...updates } : t));
     notifyTasksChanged(updated);
-
-    try {
-      await backlogClient.post('/backlog/tasks/batch/', { taskIds, updates });
-    } catch (error) {
-      console.warn('[BacklogApi] POST batchUpdate task notice (updated locally in storage):', error?.message);
-    }
     return updated;
   },
 
@@ -479,13 +247,8 @@ export const taskApi = {
    * POST /backlog/tasks/:id/comments/
    */
   addComment: async (taskId, commentData) => {
-    try {
-      const response = await backlogClient.post(`/backlog/tasks/${taskId}/comments/`, commentData);
-      return response.data;
-    } catch (error) {
-      if (error.response) throw error;
-      return commentData;
-    }
+    const response = await backlogClient.post(`/backlog/tasks/${taskId}/comments/`, commentData);
+    return response.data;
   },
 
   /**
@@ -555,33 +318,29 @@ export const sprintApi = {
    * GET /backlog/sprints/
    */
   getAll: async () => {
-    try {
-      const response = await backlogClient.get('/backlog/sprints/');
-      const data = response.data?.sprints || response.data?.data || response.data;
-      if (Array.isArray(data) && data.length > 0) {
-        const normalized = data.map((raw) => {
-          const isStarted = raw.status === 'active' || Boolean(raw.isStarted);
-          const isCompleted = raw.status === 'completed' || Boolean(raw.isCompleted);
-          return {
-            ...raw,
-            id: String(raw.id || raw._id || raw.pk),
-            name: raw.name || 'Sprint',
-            status: raw.status || (isStarted ? 'active' : isCompleted ? 'completed' : 'future'),
-            isStarted,
-            isCompleted,
-            dates: raw.duration_text || raw.dates || 'Add Sprint dates',
-            goals: raw.goals || raw.goal || '',
-            capacityLimit: Number(raw.capacity_limit ?? raw.capacity ?? 20),
-            isExpanded: raw.isExpanded !== false,
-          };
-        });
-        notifySprintsChanged(normalized);
-        return normalized;
-      }
-    } catch (error) {
-      console.warn('[BacklogApi] Backend sprints fetch notice (using stored sprints):', error.message);
+    const response = await backlogClient.get('/backlog/sprints/');
+    const data = response.data?.sprints || response.data?.data || response.data;
+    if (!Array.isArray(data)) {
+      throw new Error('The sprint response did not contain a list.');
     }
-    return _inMemorySprints;
+    const normalized = data.map((raw) => {
+      const isStarted = raw.status === 'active' || Boolean(raw.isStarted);
+      const isCompleted = raw.status === 'completed' || Boolean(raw.isCompleted);
+      return {
+        ...raw,
+        id: String(raw.id || raw._id || raw.pk),
+        name: raw.name || '',
+        status: raw.status || (isStarted ? 'active' : isCompleted ? 'completed' : ''),
+        isStarted,
+        isCompleted,
+        dates: raw.duration_text || raw.dates || '',
+        goals: raw.goals || raw.goal || '',
+        capacityLimit: Number(raw.capacity_limit ?? raw.capacity ?? 20),
+        isExpanded: raw.isExpanded !== false,
+      };
+    });
+    notifySprintsChanged(normalized);
+    return normalized;
   },
 
   /**
@@ -596,22 +355,14 @@ export const sprintApi = {
       isCompleted: Boolean(sprintData.isCompleted),
       status: sprintData.status || (sprintData.isStarted ? 'active' : 'future'),
     };
-    const updated = [..._inMemorySprints, normalized];
-    notifySprintsChanged(updated);
-
-    try {
-      const response = await backlogClient.post('/backlog/sprints/', sprintData);
-      const serverSprint = response.data?.sprint || response.data?.data || response.data;
-      if (serverSprint && (serverSprint.id || serverSprint.pk)) {
-        const serverId = String(serverSprint.id || serverSprint.pk);
-        const synced = updated.map((s) => (s.id === normalized.id ? { ...s, ...serverSprint, id: serverId } : s));
-        notifySprintsChanged(synced);
-        return { ...normalized, ...serverSprint, id: serverId };
-      }
-    } catch (error) {
-      console.warn('[BacklogApi] Server sprint creation notice (saved locally in storage):', error?.message);
+    const response = await backlogClient.post('/backlog/sprints/', sprintData);
+    const serverSprint = response.data?.sprint || response.data?.data || response.data;
+    if (!serverSprint || !(serverSprint.id || serverSprint.pk)) {
+      throw new Error('The sprint was created without a server identifier.');
     }
-    return normalized;
+    const created = { ...normalized, ...serverSprint, id: String(serverSprint.id || serverSprint.pk) };
+    notifySprintsChanged([..._inMemorySprints, created]);
+    return created;
   },
 
   /**
@@ -619,16 +370,11 @@ export const sprintApi = {
    * PATCH /backlog/sprints/:id/
    */
   update: async (sprintId, sprintData) => {
+    await backlogClient.patch(`/backlog/sprints/${sprintId}/`, sprintData);
     const updated = _inMemorySprints.map((s) =>
       String(s.id) === String(sprintId) ? { ...s, ...sprintData } : s
     );
     notifySprintsChanged(updated);
-
-    try {
-      await backlogClient.patch(`/backlog/sprints/${sprintId}/`, sprintData);
-    } catch (error) {
-      console.warn('[BacklogApi] PATCH sprint warning (saved locally):', error?.message);
-    }
     return updated;
   },
 
@@ -637,16 +383,12 @@ export const sprintApi = {
    * POST /backlog/sprints/:id/start/
    */
   start: async (sprintId) => {
+    await backlogClient.post(`/backlog/sprints/${sprintId}/start/`);
     const updated = _inMemorySprints.map((s) =>
       String(s.id) === String(sprintId) ? { ...s, isStarted: true, isCompleted: false, status: 'active' } : s
     );
     notifySprintsChanged(updated);
 
-    try {
-      await backlogClient.post(`/backlog/sprints/${sprintId}/start/`);
-    } catch (error) {
-      console.warn('[BacklogApi] POST /start/ warning (saved locally):', error?.message);
-    }
     return updated;
   },
 
@@ -655,16 +397,12 @@ export const sprintApi = {
    * POST /backlog/sprints/:id/complete/
    */
   complete: async (sprintId) => {
+    await backlogClient.post(`/backlog/sprints/${sprintId}/complete/`);
     const updated = _inMemorySprints.map((s) =>
       String(s.id) === String(sprintId) ? { ...s, isStarted: false, isCompleted: true, status: 'completed' } : s
     );
     notifySprintsChanged(updated);
 
-    try {
-      await backlogClient.post(`/backlog/sprints/${sprintId}/complete/`);
-    } catch (error) {
-      console.warn('[BacklogApi] POST /complete/ warning (saved locally):', error?.message);
-    }
     return updated;
   },
 
@@ -673,14 +411,9 @@ export const sprintApi = {
    * DELETE /backlog/sprints/:id/
    */
   delete: async (sprintId) => {
+    await backlogClient.delete(`/backlog/sprints/${sprintId}/`);
     const updated = _inMemorySprints.filter((s) => String(s.id) !== String(sprintId));
     notifySprintsChanged(updated);
-
-    try {
-      await backlogClient.delete(`/backlog/sprints/${sprintId}/`);
-    } catch (error) {
-      console.warn('[BacklogApi] DELETE sprint warning (saved locally):', error?.message);
-    }
     return updated;
   },
 

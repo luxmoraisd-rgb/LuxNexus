@@ -471,6 +471,33 @@
   padding: 8px 10px;
 }
 
+.browser-notification-permission {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 12px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--app-border, rgba(255, 255, 255, 0.08));
+}
+
+.browser-notification-enable {
+  flex-shrink: 0;
+  padding: 6px 11px;
+  border: 1px solid rgba(99, 102, 241, 0.45);
+  border-radius: 7px;
+  background: rgba(99, 102, 241, 0.14);
+  color: #a5b4fc;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.browser-notification-enable:hover {
+  background: rgba(99, 102, 241, 0.24);
+}
+
 .notification-setting-row {
   width: 100%;
   display: flex;

@@ -22,13 +22,14 @@ import {
 } from 'lucide-react';
 import TaskRow from '../Backlog/TaskRow';
 import { useCustomColumns } from '../Backlog/customColumns';
-import { STATUS_CONFIG, TYPE_CONFIG, TEAM_MEMBERS, isTaskPastDueAndIncomplete } from '../Backlog/TaskRowUtils';
+import { STATUS_CONFIG, TYPE_CONFIG, isTaskPastDueAndIncomplete } from '../Backlog/TaskRowUtils';
 import { activeSprintApi, normalizeSprint, normalizeTask } from './activeSprintApi';
 import './ActiveSprint.css';
 
 const ActiveSprint = memo(({
   sprints = [],
   allTasks = [],
+  teamMembers = [],
   processedTasks,
   selectedTaskIds = new Set(),
   statusConfig = {},
@@ -45,7 +46,6 @@ const ActiveSprint = memo(({
   onOpenTypePicker,
   onOpenSPPicker,
   onOpenEpicPicker,
-  onMoveTask,
   onDeleteTask,
   onRemoveEpic,
   onAddTaskToSprint,
@@ -54,6 +54,12 @@ const ActiveSprint = memo(({
   showToast,
   onGoToBacklog,
 }) => {
+  const effectiveRole = rolePermissions?.current_role || currentUser?.role || 'user';
+  const isElevatedRole = effectiveRole === 'admin' || effectiveRole === 'team_lead';
+  const canManageTasks = isElevatedRole &&
+    (rolePermissions ? rolePermissions.manage_tasks !== false : true);
+  const canManageSprints = isElevatedRole &&
+    (rolePermissions ? rolePermissions.manage_sprints !== false : true);
   // Active sprint switcher if multiple exist
   const activeSprints = useMemo(
     () => sprints.filter((s) => Boolean(s.isStarted)),
@@ -92,10 +98,7 @@ const ActiveSprint = memo(({
   const [activeModalState, setActiveModalState] = useState(null);
   const [capacityInput, setCapacityInput] = useState(20);
   const [goalInput, setGoalInput] = useState('');
-  const [standupUpdates, setStandupUpdates] = useState([
-    { id: 1, author: 'Sivakumar', update: 'Integrated backend sprint capacity & dates APIs. Next up: Real-time syncing.' },
-    { id: 2, author: 'Alex', update: 'Reviewing PR for active sprint table components and real-time syncing.' },
-  ]);
+  const [standupUpdates, setStandupUpdates] = useState([]);
   const [standupDraft, setStandupDraft] = useState('');
 
   // Sync capacity & goals input when activeSprint changes
@@ -373,7 +376,7 @@ const ActiveSprint = memo(({
               <span>Capacity ({metrics.totalSp}/{metrics.capacityLimit} SP)</span>
             </button>
 
-            <button
+            {canManageSprints && <button
               type="button"
               className="active-sprint-action-btn primary"
               onClick={() => onOpenModal && onOpenModal('completeSprint', activeSprint, null)}
@@ -381,7 +384,7 @@ const ActiveSprint = memo(({
             >
               <CheckIcon size={13} />
               <span>Complete Sprint</span>
-            </button>
+            </button>}
 
             <button
               type="button"
@@ -554,11 +557,11 @@ const ActiveSprint = memo(({
                     onOpenEditTaskId={(targetTask, e) =>
                       onOpenModal && onOpenModal('editTaskId', targetTask, e)
                     }
-                    onMoveTask={(taskId) => onMoveTask && onMoveTask(taskId, 'backlog')}
                     onDeleteTask={onDeleteTask}
                     onRemoveEpic={onRemoveEpic}
                     showToast={showToast}
                     customColumns={customColumns}
+                    teamMembers={teamMembers}
                   />
                 ))}
 
@@ -576,7 +579,7 @@ const ActiveSprint = memo(({
                   <td className="td-accent sprint-1-bar-transparent" />
                   <td className="td-checkbox" />
                   <td className="td-task">
-                    <button
+                    {canManageTasks && <button
                       type="button"
                       className="backlog-btn-inline-create"
                       onClick={() =>
@@ -586,7 +589,7 @@ const ActiveSprint = memo(({
                       title={`Create issue in ${activeSprint.name}`}
                     >
                       + Create issue in {activeSprint.name}
-                    </button>
+                    </button>}
                   </td>
                   <td className="td-owner" />
                   <td className="td-status">
@@ -751,6 +754,9 @@ const ActiveSprint = memo(({
             </div>
             <div className="active-sprint-modal-body">
               <div className="active-sprint-standup-list">
+                {standupUpdates.length === 0 && (
+                  <p>No standup updates yet.</p>
+                )}
                 {standupUpdates.map((su) => (
                   <div key={su.id} className="active-sprint-standup-item">
                     <span className="active-sprint-standup-author">{su.author}</span>
@@ -765,7 +771,7 @@ const ActiveSprint = memo(({
                   if (!standupDraft.trim()) return;
                   setStandupUpdates((prev) => [
                     ...prev,
-                    { id: Date.now(), author: currentUser?.name || 'Sivakumar', update: standupDraft.trim() },
+                    { id: Date.now(), author: currentUser?.name || 'You', update: standupDraft.trim() },
                   ]);
                   setStandupDraft('');
                   showToast('Daily standup update shared!', 'success');

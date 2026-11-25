@@ -1,63 +1,15 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, CalendarDays, CheckCircle2, Clock3, Users } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { allSprintsApi } from "../../AllSprints/allSprintsApi";
 import "./sprintoverview.css";
-
-const sprintData = [
-  {
-    id: 1,
-    name: "Sprint 1",
-    goal: "Complete authentication module",
-    status: "In Progress",
-    startDate: "2026-10-01",
-    endDate: "2026-10-14",
-    completedTasks: 6,
-    inProgressTasks: 2,
-    totalTasks: 10,
-    team: ["Franklin", "Dhilip", "Sugi", "Durga"],
-  },
-  {
-    id: 2,
-    name: "Sprint 2",
-    goal: "Improve reporting dashboards",
-    status: "Not Started",
-    startDate: "2026-10-15",
-    endDate: "2026-10-28",
-    completedTasks: 0,
-    inProgressTasks: 0,
-    totalTasks: 8,
-    team: ["Haritha", "Kishore", "Sakana"],
-  },
-  {
-    id: 3,
-    name: "Sprint 3",
-    goal: "Launch team onboarding flow",
-    status: "Completed",
-    startDate: "2026-09-15",
-    endDate: "2026-09-30",
-    completedTasks: 9,
-    inProgressTasks: 0,
-    totalTasks: 9,
-    team: ["Franklin", "Stuart", "Dhilip"],
-  },
-  {
-    id: 4,
-    name: "Sprint 4",
-    goal: "Stabilize mobile and notifications",
-    status: "In Progress",
-    startDate: "2026-10-29",
-    endDate: "2026-11-11",
-    completedTasks: 3,
-    inProgressTasks: 4,
-    totalTasks: 12,
-    team: ["Jones", "Durga", "Kishore", "Sugi"],
-  },
-];
 
 const filters = ["All", "Not Started", "In Progress", "Completed"];
 
 const formatDate = (dateString) => {
+  if (!dateString) return "";
   const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return "";
   return new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "short",
@@ -81,18 +33,72 @@ export default function SprintOverviewButton({ onOpen }) {
 
 export function SprintOverviewPage() {
   const navigate = useNavigate();
-  const [selectedSprintId, setSelectedSprintId] = useState(sprintData[0]?.id || null);
+  const [sprintData, setSprintData] = useState([]);
+  const [selectedSprintId, setSelectedSprintId] = useState(null);
   const [filter, setFilter] = useState("All");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    allSprintsApi
+      .getOverview()
+      .then(({ sprints, tasks }) => {
+        if (!active) return;
+        const records = sprints.map((sprint) => {
+          const sprintTasks = tasks.filter((task) => String(task.sprintId) === String(sprint.id));
+          const completedTasks = sprintTasks.filter((task) =>
+            ["done", "closed", "completed"].includes(String(task.status).toLowerCase())
+          ).length;
+          const status = sprint.isCompleted
+            ? "Completed"
+            : sprint.isStarted
+              ? "In Progress"
+              : "Not Started";
+          const team = [...new Set(
+            sprintTasks.map((task) => typeof task.owner === "string" ? task.owner : task.owner?.name).filter(Boolean)
+          )];
+          return {
+            id: sprint.id,
+            name: sprint.name,
+            goal: sprint.goals || "",
+            status,
+            startDate: sprint.start_date || "",
+            endDate: sprint.end_date || "",
+            completedTasks,
+            inProgressTasks: sprintTasks.filter((task) =>
+              String(task.status).toLowerCase() === "in progress"
+            ).length,
+            totalTasks: sprintTasks.length,
+            team,
+          };
+        });
+        setSprintData(records);
+        setSelectedSprintId(records[0]?.id || null);
+      })
+      .catch((loadError) => {
+        if (active) setError(loadError.message || "Unable to load sprint data.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const filteredSprints = useMemo(() => {
     if (filter === "All") return sprintData;
     return sprintData.filter((sprint) => sprint.status === filter);
   }, [filter]);
 
-  const selectedSprint = filteredSprints.find((sprint) => sprint.id === selectedSprintId) || filteredSprints[0] || sprintData[0];
+  const selectedSprint = filteredSprints.find((sprint) => sprint.id === selectedSprintId) || filteredSprints[0];
 
   const progress = selectedSprint
-    ? Math.round((selectedSprint.completedTasks / selectedSprint.totalTasks) * 100)
+    ? selectedSprint.totalTasks > 0
+      ? Math.round((selectedSprint.completedTasks / selectedSprint.totalTasks) * 100)
+      : 0
     : 0;
 
   return (
@@ -122,11 +128,17 @@ export function SprintOverviewPage() {
 
       <section className="sprint-overview-grid">
         <div className="sprint-rail">
-          {filteredSprints.length === 0 ? (
+          {loading ? (
+            <div className="sprint-empty-state">Loading sprints…</div>
+          ) : error ? (
+            <div className="sprint-empty-state" role="alert">{error}</div>
+          ) : filteredSprints.length === 0 ? (
             <div className="sprint-empty-state">No sprints available</div>
           ) : (
             filteredSprints.map((sprint) => {
-              const sprintProgress = Math.round((sprint.completedTasks / sprint.totalTasks) * 100);
+              const sprintProgress = sprint.totalTasks > 0
+                ? Math.round((sprint.completedTasks / sprint.totalTasks) * 100)
+                : 0;
               const isSelected = selectedSprint?.id === sprint.id;
 
               return (
@@ -247,6 +259,7 @@ export function SprintOverviewPage() {
                 {selectedSprint.team.map((member) => (
                   <span key={member} className="team-pill">{member}</span>
                 ))}
+                {selectedSprint.team.length === 0 && <span>No team members assigned</span>}
               </div>
             </div>
           </article>

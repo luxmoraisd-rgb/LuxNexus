@@ -1,21 +1,35 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useParams,
+} from "react-router-dom";
 
-import Navbar from "./Components/NavBar/Navbar/navbar";
 import { authClient } from "./Components/Auth/authApi";
-import MainSidebar from "./Components/SideBar/MainSideBar/Mainsidebar/mainsidebar";
-import TrackerSidebar from "./Components/SideBar/MainSideBar/Tracker/trackersidebar";
-import KnowledgeSidebar from "./Components/SideBar/MainSideBar/Knowledge/knowledgesidebar";
-import PeopleSidebar from "./Components/SideBar/MainSideBar/People/peoplesidebar";
-import SubSidebar from "./Components/SideBar/MainSideBar/Work/worksidebar";
-import Dashboard from "./Components/SideBar/SubSideBar/HomePage/DashBoard/dashboard";
-import Inbox from "./Components/SideBar/SubSideBar/Inbox/inbox";
-import { SprintOverviewPage } from "./Components/SideBar/SubSideBar/MyTasks/TaskHeader/SprintOverview/sprintoverview";
 import "./App.css";
+const Navbar = lazy(() => import("./Components/NavBar/Navbar/navbar"));
+const MainSidebar = lazy(() => import("./Components/SideBar/MainSideBar/Mainsidebar/mainsidebar"));
+const TrackerSidebar = lazy(() => import("./Components/SideBar/MainSideBar/Tracker/trackersidebar"));
+const KnowledgeSidebar = lazy(() => import("./Components/SideBar/MainSideBar/Knowledge/knowledgesidebar"));
+const PeopleSidebar = lazy(() => import("./Components/SideBar/MainSideBar/People/peoplesidebar"));
+const SubSidebar = lazy(() => import("./Components/SideBar/MainSideBar/Work/worksidebar"));
+const Dashboard = lazy(() => import("./Components/SideBar/SubSideBar/HomePage/DashBoard/dashboard"));
+const Inbox = lazy(() => import("./Components/SideBar/SubSideBar/Inbox/inbox"));
+const SprintOverviewPage = lazy(() =>
+  import("./Components/SideBar/SubSideBar/MyTasks/TaskHeader/SprintOverview/sprintoverview").then(
+    (module) => ({ default: module.SprintOverviewPage })
+  )
+);
+const PeoplePage = lazy(() => import("./Components/SideBar/SubSideBar/People/people"));
 const Resourcing = lazy(() => import("./Components/SideBar/SubSideBar/Resourcing/resourcing"));
 const Backlog = lazy(() => import("./Components/SideBar/SubSideBar/MyTasks/Backlog/Backlog"));
 const MyTasksScreen = lazy(() => import("./Components/SideBar/SubSideBar/MyTasks/MyTasksScreen"));
 const Projects = lazy(() => import("./Components/SideBar/SubSideBar/Projects/projects"));
+const ProjectDetails = lazy(() => import("./Components/SideBar/SubSideBar/Projects/ProjectDetails"));
 const Portfolios = lazy(() => import("./Components/SideBar/SubSideBar/Portfolios/Portfolios"));
 const MeetingsPage = lazy(() => import("./Components/SideBar/SubSideBar/Meetings/MeetingsPage"));
 const Reports = lazy(() => import("./Components/SideBar/SubSideBar/Report/Reports"));
@@ -25,24 +39,40 @@ const Signup = lazy(() => import("./Components/Auth/SignUp/signup"));
 const ForgotPassword = lazy(() => import("./Components/Auth/ForgotPass/forgotpassword"));
 const AcceptInvite = lazy(() => import("./Components/Auth/AcceptInvite"));
 const GoalsPage = lazy(() => import("./Components/SideBar/SubSideBar/Goals/GoalsPage"));
-import PeoplePage from "./Components/SideBar/SubSideBar/People/people";
 
-const FULL_OPEN_PERMISSIONS = Object.freeze({
-  view_tasks: true,
-  manage_tasks: true,
-  update_assigned_tasks: true,
-  manage_sprints: true,
-  manage_team: true,
-  manage_board: true,
-  view_reports: true,
-});
+const isAllowedRouteForRole = (pathname, role) => {
+  const path = pathname.replace(/\/+$/, "") || "/";
+  if (/^\/(profile|settings)(\/|$)/.test(path)) return true;
+  return ["admin", "team_lead", "user"].includes(role);
+};
+
+const getRoleHome = (role) => {
+  if (role === "team_lead") return "/work/portfolios";
+  if (role === "user") return "/strategy/reports";
+  return "/home";
+};
 
 const preloadMyTasks = () => {
   import("./Components/SideBar/SubSideBar/MyTasks/MyTasksScreen");
   import("./Components/SideBar/SubSideBar/MyTasks/Backlog/Backlog");
 };
 
-const PeopleRouteWrapper = ({ theme, currentUser, onTabChange }) => {
+const clearStoredAuth = () => {
+  try {
+    sessionStorage.removeItem("token");
+    sessionStorage.removeItem("user");
+  } catch (error) {
+    console.warn("Unable to clear session authentication.", error);
+  }
+  try {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+  } catch (error) {
+    console.warn("Unable to clear remembered authentication.", error);
+  }
+};
+
+const PeopleRouteWrapper = ({ theme, onTabChange }) => {
   const { subTab } = useParams();
   const validTab =
     subTab === "teams" || subTab === "invitations"
@@ -51,47 +81,54 @@ const PeopleRouteWrapper = ({ theme, currentUser, onTabChange }) => {
   return (
     <PeoplePage
       theme={theme}
-      currentUser={currentUser}
       activeTab={validTab}
       onTabChange={onTabChange}
     />
   );
 };
 
-const App = () => {
+const AppContent = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const normalizedPath = location.pathname.replace(/\/+$/, "") || "/";
   const [theme, setTheme] = useState(() => {
-    try {
-      const saved = window.localStorage.getItem("nexus-theme");
-      if (saved === "dark") return "dark";
-      if (saved === "light") return "light";
-    } catch (error) {
-      console.warn("Unable to read the saved theme preference.", error);
-    }
     return "dark";
   });
 
   const [currentUser, setCurrentUser] = useState(() => {
     try {
-      const token = sessionStorage.getItem("token");
+      const sessionToken = sessionStorage.getItem("token");
+      const rememberedToken = localStorage.getItem("token");
+      if (sessionToken && rememberedToken && sessionToken !== rememberedToken) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+      }
+
+      const token = sessionToken || rememberedToken;
       if (!token || token === "nexus-guest-token" || token.includes("demo-token")) {
-        sessionStorage.removeItem("token");
-        sessionStorage.removeItem("user");
+        clearStoredAuth();
         return null;
       }
-      const storedUser = sessionStorage.getItem("user");
-      if (!storedUser) return null;
+      const storedUser =
+        sessionStorage.getItem("user") ||
+        (rememberedToken === token ? localStorage.getItem("user") : null);
+      if (!storedUser) {
+        clearStoredAuth();
+        return null;
+      }
       const parsed = JSON.parse(storedUser);
       if (parsed?.email === "guest@nexusapp.io") {
-        sessionStorage.removeItem("token");
-        sessionStorage.removeItem("user");
+        clearStoredAuth();
         return null;
+      }
+      if (!sessionToken) sessionStorage.setItem("token", token);
+      if (!sessionStorage.getItem("user")) {
+        sessionStorage.setItem("user", storedUser);
       }
       return parsed;
     } catch (error) {
       console.warn("Unable to restore the signed-in user.", error);
+      clearStoredAuth();
       return null;
     }
   });
@@ -114,11 +151,6 @@ const App = () => {
   );
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem("nexus-theme", theme);
-    } catch (error) {
-      console.warn("Unable to save the theme preference.", error);
-    }
     document.documentElement.setAttribute("data-theme", theme);
     document.body.setAttribute("data-theme", theme);
   }, [theme]);
@@ -142,11 +174,11 @@ const App = () => {
   })();
   const profileTab = (() => {
     const path = location.pathname.toLowerCase();
-    const profileTabs = ["personal", "basic", "notifications", "language", "password", "session"];
+    const profileTabs = ["personal", "notifications", "timezone", "password", "session"];
     const routeTab = path.split("/").filter(Boolean)[1];
 
     if (path.startsWith("/settings")) {
-      return profileTabs.includes(routeTab) ? routeTab : "basic";
+      return profileTabs.includes(routeTab) ? routeTab : "notifications";
     }
     if (path.startsWith("/profile")) {
       return profileTabs.includes(routeTab)
@@ -156,7 +188,7 @@ const App = () => {
     if (path === "/" || path === "/home") {
       const savedView = sessionStorage.getItem("current_view");
       if (savedView === "profile" || savedView === "settings") {
-        return sessionStorage.getItem("profile_tab") || (savedView === "settings" ? "basic" : "personal");
+        return sessionStorage.getItem("profile_tab") || (savedView === "settings" ? "notifications" : "personal");
       }
     }
     return sessionStorage.getItem("profile_tab") || "personal";
@@ -173,10 +205,18 @@ const App = () => {
     }
     return "";
   });
-  const [profilePhoto, setProfilePhoto] = useState("");
-  const [rolePermissions, setRolePermissions] = useState(FULL_OPEN_PERMISSIONS);
+  const [profilePhoto, setProfilePhoto] = useState(() => {
+    try {
+      const stored = sessionStorage.getItem("user");
+      if (!stored) return "";
+      const parsed = JSON.parse(stored);
+      return parsed?.photo || parsed?.avatar || "";
+    } catch {
+      return "";
+    }
+  });
+  const [rolePermissions, setRolePermissions] = useState(null);
   const currentUserId = currentUser?.id;
-  const currentUserRole = currentUser?.role;
 
   useEffect(() => {
     if (!isAuthenticated) return undefined;
@@ -186,21 +226,25 @@ const App = () => {
       authClient.get("/permissions/")
         .then(({ data }) => {
           if (isCurrent) {
-            // Role-based restrictions removed: open full capabilities across the web app
-            const allKeys = (data.permissions || []).map(({ key }) => key);
-            const openPermissions = allKeys.length > 0
-              ? Object.fromEntries(allKeys.map((key) => [key, true]))
-              : FULL_OPEN_PERMISSIONS;
-            setRolePermissions(openPermissions);
-
-            if (data.current_role) {
-              setCurrentUser((user) => user ? { ...user, role: data.current_role } : user);
-            }
+            const role = data.current_role || "user";
+            setRolePermissions({ ...(data.policies?.[role] || {}), current_role: role });
+            setCurrentUser((user) => {
+              if (!user) return user;
+              const updated = { ...user, role };
+              sessionStorage.setItem("user", JSON.stringify(updated));
+              return updated;
+            });
           }
         })
         .catch((error) => {
           console.warn("[Permissions] Unable to load the current role policy.", error);
-          setRolePermissions(FULL_OPEN_PERMISSIONS);
+          setCurrentUser((user) => {
+            if (!user) return user;
+            const updated = { ...user, role: "user" };
+            sessionStorage.setItem("user", JSON.stringify(updated));
+            return updated;
+          });
+          setRolePermissions({ current_role: "user" });
         });
     };
     const refreshWhenVisible = () => {
@@ -215,7 +259,7 @@ const App = () => {
       window.removeEventListener("focus", loadRolePermissions);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [isAuthenticated, currentUserId, currentUserRole]);
+  }, [isAuthenticated, currentUserId]);
 
   const isAuthRoute =
     location.pathname === "/signin" ||
@@ -238,17 +282,17 @@ const App = () => {
       sessionStorage.setItem("current_view", "profile");
       const parts = location.pathname.split("/").filter(Boolean);
       const sub = parts[1];
-      if (sub && ["personal", "basic", "notifications", "language", "password", "session"].includes(sub)) {
+      if (sub && ["personal", "notifications", "timezone", "password", "session"].includes(sub)) {
         sessionStorage.setItem("profile_tab", sub);
       }
     } else if (location.pathname.startsWith("/settings")) {
       sessionStorage.setItem("current_view", "settings");
       const parts = location.pathname.split("/").filter(Boolean);
       const sub = parts[1];
-      if (sub && ["personal", "basic", "notifications", "language", "password", "session"].includes(sub)) {
+      if (sub && ["personal", "notifications", "timezone", "password", "session"].includes(sub)) {
         sessionStorage.setItem("profile_tab", sub);
       } else {
-        sessionStorage.setItem("profile_tab", "basic");
+        sessionStorage.setItem("profile_tab", "notifications");
       }
     } else if (location.pathname !== "/" && location.pathname !== "/home") {
       sessionStorage.removeItem("current_view");
@@ -264,7 +308,10 @@ const App = () => {
   const isAllSprintsRoute = location.pathname === "/work/all-sprints" || location.pathname === "/all-sprints";
   const isSprintOverviewRoute = location.pathname === "/sprint-overview";
   const isInboxRoute = location.pathname === "/work/inbox" || location.pathname === "/inbox";
-  const isProjectsRoute = location.pathname === "/work/projects" || location.pathname === "/projects";
+  const isProjectsRoute = location.pathname === "/work/projects" ||
+    location.pathname.startsWith("/work/projects/") ||
+    location.pathname === "/projects" ||
+    location.pathname.startsWith("/projects/");
   const isPortfoliosRoute = location.pathname === "/work/portfolios" || location.pathname === "/portfolios";
   const isGoalsRoute = location.pathname === "/strategy/goals" || location.pathname === "/goals";
   const isStrategyMapRoute = location.pathname === "/strategy/strategy-map" || location.pathname === "/strategy-map";
@@ -469,10 +516,18 @@ const App = () => {
       name: data?.name || data?.email?.split("@")[0] || "User",
       email: data?.email,
     };
+    const token = data?.token || data?.jwt || data?.accessToken;
     const name = user?.name || user?.username || user?.email || "User";
     sessionStorage.setItem("user", JSON.stringify(user));
-    if (data?.token || data?.jwt || data?.accessToken) {
-      sessionStorage.setItem("token", data.token || data.jwt || data.accessToken);
+    if (token) {
+      sessionStorage.setItem("token", token);
+    }
+    if (data?.rememberMe && token) {
+      localStorage.setItem("token", token);
+      localStorage.setItem("user", JSON.stringify(user));
+    } else {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
     }
     if (data?.ip) {
       sessionStorage.setItem("session_ip", data.ip);
@@ -481,6 +536,7 @@ const App = () => {
     sessionStorage.removeItem("current_view");
     sessionStorage.removeItem("profile_tab");
     setCurrentUser(user);
+    setRolePermissions(null);
     setProfileName(name);
     setActiveItem("work");
     setActiveSubItem("home");
@@ -495,9 +551,12 @@ const App = () => {
 
   const handleSignupSuccess = (data) => {
     if (data?.invitation_accepted && data?.token && data?.user) {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
       sessionStorage.setItem("token", data.token);
       sessionStorage.setItem("user", JSON.stringify(data.user));
       setCurrentUser(data.user);
+      setRolePermissions(null);
       setProfileName(data.user.name || data.user.username || data.user.email || "User");
       navigate("/");
       return;
@@ -505,6 +564,8 @@ const App = () => {
     // Clear any active session so the user must sign in explicitly
     sessionStorage.removeItem("user");
     sessionStorage.removeItem("token");
+    localStorage.removeItem("user");
+    localStorage.removeItem("token");
     setCurrentUser(null);
     const registeredEmail = data?.email || data?.user?.email || "";
     navigate("/signin", {
@@ -516,8 +577,11 @@ const App = () => {
   };
 
   const handleInvitationAccepted = (user) => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
     sessionStorage.setItem("user", JSON.stringify(user));
     setCurrentUser(user);
+    setRolePermissions(null);
     setProfileName(user.name || user.username || user.email || "User");
     navigate("/");
   };
@@ -538,7 +602,6 @@ const App = () => {
                   onNavigateToForgotPassword={() => navigate("/forgot-password")}
                   onLoginSuccess={handleLoginSuccess}
                   theme={theme}
-                  onThemeToggle={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
                 />
               </Suspense>
             }
@@ -555,7 +618,6 @@ const App = () => {
                   onNavigateToForgotPassword={() => navigate("/forgot-password")}
                   onLoginSuccess={handleLoginSuccess}
                   theme={theme}
-                  onThemeToggle={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
                 />
               </Suspense>
             }
@@ -571,7 +633,6 @@ const App = () => {
                   }}
                   onSignupSuccess={handleSignupSuccess}
                   theme={theme}
-                  onThemeToggle={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
                 />
               </Suspense>
             }
@@ -584,7 +645,6 @@ const App = () => {
                   isAuthenticated={isAuthenticated}
                   onInvitationAccepted={handleInvitationAccepted}
                   theme={theme}
-                  onThemeToggle={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
                 />
               </Suspense>
             }
@@ -598,7 +658,6 @@ const App = () => {
                     navigate("/signin", authData ? { state: authData } : undefined)
                   }
                   theme={theme}
-                  onThemeToggle={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
                 />
               </Suspense>
             }
@@ -613,42 +672,48 @@ const App = () => {
     return <Navigate to="/signin" replace state={{ from: location.pathname }} />;
   }
 
+  if (rolePermissions === null) {
+    return <div role="status" aria-live="polite">Loading workspace access…</div>;
+  }
+
+  const effectiveRole = rolePermissions.current_role || currentUser?.role || "user";
+  if (!isAllowedRouteForRole(location.pathname, effectiveRole)) {
+    return <Navigate to={getRoleHome(effectiveRole)} replace />;
+  }
+
   return (
     <div className="app" data-theme={theme}>
 
       {/* TOP NAVBAR */}
-      <Navbar
-        profileName={profileName}
-        profilePhoto={profilePhoto}
-        currentUser={currentUser}
-        isAuthenticated={isAuthenticated}
-        canManageTeam={true}
-        canInviteElevatedRoles={true}
-        theme={theme}
-        onThemeChange={setTheme}
-        onHomeClick={handleHomeClick}
-        onMenuClick={() =>
-          setSidebarOpen(!sidebarOpen)
-        }
-        onProfileClick={() => {
-          sessionStorage.setItem("current_view", "profile");
-          sessionStorage.setItem("profile_tab", "personal");
-          navigate("/profile/personal");
-        }}
-        onSettingsClick={() => {
-          sessionStorage.setItem("current_view", "settings");
-          sessionStorage.setItem("profile_tab", "basic");
-          navigate("/settings/basic");
-        }}
-        onSignInClick={() => navigate("/signin")}
-        onSignUpClick={() => navigate("/signup")}
-        onSignOutClick={handleLogout}
-        onSelectSuggestion={handleSelectSuggestion}
-        onPermissionsUpdated={() => {
-          setRolePermissions(FULL_OPEN_PERMISSIONS);
-        }}
-        onCreateClick={handleCreateClick}
-      />
+      <Suspense fallback={null}>
+        <Navbar
+          profileName={profileName}
+          profilePhoto={profilePhoto}
+          currentUser={currentUser}
+          isAuthenticated={isAuthenticated}
+          canManageTeam
+          canInviteElevatedRoles
+          theme={theme}
+          onThemeChange={setTheme}
+          onHomeClick={handleHomeClick}
+          onMenuClick={() => setSidebarOpen(!sidebarOpen)}
+          onProfileClick={() => {
+            sessionStorage.setItem("current_view", "profile");
+            sessionStorage.setItem("profile_tab", "personal");
+            navigate("/profile/personal");
+          }}
+          onSettingsClick={() => {
+            sessionStorage.setItem("current_view", "settings");
+            sessionStorage.setItem("profile_tab", "notifications");
+            navigate("/settings/notifications");
+          }}
+          onSignInClick={() => navigate("/signin")}
+          onSignUpClick={() => navigate("/signup")}
+          onSignOutClick={handleLogout}
+          onSelectSuggestion={handleSelectSuggestion}
+          onCreateClick={handleCreateClick}
+        />
+      </Suspense>
 
       {currentView === "profile" || currentView === "settings" ? (
         <Suspense fallback={null}>
@@ -685,10 +750,12 @@ const App = () => {
               sidebarOpen ? "open" : "closed"
             }`}
           >
-            <MainSidebar
-              activeItem={selectedActiveItem}
-              setActiveItem={handleMainItemSelect}
-            />
+            <Suspense fallback={null}>
+              <MainSidebar
+                activeItem={selectedActiveItem}
+                setActiveItem={handleMainItemSelect}
+              />
+            </Suspense>
           </div>
 
           {/* SUB SIDEBAR */}
@@ -698,10 +765,12 @@ const App = () => {
                 sidebarOpen ? "open" : "closed"
               }`}
             >
-              <SubSidebar
-                activeMenu={selectedActiveSubItem}
-                onMenuSelect={handleSubItemSelect}
-              />
+              <Suspense fallback={null}>
+                <SubSidebar
+                  activeMenu={selectedActiveSubItem}
+                  onMenuSelect={handleSubItemSelect}
+                />
+              </Suspense>
             </div>
           )}
 
@@ -711,38 +780,40 @@ const App = () => {
                 sidebarOpen ? "open" : "closed"
               }`}
             >
-              <TrackerSidebar
-                selectedItem={
-                  isReportsRoute
-                    ? "Reports"
-                    : isResourcingRoute
-                      ? "Resourcing"
-                      : isGoalsRoute || isStrategyMapRoute || isTeamGoalsRoute
-                        ? "Goals"
-                        : trackerView
-                }
-                onSelectionChange={(item) => {
-                  if (item === "Goals") {
-                    setTrackerView("Goals");
-                    navigate("/strategy/goals");
-                  } else if (item === "Strategy map") {
-                    setTrackerView("Strategy map");
-                    navigate("/strategy/strategy-map");
-                  } else if (item === "Team goals") {
-                    setTrackerView("Team goals");
-                    navigate("/strategy/team-goals");
-                  } else if (item === "Reports") {
-                    setTrackerView("Reports");
-                    navigate("/strategy/reports");
-                  } else if (item === "Resourcing") {
-                    setTrackerView("Resourcing");
-                    navigate("/strategy/resourcing");
-                  } else {
-                    setTrackerView("Reports");
-                    navigate("/strategy/reports");
+              <Suspense fallback={null}>
+                <TrackerSidebar
+                  selectedItem={
+                    isReportsRoute
+                      ? "Reports"
+                      : isResourcingRoute
+                        ? "Resourcing"
+                        : isGoalsRoute || isStrategyMapRoute || isTeamGoalsRoute
+                          ? "Goals"
+                          : trackerView
                   }
-                }}
-              />
+                  onSelectionChange={(item) => {
+                    if (item === "Goals") {
+                      setTrackerView("Goals");
+                      navigate("/strategy/goals");
+                    } else if (item === "Strategy map") {
+                      setTrackerView("Strategy map");
+                      navigate("/strategy/strategy-map");
+                    } else if (item === "Team goals") {
+                      setTrackerView("Team goals");
+                      navigate("/strategy/team-goals");
+                    } else if (item === "Reports") {
+                      setTrackerView("Reports");
+                      navigate("/strategy/reports");
+                    } else if (item === "Resourcing") {
+                      setTrackerView("Resourcing");
+                      navigate("/strategy/resourcing");
+                    } else {
+                      setTrackerView("Reports");
+                      navigate("/strategy/reports");
+                    }
+                  }}
+                />
+              </Suspense>
             </div>
           )}
 
@@ -752,7 +823,9 @@ const App = () => {
                 sidebarOpen ? "open" : "closed"
               }`}
             >
-              <KnowledgeSidebar />
+              <Suspense fallback={null}>
+                <KnowledgeSidebar />
+              </Suspense>
             </div>
           )}
 
@@ -762,37 +835,40 @@ const App = () => {
                 sidebarOpen ? "open" : "closed"
               }`}
             >
-              <PeopleSidebar
-                activeItem={
-                  location.pathname === "/people/teams"
-                    ? "Teams"
-                    : location.pathname === "/people/invitations"
-                      ? "Invitations"
-                      : peopleTab === "teams"
-                        ? "Teams"
-                        : peopleTab === "invitations"
-                          ? "Invitations"
-                          : "Members"
-                }
-                onNavigate={(item) => {
-                  if (item === "Teams") {
-                    setPeopleTab("teams");
-                    navigate("/people/teams");
-                  } else if (item === "Invitations") {
-                    setPeopleTab("invitations");
-                    navigate("/people/invitations");
-                  } else {
-                    setPeopleTab("members");
-                    navigate("/people");
+              <Suspense fallback={null}>
+                <PeopleSidebar
+                  activeItem={
+                    location.pathname === "/people/teams"
+                      ? "Teams"
+                      : location.pathname === "/people/invitations"
+                        ? "Invitations"
+                        : peopleTab === "teams"
+                          ? "Teams"
+                          : peopleTab === "invitations"
+                            ? "Invitations"
+                            : "Members"
                   }
-                }}
-              />
+                  onNavigate={(item) => {
+                    if (item === "Teams") {
+                      setPeopleTab("teams");
+                      navigate("/people/teams");
+                    } else if (item === "Invitations") {
+                      setPeopleTab("invitations");
+                      navigate("/people/invitations");
+                    } else {
+                      setPeopleTab("members");
+                      navigate("/people");
+                    }
+                  }}
+                />
+              </Suspense>
             </div>
           )}
 
           {/* MAIN CONTENT */}
           <div className="main-content">
-            <Routes>
+            <Suspense fallback={<main className="route-loading" role="status">Loading page…</main>}>
+              <Routes>
               <Route path="/" element={<Dashboard profileName={profileName} currentUser={currentUser} />} />
               <Route path="/home" element={<Dashboard profileName={profileName} currentUser={currentUser} />} />
               <Route path="/work/tasks" element={<Suspense fallback={<div className="backlog-skeleton-wrapper" style={{ padding: 24 }}><div className="backlog-skeleton-card"><div className="backlog-skeleton-header" /><div className="backlog-skeleton-row" /><div className="backlog-skeleton-row" /></div></div>}><MyTasksScreen rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
@@ -807,7 +883,9 @@ const App = () => {
               <Route path="/work/inbox" element={<Inbox theme={theme} />} />
               <Route path="/inbox" element={<Inbox theme={theme} />} />
               <Route path="/work/projects" element={<Suspense fallback={<main role="status">Loading Projects...</main>}><Projects rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
+              <Route path="/work/projects/:projectId" element={<Suspense fallback={<main role="status">Loading Project...</main>}><ProjectDetails rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
               <Route path="/projects" element={<Suspense fallback={<main role="status">Loading Projects...</main>}><Projects rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
+              <Route path="/projects/:projectId" element={<Suspense fallback={<main role="status">Loading Project...</main>}><ProjectDetails rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
               <Route path="/work/portfolios" element={<Suspense fallback={<main role="status">Loading Portfolios...</main>}><Portfolios currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>} />
               <Route path="/portfolios" element={<Suspense fallback={<main role="status">Loading Portfolios...</main>}><Portfolios currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>} />
               <Route path="/strategy/goals" element={<Suspense fallback={<main role="status">Loading Goals...</main>}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="My goals" /></Suspense>} />
@@ -826,7 +904,6 @@ const App = () => {
                 element={
                   <PeopleRouteWrapper
                     theme={theme}
-                    currentUser={currentUser}
                     onTabChange={(tab) => {
                       setPeopleTab(tab);
                       navigate(tab === "members" ? "/people" : `/people/${tab}`);
@@ -859,7 +936,6 @@ const App = () => {
                 ) : selectedActiveItem === "people" ? (
                   <PeoplePage
                     theme={theme}
-                    currentUser={currentUser}
                     activeTab={peopleTab}
                     onTabChange={(tab) => {
                       setPeopleTab(tab);
@@ -872,7 +948,8 @@ const App = () => {
                   <Dashboard profileName={profileName} currentUser={currentUser} />
                 )}
               />
-            </Routes>
+              </Routes>
+            </Suspense>
           </div>
 
         </div>
@@ -882,5 +959,11 @@ const App = () => {
   );
 };
 
+
+const App = () => (
+  <BrowserRouter>
+    <AppContent />
+  </BrowserRouter>
+);
 
 export default App;

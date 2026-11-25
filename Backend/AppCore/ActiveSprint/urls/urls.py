@@ -3,7 +3,7 @@ URL patterns for appcore module matching all specifications in Images 2, 3, and 
 Supports both trailing and non-trailing slashes for maximum client compatibility.
 """
 from django.urls import re_path
-from appcore.views import (
+from AppCore.ActiveSprint.views import (
     # 01 Sprint Management & Creation
     BoardSprintsView,
     SprintCreateView,

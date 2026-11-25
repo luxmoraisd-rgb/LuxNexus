@@ -8,6 +8,7 @@ API Views implementing all endpoints from the specifications:
 """
 from django.db import models
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
@@ -15,8 +16,10 @@ from django.db.models import Q
 from django.contrib.auth import get_user_model
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 
-from appcore.models import Board, Sprint, BoardView, BoardColumn, Task
-from appcore.serializers import (
+from AppCore.task_assignees import list_task_assignees
+from AppCore.ActiveSprint.models import Board, Sprint, BoardView, BoardColumn, Task
+from AppCore.Auth.role_permissions import RoleModulePermission, RoleCapabilityPermission
+from AppCore.ActiveSprint.serializers import (
     UserSerializer,
     BoardSerializer,
     SprintSerializer,
@@ -52,6 +55,8 @@ class BoardSprintsView(APIView):
 
 
 class SprintCreateView(APIView):
+    permission_classes = [IsAuthenticated, RoleModulePermission, RoleCapabilityPermission]
+    role_capabilities = {"POST": "manage_sprints"}
     """
     POST /api/sprints
     Create Sprint: Initialize a new sprint. Payload includes name (e.g., "New sprint") and duration dates.
@@ -67,6 +72,12 @@ class SprintCreateView(APIView):
         
         data = request.data.copy()
         data['board_id'] = board_id
+        sprint_id = data.get('sprint_id') or data.get('sprintId')
+        if sprint_id not in (None, "", "backlog"):
+            sprint = Sprint.objects.filter(pk=sprint_id).first()
+            if sprint:
+                data['project_id'] = str(data.get('project_id') or data.get('projectId') or sprint.project_id)
+        data['project_id'] = str(data.get('project_id') or data.get('projectId') or "")
         
         # Calculate next sprint order
         last_sprint = Sprint.objects.filter(board_id=board_id).order_by('-order').first()
@@ -375,9 +386,7 @@ class UserListView(APIView):
     """
     @extend_schema(summary="Retrieve user list for assignee/filter dropdowns", responses={200: UserSerializer(many=True)})
     def get(self, request):
-        users = User.objects.all().order_by('id')
-        serializer = UserSerializer(users, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(list_task_assignees(UserSerializer), status=status.HTTP_200_OK)
 
 
 # ==============================================================================
@@ -561,6 +570,8 @@ class ViewOptionsView(APIView):
 # ==============================================================================
 
 class TaskCreateListView(APIView):
+    permission_classes = [IsAuthenticated, RoleModulePermission, RoleCapabilityPermission]
+    role_capabilities = {"POST": "manage_tasks", "GET": "view_tasks"}
     """
     POST /api/tasks - Add a new task to a specific sprint or board (New task, + Add task)
     GET /api/tasks - List all tasks with optional filtering by board_id or sprint_id
@@ -572,6 +583,7 @@ class TaskCreateListView(APIView):
         sprint_id = request.query_params.get('sprint_id')
         status_filter = request.query_params.get('status')
         type_filter = request.query_params.get('type')
+        project_id = request.query_params.get('project_id')
 
         if board_id:
             tasks = tasks.filter(board_id=board_id)
@@ -581,6 +593,8 @@ class TaskCreateListView(APIView):
             tasks = tasks.filter(status=status_filter)
         if type_filter:
             tasks = tasks.filter(task_type=type_filter)
+        if project_id:
+            tasks = tasks.filter(project_id=project_id)
 
         serializer = TaskSerializer(tasks, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -789,7 +803,7 @@ class MongoHealthCheckView(APIView):
     """
     @extend_schema(summary="Check MongoDB database connection status and server info")
     def get(self, request):
-        from appcore.db import check_mongo_connection
+        from AppCore.ActiveSprint.db import check_mongo_connection
         status_info = check_mongo_connection()
         http_status = status.HTTP_200_OK if status_info.get("ok") else status.HTTP_503_SERVICE_UNAVAILABLE
         return Response(status_info, status=http_status)
@@ -802,7 +816,7 @@ class MongoSyncView(APIView):
     """
     @extend_schema(summary="Synchronize PostgreSQL/SQLite board data into MongoDB collections")
     def post(self, request):
-        from appcore.db import sync_django_models_to_mongo
+        from AppCore.ActiveSprint.db import sync_django_models_to_mongo
         sync_result = sync_django_models_to_mongo()
         return Response(sync_result, status=status.HTTP_200_OK)
 

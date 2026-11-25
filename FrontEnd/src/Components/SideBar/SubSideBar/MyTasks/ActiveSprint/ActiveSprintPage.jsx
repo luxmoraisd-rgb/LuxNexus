@@ -218,15 +218,6 @@ export const ActiveSprintPage = ({ rolePermissions, currentUser }) => {
     }
   }, [showToast]);
 
-  // Move Task Handler (API integrated)
-  const handleMoveTask = useCallback(async (taskId, targetSprint) => {
-    setAllTasks((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, sprintId: targetSprint } : t))
-    );
-    showToast(`Task moved to ${targetSprint === 'backlog' ? 'Backlog' : 'Sprint'}`, 'info');
-    await activeSprintApi.moveTask(taskId, { sprintId: targetSprint });
-  }, [showToast]);
-
   // Update Sprint Dates Handler (API integrated)
   const handleUpdateSprintDates = useCallback(async (sprintId, datesText) => {
     setSprints((prev) =>
@@ -295,7 +286,6 @@ export const ActiveSprintPage = ({ rolePermissions, currentUser }) => {
         onOpenTypePicker={(task, e) => handleOpenModal('typePicker', task, e)}
         onOpenSPPicker={(task, e) => handleOpenModal('spPicker', task, e)}
         onOpenEpicPicker={(task, e) => handleOpenModal('epicPicker', task, e)}
-        onMoveTask={handleMoveTask}
         onDeleteTask={handleDeleteTask}
         onUpdateTaskStatus={handleStatusChange}
         onCreateTask={handleCreateTask}

@@ -2,18 +2,14 @@ import React, { useState, useEffect } from "react";
 import "./CreateGoalModel.css";
 import { CloseIcon } from "./Icons";
 
-const OTHER_OWNERS = [
-  { id: "2", name: "Sarah Chen", role: "Engineering Lead" },
-  { id: "3", name: "Alex Rivera", role: "Design Lead" },
-  { id: "4", name: "Michael Chang", role: "Operations" },
-];
+const OTHER_OWNERS = [];
 
 const getCurrentOwner = (currentUser) => {
   const accountName =
     currentUser?.name ||
     currentUser?.username ||
     currentUser?.email?.split("@")[0] ||
-    "Franklin";
+    "";
   const name = accountName.split("@")[0].trim();
   const displayName = name.charAt(0).toUpperCase() + name.slice(1);
 
@@ -46,8 +42,8 @@ function CreateGoalModal({ isOpen, onClose, onCreateGoal, currentUser }) {
   const [goalName, setGoalName] = useState("");
   const [status, setStatus] = useState("on track");
   const [ownerId, setOwnerId] = useState(() => getCurrentOwner(currentUser).id);
-  const [timePeriod, setTimePeriod] = useState("Q1 FY26");
-  const [team, setTeam] = useState("Engineering");
+  const [timePeriod, setTimePeriod] = useState("");
+  const [team, setTeam] = useState("");
   const [progress, setProgress] = useState(0);
   const [privacy, setPrivacy] = useState("public");
   const availableOwners = [getCurrentOwner(currentUser), ...OTHER_OWNERS];
@@ -84,8 +80,8 @@ function CreateGoalModal({ isOpen, onClose, onCreateGoal, currentUser }) {
       name: goalName.trim(),
       status: status || "on track",
       progress: Number(progress) || 0,
-      timePeriod: timePeriod || "Q1 FY26",
-      team: team || "Engineering",
+      timePeriod,
+      team,
       owner: selectedOwner,
       privacy: privacy || "public",
       isPlaceholder: false,
