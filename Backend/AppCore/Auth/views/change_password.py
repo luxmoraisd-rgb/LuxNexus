@@ -6,7 +6,7 @@ from bson import ObjectId
 
 from django.contrib.auth.hashers import check_password, make_password
 from rest_framework import status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -18,6 +18,14 @@ from ..utils import create_token, is_valid_otp
 logger = logging.getLogger(__name__)
 
 
+class IsAuthenticatedOrOTPReset(BasePermission):
+    def has_permission(self, request, view):
+        user = getattr(request, "user", None)
+        if user is not None and user.is_authenticated:
+            return True
+        return bool(request.data.get("otp"))
+
+
 class ChangePasswordView(APIView):
     """
     Dedicated view for changing account password.
@@ -27,7 +35,7 @@ class ChangePasswordView(APIView):
       2. User with verified OTP changing password (forgot-password reset flow).
       3. Direct user identification via Bearer token, session user, email, or username.
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticatedOrOTPReset]
 
     def post(self, request):
         serializer = ChangePasswordSerializer(data=request.data)

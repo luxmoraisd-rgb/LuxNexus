@@ -16,6 +16,7 @@ def user_payload(user):
         email = user.email
         first_name = user.first_name
         last_name = user.last_name
+        employee_id = user.employee_id
         role = user.role
     else:
         user_id = str(user["_id"])
@@ -23,6 +24,7 @@ def user_payload(user):
         email = user["email"]
         first_name = user.get("first_name", "")
         last_name = user.get("last_name", "")
+        employee_id = user.get("employee_id", "")
         role = user.get("role", "user")
     return {
         "id": user_id,
@@ -31,6 +33,7 @@ def user_payload(user):
         "name": first_name or username,
         "first_name": first_name,
         "last_name": last_name,
+        "employee_id": employee_id,
         "role": role,
     }
 
@@ -99,6 +102,7 @@ def create_token(
     user_agent=None,
     device=None,
     location=None,
+    expires_in_days=14,
 ):
     token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
@@ -109,7 +113,7 @@ def create_token(
         "user_id": str(user_id),
         "created_at": created_at,
         "last_used_at": created_at,
-        "expires_at": created_at + timedelta(days=14),
+        "expires_at": created_at + timedelta(days=expires_in_days),
         "ip": ip or "127.0.0.1",
         "user_agent": user_agent or "",
         "device": parsed_device,

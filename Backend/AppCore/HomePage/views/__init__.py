@@ -8,7 +8,6 @@ from .views import (
     DashboardWidgetViewSet,
     DashboardSummaryView,
     HealthCheckView,
-    SeedDataView,
 )
 
 __all__ = [
@@ -21,5 +20,4 @@ __all__ = [
     'DashboardWidgetViewSet',
     'DashboardSummaryView',
     'HealthCheckView',
-    'SeedDataView',
 ]

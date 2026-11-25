@@ -2,12 +2,11 @@ import { memo } from 'react';
 import {
   CommentBubblePlusIcon,
   UserOutlineIcon,
-  MoveUpIcon,
-  MoveDownIcon,
   TrashIcon,
   EditIcon,
 } from './BacklogIcons';
-import { STATUS_CONFIG, TEAM_MEMBERS, TYPE_CONFIG, isTaskPastDueAndIncomplete } from './TaskRowUtils';
+import { getProfileAvatarUrl, STATUS_CONFIG, TEAM_MEMBERS, TYPE_CONFIG, isTaskPastDueAndIncomplete } from './TaskRowUtils';
+import TaskOwnerAvatar from './TaskOwnerAvatar';
 
 const TaskRow = memo(({
   task,
@@ -23,7 +22,6 @@ const TaskRow = memo(({
   onOpenSPPicker,
   onOpenEpicPicker,
   onOpenEditTaskId,
-  onMoveTask,
   onDeleteTask,
   showToast,
   teamMembers = TEAM_MEMBERS,
@@ -33,25 +31,36 @@ const TaskRow = memo(({
   const ownerObj =
     typeof task.owner === 'object' && task.owner !== null
       ? {
+          ...task.owner,
           id: task.owner.id || task.owner.email || '',
           name: task.owner.name || task.owner.username || 'Unassigned',
           initial: task.owner.initial || (task.owner.name ? task.owner.name[0].toUpperCase() : 'U'),
-          avatarBg: task.owner.avatarBg || '#6366f1',
+          avatarBg: task.owner.avatarBg || task.owner.avatarColor || '#6366f1',
+          avatarUrl: getProfileAvatarUrl(task.owner),
         }
-      : membersList.find(
-          (m) =>
-            m.id === task.owner ||
-            (m.username && m.username.toLowerCase() === String(task.owner || '').toLowerCase()) ||
-            m.name?.toLowerCase() === String(task.owner || '').toLowerCase() ||
-            (m.id === 'sivakumar' && task.owner === 'siva')
-        ) ||
-        (task.owner
-          ? {
-              name: String(task.owner),
-              initial: String(task.owner)[0]?.toUpperCase() || 'U',
-              avatarBg: '#137333',
-            }
-          : null);
+      : (() => {
+          const member = membersList.find(
+            (m) =>
+              m.id === task.owner ||
+              (m.username && m.username.toLowerCase() === String(task.owner || '').toLowerCase()) ||
+              m.name?.toLowerCase() === String(task.owner || '').toLowerCase()
+          );
+          if (member) {
+            return {
+              ...member,
+              initial: member.initial || member.initials || member.name?.[0]?.toUpperCase() || 'U',
+              avatarBg: member.avatarBg || member.avatarColor || '#6366f1',
+              avatarUrl: getProfileAvatarUrl(member),
+            };
+          }
+          return task.owner
+            ? {
+                name: String(task.owner),
+                initial: String(task.owner)[0]?.toUpperCase() || 'U',
+                avatarBg: '#6366f1',
+              }
+            : null;
+        })();
   const isDone = task.status === 'Done';
 
 
@@ -127,12 +136,7 @@ const TaskRow = memo(({
           title={`Assigned to ${ownerObj ? ownerObj.name : 'Unassigned'}. Click to reassign`}
         >
           {ownerObj ? (
-            <div
-              className="backlog-owner-initial-avatar"
-              style={{ backgroundColor: ownerObj.avatarBg }}
-            >
-              {ownerObj.initial}
-            </div>
+            <TaskOwnerAvatar key={ownerObj.avatarUrl || ownerObj.name} owner={ownerObj} />
           ) : (
             <div className="backlog-owner-avatar">
               <UserOutlineIcon size={16} />
@@ -232,19 +236,9 @@ const TaskRow = memo(({
       </td>
 
 
-      {/* Quick Actions (Move & Delete) */}
+      {/* Quick Action */}
       <td className="td-actions">
         <div className="backlog-row-actions">
-          {/* Move between Sprint and Backlog */}
-          <button
-            type="button"
-            className="backlog-row-action-btn"
-            onClick={() => onMoveTask(task.id, isSprint1 ? 'backlog' : 'sprint1')}
-            title={isSprint1 ? 'Move to Backlog' : 'Move to Sprint 1'}
-          >
-            {isSprint1 ? <MoveDownIcon size={13} /> : <MoveUpIcon size={13} />}
-          </button>
-
           {/* Delete Task */}
           <button
             type="button"

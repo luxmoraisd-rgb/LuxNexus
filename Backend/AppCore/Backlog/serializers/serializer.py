@@ -3,11 +3,28 @@ Serializers for Board, Sprint, BoardView, BoardColumn, Task, and User models.
 Supports request payloads and nested responses matching the Agile UI specifications.
 """
 from rest_framework import serializers
+from django.db.models import Q
 from django.contrib.auth import get_user_model
-from AppCore.serializers.serializers import MongoModelSerializer
+from AppCore.serializers.serializers import (
+    MongoModelSerializer,
+    normalize_related_id_alias,
+)
 from ..models import Board, Sprint, BoardView, BoardColumn, Task
 
 User = get_user_model()
+STORY_POINT_VALUES = {1, 2, 3, 5, 7, 9, 10, 12, 13}
+
+
+def _accessible_ids_for_context(context):
+    if "accessible_project_ids" not in context:
+        request = context.get("request")
+        if request is None:
+            context["accessible_project_ids"] = None
+        else:
+            from AppCore.project_access import accessible_project_ids
+
+            context["accessible_project_ids"] = accessible_project_ids(request.user)
+    return context["accessible_project_ids"]
 
 
 class UserSerializer(MongoModelSerializer):
@@ -55,7 +72,7 @@ class BoardSerializer(MongoModelSerializer):
 class TaskSerializer(MongoModelSerializer):
     taskId = serializers.CharField(source='task_key', required=False)
     type = serializers.CharField(source='task_type', required=False)
-    sp = serializers.IntegerField(source='estimated_sp', required=False)
+    sp = serializers.IntegerField(source='estimated_sp', required=False, allow_null=True)
     sprintId = serializers.PrimaryKeyRelatedField(
         queryset=Sprint.objects.all(), source='sprint', required=False, allow_null=True
     )
@@ -79,6 +96,7 @@ class TaskSerializer(MongoModelSerializer):
         fields = [
             'id',
             'task_key',
+            'project_id',
             'taskId',
             'title',
             'description',
@@ -104,7 +122,30 @@ class TaskSerializer(MongoModelSerializer):
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
+    def to_internal_value(self, data):
+        data = normalize_related_id_alias(data, "owner", "owner_id")
+        return super().to_internal_value(data)
+
+    def validate_sp(self, value):
+        if value is not None and value not in STORY_POINT_VALUES:
+            raise serializers.ValidationError(
+                "Story points must be one of: 1, 2, 3, 5, 7, 9, 10, 12, 13."
+            )
+        return value
+
+    def validate_estimated_sp(self, value):
+        if value is not None and value not in STORY_POINT_VALUES:
+            raise serializers.ValidationError(
+                "Story points must be one of: 1, 2, 3, 5, 7, 9, 10, 12, 13."
+            )
+        return value
+
     def validate(self, attrs):
+        estimated_sp = attrs.get("estimated_sp")
+        if estimated_sp is not None and estimated_sp not in STORY_POINT_VALUES:
+            raise serializers.ValidationError(
+                {"estimated_sp": "Story points must be one of: 1, 2, 3, 5, 7, 9, 10, 12, 13."}
+            )
         board = attrs.get('board', getattr(self.instance, 'board', None))
         sprint = attrs.get('sprint', getattr(self.instance, 'sprint', None))
         if sprint and board and sprint.board_id != board.id:
@@ -127,6 +168,20 @@ class TaskSerializer(MongoModelSerializer):
 
         return attrs
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get("request")
+        if request is None or instance.sprint is None:
+            return data
+
+        project_ids = _accessible_ids_for_context(self.context)
+        if project_ids is not None:
+            if str(instance.sprint.project_id or "") not in project_ids:
+                data["sprint"] = None
+                data["sprintId"] = None
+                data["sprint_name"] = ""
+        return data
+
 
 class SprintSerializer(MongoModelSerializer):
     dates = serializers.CharField(source='duration_text', read_only=True)
@@ -146,6 +201,7 @@ class SprintSerializer(MongoModelSerializer):
             'id',
             'board',
             'board_id',
+            'project_id',
             'name',
             'status',
             'start_date',
@@ -164,6 +220,26 @@ class SprintSerializer(MongoModelSerializer):
             'updated_at',
         ]
         read_only_fields = ['id', 'total_sp', 'issues_count', 'created_at', 'updated_at']
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get("request")
+        if request is None:
+            return data
+
+        project_ids = _accessible_ids_for_context(self.context)
+        if project_ids is None:
+            return data
+
+        tasks = instance.tasks.filter(
+            Q(project_id__in=project_ids) | Q(project_id="")
+        )
+        data["tasks"] = TaskSerializer(
+            tasks, many=True, context=self.context
+        ).data
+        data["total_sp"] = sum(task.estimated_sp for task in tasks)
+        data["issues_count"] = tasks.count()
+        return data
 
     def get_isStarted(self, obj):
         return obj.status == 'active'

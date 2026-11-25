@@ -2,9 +2,10 @@ import base64
 import hashlib
 from datetime import datetime, timezone, timedelta
 import json
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from bson import ObjectId
+from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, override_settings
@@ -15,17 +16,26 @@ from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from .Auth.authentication import MongoTokenAuthentication
 from .Auth.role_permissions import (
+    AdminOnlyDeletePermission,
     DEFAULT_ROLE_POLICIES,
     RoleCapabilityPermission,
+    RoleModulePermission,
     TaskDetailRolePermission,
+    get_effective_role,
     has_role_permission,
 )
 from .Auth.views.permissions import RolePermissionsView
 from .checks import check_email_configuration
 from .models import MongoUser
-from .People.views import _invitation_days_left
+from .People.views import _format_user, _invitation_days_left
 from .Reporting.views.reports import EOD_PATTERN, _aggregate_reports, _eod_comment_reports
+from .ActiveSprint.serializers.serializer import TaskSerializer as ActiveSprintTaskSerializer
+from .Backlog.serializers.serializer import (
+    TaskSerializer as BacklogTaskSerializer,
+    UserSerializer as BacklogUserSerializer,
+)
 from .serializers.serializers import ProjectInputSerializer
+from .task_assignees import list_task_assignees
 
 
 class PeopleInvitationExpiryTests(SimpleTestCase):
@@ -40,30 +50,301 @@ class PeopleInvitationExpiryTests(SimpleTestCase):
         )
 
 
-class PeopleInvitationRevokeTests(SimpleTestCase):
-    @patch("AppCore.People.views.get_database")
-    def test_revoke_returns_updated_pending_invitation_count(self, get_database):
-        database = get_database.return_value
-        database.team_invitations.count_documents.return_value = 2
+class PeopleMemberFormattingTests(SimpleTestCase):
+    def test_member_payload_includes_employee_id(self):
+        person = _format_user(
+            {
+                "_id": ObjectId(),
+                "username": "nexus_user",
+                "email": "user@example.com",
+                "employee_id": "LUX-SD-CHN-007",
+            }
+        )
 
-        response = self.client.delete(
-            "/api/people/invitations/person%40example.com/"
+        self.assertEqual(person["employeeId"], "LUX-SD-CHN-007")
+
+    @override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
+    @patch("AppCore.People.views.get_database")
+    def test_people_list_marks_employee_id_edit_access_for_configured_admin(
+        self, get_database
+    ):
+        admin = MongoUser(
+            id=ObjectId(),
+            username="nexus_admin",
+            email="admin@example.com",
+            first_name="Admin",
+            last_name="",
+            role="admin",
+        )
+        client = APIClient()
+        client.force_authenticate(user=admin)
+        database = get_database.return_value
+        database.users.find.return_value.sort.return_value = [
+            {
+                "_id": ObjectId(),
+                "username": "member",
+                "email": "member@example.com",
+                "employee_id": "LUX-SD-CHN-007",
+            }
+        ]
+
+        response = client.get("/api/people/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data[0]["employeeId"], "LUX-SD-CHN-007")
+        self.assertTrue(response.data[0]["can_edit_employee_id"])
+
+
+@override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
+class PeopleEmployeeIdUpdateTests(SimpleTestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.target_id = ObjectId()
+        self.admin = MongoUser(
+            id=ObjectId(),
+            username="nexus_admin",
+            email="admin@example.com",
+            first_name="Admin",
+            last_name="",
+            role="admin",
+        )
+        self.member = MongoUser(
+            id=ObjectId(),
+            username="member",
+            email="member@example.com",
+            first_name="Member",
+            last_name="",
+            role="user",
+        )
+
+    @patch("AppCore.People.views.get_database")
+    def test_admin_can_update_another_members_employee_id(self, get_database):
+        self.client.force_authenticate(user=self.admin)
+        database = get_database.return_value
+        database.users.find_one.side_effect = [
+            {
+                "_id": self.target_id,
+                "username": "member",
+                "email": "member@example.com",
+            },
+            None,
+            {
+                "_id": self.target_id,
+                "username": "member",
+                "email": "member@example.com",
+                "employee_id": "LUX-SD-BNG-021",
+            },
+        ]
+
+        response = self.client.patch(
+            f"/api/people/{self.target_id}/",
+            {"employeeId": "lux-sd-bng-021"},
+            format="json",
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(),
-            {
-                "message": "Invitation for person@example.com revoked",
-                "pendingInvitations": 2,
-            },
+        self.assertEqual(response.data["employeeId"], "LUX-SD-BNG-021")
+        updates = database.users.update_one.call_args.args[1]["$set"]
+        self.assertEqual(updates["employee_id"], "LUX-SD-BNG-021")
+        self.assertEqual(updates["employee_id_sequence"], 21)
+
+    @patch("AppCore.People.views.get_database")
+    def test_non_admin_cannot_update_employee_id(self, get_database):
+        self.client.force_authenticate(user=self.member)
+        database = get_database.return_value
+        database.users.find_one.return_value = {
+            "_id": self.target_id,
+            "username": "member",
+            "email": "member@example.com",
+        }
+
+        response = self.client.patch(
+            f"/api/people/{self.target_id}/",
+            {"employeeId": "LUX-SD-BNG-021"},
+            format="json",
         )
-        database.team_invitations.delete_one.assert_called_once_with(
+
+        self.assertEqual(response.status_code, 403)
+        database.users.update_one.assert_not_called()
+
+    @patch("AppCore.People.views.get_database")
+    def test_admin_cannot_assign_employee_id_number_already_in_use(
+        self, get_database
+    ):
+        self.client.force_authenticate(user=self.admin)
+        database = get_database.return_value
+        database.users.find_one.side_effect = [
+            {"_id": self.target_id, "email": "member@example.com"},
+            {"_id": ObjectId(), "employee_id": "LUX-SD-CHN-021"},
+        ]
+
+        response = self.client.patch(
+            f"/api/people/{self.target_id}/",
+            {"employeeId": "LUX-SD-HYD-021"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("already assigned", response.data["error"])
+        database.users.update_one.assert_not_called()
+
+    @patch("AppCore.People.views.get_database")
+    def test_admin_cannot_assign_zero_employee_number(self, get_database):
+        self.client.force_authenticate(user=self.admin)
+        database = get_database.return_value
+        database.users.find_one.return_value = {
+            "_id": self.target_id,
+            "email": "member@example.com",
+        }
+
+        response = self.client.patch(
+            f"/api/people/{self.target_id}/",
+            {"employeeId": "LUX-SD-CHN-000"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("001 through LUX-SD-CHN-999", response.data["error"])
+        database.users.update_one.assert_not_called()
+
+
+class TaskAssigneeTests(SimpleTestCase):
+    def test_task_story_points_restrict_to_supported_values(self):
+        for serializer_class in (BacklogTaskSerializer, ActiveSprintTaskSerializer):
+            for invalid_sp in (4, 6, 8, 11, 40):
+                with self.subTest(serializer=serializer_class.__module__, sp=invalid_sp):
+                    if serializer_class is BacklogTaskSerializer:
+                        payload = {"title": "Task", "sp": invalid_sp}
+                    else:
+                        payload = {"title": "Task", "estimated_sp": invalid_sp}
+                    serializer = serializer_class(data=payload)
+                    self.assertFalse(serializer.is_valid())
+
+            for valid_sp in (1, 2, 3, 5, 7, 9, 10, 12, 13):
+                with self.subTest(serializer=serializer_class.__module__, sp=valid_sp):
+                    if serializer_class is BacklogTaskSerializer:
+                        payload = {"title": "Task", "sp": valid_sp}
+                    else:
+                        payload = {"title": "Task", "estimated_sp": valid_sp}
+                    serializer = serializer_class(data=payload)
+                    self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_both_task_serializers_accept_owner_alias_and_unassignment(self):
+        user = get_user_model()(id=ObjectId(), username="assignee")
+        for serializer_class in (BacklogTaskSerializer, ActiveSprintTaskSerializer):
+            with self.subTest(serializer=serializer_class.__module__):
+                serializer = serializer_class(
+                    data={"title": "Task", "owner": str(user.pk)}
+                )
+                queryset = Mock(spec=["get"])
+                queryset.get.return_value = user
+                serializer.fields["owner_id"].queryset = queryset
+
+                self.assertTrue(serializer.is_valid(), serializer.errors)
+                self.assertIs(serializer.validated_data["owner"], user)
+
+                clear_serializer = serializer_class(
+                    data={"title": "Task", "owner": ""}
+                )
+                self.assertTrue(clear_serializer.is_valid(), clear_serializer.errors)
+                self.assertIsNone(clear_serializer.validated_data["owner"])
+
+    def test_assignee_list_syncs_mongo_users_to_task_user_ids(self):
+        user_id = ObjectId()
+        document = {
+            "_id": user_id,
+            "username": "jordan",
+            "email": "jordan@example.com",
+            "first_name": "Jordan",
+            "last_name": "Lee",
+            "role": "team_lead",
+        }
+        with patch("AppCore.task_assignees.get_database") as get_database, patch(
+            "AppCore.task_assignees.User.objects.db_manager"
+        ) as db_manager, patch("AppCore.task_assignees.User.save"):
+            get_database.return_value.users.find.return_value.sort.return_value = [
+                document
+            ]
+            db_manager.return_value.filter.return_value.first.return_value = None
+
+            assignees = list_task_assignees(BacklogUserSerializer)
+
+        self.assertEqual(len(assignees), 1)
+        self.assertEqual(assignees[0]["id"], str(user_id))
+        self.assertEqual(assignees[0]["name"], "Jordan Lee")
+        self.assertEqual(assignees[0]["role"], "team_lead")
+
+
+@override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
+class PeopleInvitationRevokeTests(SimpleTestCase):
+    @patch("AppCore.People.views.get_database")
+    def test_all_roles_can_revoke_invitations(self, get_database):
+        database = get_database.return_value
+        database.team_invitations.count_documents.return_value = 2
+        for role, email in (
+            ("admin", "admin@example.com"),
+            ("team_lead", "lead@example.com"),
+            ("user", "member@example.com"),
+        ):
+            with self.subTest(role=role):
+                client = APIClient()
+                client.force_authenticate(user=MongoUser.from_document(
+                    {
+                        "_id": ObjectId(),
+                        "username": role,
+                        "email": email,
+                        "role": role,
+                    }
+                ))
+                response = client.delete(
+                    "/api/people/invitations/person%40example.com/"
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(
+                    response.json(),
+                    {
+                        "message": "Invitation for person@example.com revoked",
+                        "pendingInvitations": 2,
+                    },
+                )
+
+        self.assertEqual(database.team_invitations.delete_one.call_count, 3)
+        database.team_invitations.delete_one.assert_called_with(
             {"email": "person@example.com"}
         )
         count_filter = database.team_invitations.count_documents.call_args.args[0]
         self.assertIn("expires_at", count_filter)
         self.assertEqual(count_filter["accepted_at"], {"$exists": False})
+
+    @patch("AppCore.People.views.get_database")
+    def test_all_roles_can_add_people(self, get_database):
+        database = get_database.return_value
+        database.users.find_one.return_value = None
+        database.users.insert_one.return_value.inserted_id = ObjectId()
+
+        for role, email in (
+            ("admin", "admin@example.com"),
+            ("team_lead", "lead@example.com"),
+            ("user", "member@example.com"),
+        ):
+            with self.subTest(role=role):
+                client = APIClient()
+                client.force_authenticate(user=MongoUser.from_document(
+                    {
+                        "_id": ObjectId(),
+                        "username": role,
+                        "email": email,
+                        "role": role,
+                    }
+                ))
+                response = client.post(
+                    "/api/people/",
+                    {"email": f"new-{role}@example.com", "role": "user"},
+                    format="json",
+                )
+                self.assertEqual(response.status_code, 201)
+
+        self.assertEqual(database.users.insert_one.call_count, 3)
 
 
 class HealthCheckTests(SimpleTestCase):
@@ -93,6 +374,7 @@ class HealthCheckTests(SimpleTestCase):
         )
 
 
+@override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
 class FrontendApiRouteTests(SimpleTestCase):
     def test_frontend_api_routes_are_registered(self):
         object_id = "507f1f77bcf86cd799439011"
@@ -115,6 +397,7 @@ class FrontendApiRouteTests(SimpleTestCase):
             "/api/inbox/mark-all-read/",
             "/api/inbox/bulk/",
             "/api/backlog/tasks/",
+            "/api/backlog/users/",
             f"/api/backlog/tasks/{object_id}/",
             f"/api/backlog/tasks/{object_id}/move/",
             f"/api/backlog/tasks/{object_id}/comments/",
@@ -126,7 +409,6 @@ class FrontendApiRouteTests(SimpleTestCase):
             f"/api/backlog/sprints/{object_id}/complete/",
             "/api/backlog/health/",
             "/api/reporting/eod-reports/",
-            "/api/reporting/eod-reports/sample-data/",
             "/api/reporting/eod-reports/import/",
             "/api/reporting/eod-reports/preview-import/",
             f"/api/reporting/eod-reports/{object_id}/",
@@ -147,7 +429,12 @@ class FrontendApiRouteTests(SimpleTestCase):
     def test_empty_inbox_returns_success_instead_of_route_not_found(self, get_database):
         get_database.return_value.notifications.find.return_value.sort.return_value = []
         user = MongoUser.from_document(
-            {"_id": ObjectId(), "username": "inbox_user", "email": "inbox@example.com"}
+            {
+                "_id": ObjectId(),
+                "username": "inbox_user",
+                "email": "admin@example.com",
+                "role": "admin",
+            }
         )
         client = APIClient()
         client.force_authenticate(user=user)
@@ -157,8 +444,93 @@ class FrontendApiRouteTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), [])
 
+    @patch("AppCore.Inbox.views.get_database")
+    def test_inbox_message_creates_recipient_notification_and_sender_copy(self, get_database):
+        sender_id = ObjectId()
+        recipient_id = ObjectId()
+        recipient_notification_id = ObjectId()
+        sender_notification_id = ObjectId()
+        database = get_database.return_value
+        database.users.find_one.return_value = {
+            "_id": recipient_id,
+            "first_name": "Recipient",
+            "last_name": "Member",
+            "username": "recipient",
+            "email": "recipient@example.com",
+        }
+        database.notifications.insert_one.side_effect = [
+            Mock(inserted_id=recipient_notification_id),
+            Mock(inserted_id=sender_notification_id),
+        ]
+        user = MongoUser.from_document(
+            {
+                "_id": sender_id,
+                "username": "sender",
+                "email": "sender@example.com",
+                "role": "admin",
+            }
+        )
+        client = APIClient()
+        client.force_authenticate(user=user)
+
+        response = client.post(
+            "/api/inbox/",
+            {
+                "recipient_email": "recipient@example.com",
+                "title": "A mention",
+                "description": "Hello @recipient",
+                "type": "mention",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["id"], str(sender_notification_id))
+        inserted_recipient, inserted_sender = [
+            call.args[0]
+            for call in database.notifications.insert_one.call_args_list
+        ]
+        self.assertEqual(inserted_recipient["user_id"], str(recipient_id))
+        self.assertTrue(inserted_recipient["unread"])
+        self.assertFalse(inserted_recipient["isSent"])
+        self.assertTrue(inserted_recipient["mentioned"])
+        self.assertEqual(inserted_recipient["author"], "sender")
+        self.assertEqual(inserted_recipient["recipient_name"], "Recipient Member")
+        self.assertEqual(inserted_recipient["recipient_email"], "recipient@example.com")
+        self.assertEqual(inserted_sender["user_id"], str(sender_id))
+        self.assertFalse(inserted_sender["unread"])
+        self.assertTrue(inserted_sender["isSent"])
+
+    @patch("AppCore.Inbox.views.get_database")
+    def test_inbox_message_requires_an_existing_recipient(self, get_database):
+        database = get_database.return_value
+        database.users.find_one.return_value = None
+        user = MongoUser.from_document(
+            {
+                "_id": ObjectId(),
+                "username": "sender",
+                "email": "sender@example.com",
+                "role": "admin",
+            }
+        )
+        client = APIClient()
+        client.force_authenticate(user=user)
+
+        response = client.post(
+            "/api/inbox/",
+            {
+                "recipient_email": "missing@example.com",
+                "title": "A mention",
+                "type": "mention",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        database.notifications.insert_one.assert_not_called()
+
     @patch("AppCore.Chat.views.get_database")
-    def test_all_supported_roles_can_view_chat_and_read_status(self, get_database):
+    def test_all_roles_can_view_chat_and_read_status(self, get_database):
         database = get_database.return_value
         database.chat_messages.find.return_value.sort.return_value = []
         database.chat_messages.count_documents.return_value = 0
@@ -190,8 +562,11 @@ class FrontendApiRouteTests(SimpleTestCase):
                 self.assertEqual(read_response.status_code, 200)
 
     @patch("AppCore.Chat.views.get_database")
-    def test_only_team_leads_can_create_messages(self, get_database):
-        for role in ("user", "admin"):
+    def test_all_roles_can_create_messages(self, get_database):
+        database = get_database.return_value
+        database.chat_messages.insert_one.return_value.inserted_id = ObjectId()
+        database.users.find_one.return_value = {"username": "workspace_user"}
+        for role in ("user", "team_lead", "admin"):
             with self.subTest(role=role):
                 user = MongoUser.from_document(
                     {
@@ -206,22 +581,21 @@ class FrontendApiRouteTests(SimpleTestCase):
 
                 response = client.post(
                     "/api/auth/admin-chat/",
-                    {"content": "not allowed"},
+                    {"content": "Hello"},
                     format="json",
                 )
 
-                self.assertEqual(response.status_code, 403)
+                self.assertEqual(response.status_code, 201)
 
-        team_lead = MongoUser.from_document(
+        client = APIClient()
+        client.force_authenticate(user=MongoUser.from_document(
             {
                 "_id": ObjectId(),
-                "username": "team_lead",
-                "email": "lead@example.com",
-                "role": "team_lead",
+                "username": "member",
+                "email": "member@example.com",
+                "role": "user",
             }
-        )
-        client = APIClient()
-        client.force_authenticate(user=team_lead)
+        ))
         edit_response = client.patch(
             "/api/auth/admin-chat/",
             {"content": "edited"},
@@ -229,9 +603,8 @@ class FrontendApiRouteTests(SimpleTestCase):
         )
         delete_response = client.delete("/api/auth/admin-chat/")
 
-        self.assertEqual(edit_response.status_code, 403)
-        self.assertEqual(delete_response.status_code, 403)
-        get_database.assert_not_called()
+        self.assertEqual(edit_response.status_code, 405)
+        self.assertEqual(delete_response.status_code, 405)
 
     @patch("AppCore.Chat.views.get_database")
     def test_admin_can_view_chat_history_and_unread_count(self, get_database):
@@ -303,13 +676,13 @@ class FrontendApiRouteTests(SimpleTestCase):
         database.chat_messages.update_many.assert_called_once()
 
     @patch("AppCore.Chat.views.get_database")
-    def test_team_lead_chat_validates_and_persists_messages(self, get_database):
+    def test_admin_chat_validates_and_persists_messages(self, get_database):
         user = MongoUser.from_document(
             {
                 "_id": ObjectId(),
-                "username": "team_lead",
-                "email": "lead@example.com",
-                "role": "team_lead",
+                "username": "admin_user",
+                "email": "admin@example.com",
+                "role": "admin",
             }
         )
         database = get_database.return_value
@@ -353,7 +726,12 @@ class FrontendApiRouteTests(SimpleTestCase):
         notification_id = ObjectId()
         user_id = ObjectId()
         user = MongoUser.from_document(
-            {"_id": user_id, "username": "reply_author", "email": "reply@example.com"}
+            {
+                "_id": user_id,
+                "username": "reply_author",
+                "email": "admin@example.com",
+                "role": "admin",
+            }
         )
         notifications = get_database.return_value.notifications
         notifications.find_one.return_value = {"replies": []}
@@ -385,7 +763,12 @@ class FrontendApiRouteTests(SimpleTestCase):
     def test_reply_cannot_be_added_to_another_users_notification(self, get_database):
         notification_id = ObjectId()
         user = MongoUser.from_document(
-            {"_id": ObjectId(), "username": "reply_author", "email": "reply@example.com"}
+            {
+                "_id": ObjectId(),
+                "username": "reply_author",
+                "email": "admin@example.com",
+                "role": "admin",
+            }
         )
         notifications = get_database.return_value.notifications
         notifications.find_one.return_value = None
@@ -424,6 +807,7 @@ class MongoUserTests(SimpleTestCase):
                 "_id": user_id,
                 "username": "nexus_user",
                 "email": "user@example.com",
+                "employee_id": "LUX-SD-CHN-007",
             }
         )
 
@@ -431,6 +815,7 @@ class MongoUserTests(SimpleTestCase):
         self.assertTrue(user.is_authenticated)
         self.assertTrue(user.is_active)
         self.assertEqual(user.role, "user")
+        self.assertEqual(user.employee_id, "LUX-SD-CHN-007")
 
     def test_django_password_hasher_works_without_relational_auth_models(self):
         encoded = make_password("correct-horse-battery-staple")
@@ -524,6 +909,43 @@ class MongoAuthenticationTests(SimpleTestCase):
         )
 
 
+class LoginRememberMeTests(SimpleTestCase):
+    @patch("AppCore.Auth.views.login.get_client_ip", return_value="127.0.0.1")
+    @patch("AppCore.Auth.views.login.create_token", return_value="access-token")
+    @patch("AppCore.Auth.views.login.check_password", return_value=True)
+    @patch("AppCore.Auth.views.login.get_database")
+    def test_remember_me_extends_login_token_lifetime(
+        self, get_database, _check_password, create_token, _get_client_ip
+    ):
+        user_id = ObjectId()
+        get_database.return_value.users.find_one.return_value = {
+            "_id": user_id,
+            "username": "remember_user",
+            "email": "remember@example.com",
+            "password_hash": "hashed-password",
+            "is_active": True,
+        }
+        client = APIClient()
+
+        for remember_me, expected_days in ((False, 14), (True, 30)):
+            with self.subTest(remember_me=remember_me):
+                response = client.post(
+                    "/api/auth/login/",
+                    {
+                        "email": "remember@example.com",
+                        "password": "correct-password",
+                        "remember_me": remember_me,
+                    },
+                    format="json",
+                )
+
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(
+                    create_token.call_args.kwargs["expires_in_days"],
+                    expected_days,
+                )
+
+
 class SignupApiTests(SimpleTestCase):
     @patch("AppCore.Auth.views.signup.get_database")
     def test_signup_returns_user_and_mongodb_backed_bearer_token(self, get_database):
@@ -538,6 +960,7 @@ class SignupApiTests(SimpleTestCase):
                 {
                     "fullName": "Nexus User",
                     "email": "USER@example.com",
+                    "employee_id": "lux-sd-chn-007",
                     "password": "correct-horse",
                     "confirm_password": "correct-horse",
                 }
@@ -548,8 +971,12 @@ class SignupApiTests(SimpleTestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["user"]["id"], str(user_id))
         self.assertEqual(response.json()["user"]["email"], "user@example.com")
+        self.assertEqual(response.json()["user"]["employee_id"], "LUX-SD-CHN-007")
         self.assertTrue(response.json()["token"])
         self.assertNotIn("password_hash", response.json()["user"])
+        saved_user = database.users.insert_one.call_args.args[0]
+        self.assertEqual(saved_user["employee_id"], "LUX-SD-CHN-007")
+        self.assertEqual(saved_user["employee_id_sequence"], 7)
         database.tokens.insert_one.assert_called_once()
 
     @patch("AppCore.Auth.views.signup._get_valid_invitation")
@@ -577,6 +1004,7 @@ class SignupApiTests(SimpleTestCase):
                 {
                     "fullName": "Team Lead",
                     "email": "lead@example.com",
+                    "employee_id": "LUX-SD-BNG-008",
                     "password": "correct-horse",
                     "confirm_password": "correct-horse",
                     "invitation_token": token,
@@ -590,7 +1018,96 @@ class SignupApiTests(SimpleTestCase):
         self.assertTrue(response.json()["invitation_accepted"])
         self.assertEqual(database.users.insert_one.call_args.args[0]["role"], "team_lead")
 
+    @patch("AppCore.Auth.views.signup.get_database")
+    def test_signup_rejects_employee_id_with_an_unsupported_branch(self, get_database):
+        response = self.client.post(
+            "/api/auth/signup/",
+            data=json.dumps(
+                {
+                    "fullName": "Nexus User",
+                    "email": "user@example.com",
+                    "employee_id": "LUX-SD-MAA-007",
+                    "password": "correct-horse",
+                    "confirm_password": "correct-horse",
+                }
+            ),
+            content_type="application/json",
+        )
 
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("employee_id", response.json()["errors"])
+        get_database.assert_not_called()
+
+    @patch("AppCore.Auth.views.signup.get_database")
+    def test_signup_rejects_zero_employee_number(self, get_database):
+        response = self.client.post(
+            "/api/auth/signup/",
+            data=json.dumps(
+                {
+                    "fullName": "Nexus User",
+                    "email": "user@example.com",
+                    "employee_id": "LUX-SD-CHN-000",
+                    "password": "correct-horse",
+                    "confirm_password": "correct-horse",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("employee_id", response.json()["errors"])
+        get_database.assert_not_called()
+
+    @patch("AppCore.Auth.views.signup.get_database")
+    def test_signup_rejects_four_digit_employee_number(self, get_database):
+        response = self.client.post(
+            "/api/auth/signup/",
+            data=json.dumps(
+                {
+                    "fullName": "Nexus User",
+                    "email": "user@example.com",
+                    "employee_id": "LUX-SD-CHN-0007",
+                    "password": "correct-horse",
+                    "confirm_password": "correct-horse",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("employee_id", response.json()["errors"])
+        get_database.assert_not_called()
+
+    @patch("AppCore.Auth.views.signup.get_database")
+    def test_signup_rejects_employee_number_already_used_by_another_branch(
+        self, get_database
+    ):
+        database = get_database.return_value
+        database.users.find_one.side_effect = [
+            None,
+            {"employee_id": "LUX-SD-CHN-007", "employee_id_sequence": 7},
+        ]
+
+        response = self.client.post(
+            "/api/auth/signup/",
+            data=json.dumps(
+                {
+                    "fullName": "Nexus User",
+                    "email": "user@example.com",
+                    "employee_id": "LUX-SD-BNG-007",
+                    "password": "correct-horse",
+                    "confirm_password": "correct-horse",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("employee_id", response.json()["errors"])
+        database.users.insert_one.assert_not_called()
+
+
+@override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
 class TeamInvitationApiTests(SimpleTestCase):
     def setUp(self):
         self.client = APIClient()
@@ -683,11 +1200,10 @@ class TeamInvitationApiTests(SimpleTestCase):
         database.team_invitations.find_one_and_update.assert_not_called()
         database.users.update_one.assert_not_called()
 
-    @patch("AppCore.Auth.views.invitations.has_role_permission", return_value=True)
-    @patch("AppCore.Auth.views.invitations.send_mail")
+    @patch("AppCore.Auth.views.invitations.send_mail", return_value=1)
     @patch("AppCore.Auth.views.invitations.get_database")
-    def test_team_lead_cannot_invite_an_elevated_role(
-        self, get_database, send_mail, _has_role_permission
+    def test_team_lead_can_invite_an_elevated_role(
+        self, get_database, send_mail
     ):
         team_lead = MongoUser(
             id=ObjectId(),
@@ -705,9 +1221,59 @@ class TeamInvitationApiTests(SimpleTestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 403)
-        get_database.assert_not_called()
-        send_mail.assert_not_called()
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["role"], "team_lead")
+        invitation = get_database.return_value.team_invitations.update_one.call_args.args[1]["$set"]
+        self.assertEqual(invitation["role"], "team_lead")
+        send_mail.assert_called_once()
+
+    @patch("AppCore.Auth.views.invitations.send_mail", return_value=1)
+    @patch("AppCore.Auth.views.invitations.get_database")
+    def test_member_can_invite_a_team_lead(self, get_database, _send_mail):
+        member = MongoUser(
+            id=ObjectId(),
+            username="member",
+            email="member@example.com",
+            first_name="Member",
+            last_name="",
+            role="user",
+        )
+        self.client.force_authenticate(user=member)
+
+        response = self.client.post(
+            "/api/auth/invitations/",
+            {"email": "new.lead@example.com", "role": "team_lead"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["role"], "team_lead")
+        invitation = get_database.return_value.team_invitations.update_one.call_args.args[1]["$set"]
+        self.assertEqual(invitation["role"], "team_lead")
+
+    @patch("AppCore.Auth.views.invitations.send_mail", return_value=1)
+    @patch("AppCore.Auth.views.invitations.get_database")
+    def test_team_lead_can_invite_a_member(self, get_database, _send_mail):
+        team_lead = MongoUser(
+            id=ObjectId(),
+            username="team_lead",
+            email="lead@example.com",
+            first_name="Lead",
+            last_name="",
+            role="team_lead",
+        )
+        self.client.force_authenticate(user=team_lead)
+
+        response = self.client.post(
+            "/api/auth/invitations/",
+            {"email": "new.member@example.com", "role": "user"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["role"], "user")
+        invitation = get_database.return_value.team_invitations.update_one.call_args.args[1]["$set"]
+        self.assertEqual(invitation["role"], "user")
 
     @patch("AppCore.Auth.views.invitations.send_mail", side_effect=OSError("SMTP offline"))
     @patch("AppCore.Auth.views.invitations.get_database")
@@ -746,6 +1312,7 @@ class MongoProfileApiTests(SimpleTestCase):
             "_id": self.user_id,
             "username": self.user.username,
             "email": self.user.email,
+            "employee_id": "LUX-SD-CHN-007",
             "first_name": self.user.first_name,
             "profile": {
                 "location": "Portland, Oregon",
@@ -762,9 +1329,111 @@ class MongoProfileApiTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["location"], "Portland, Oregon")
         self.assertEqual(response.data["jobTitle"], "Engineer")
+        self.assertEqual(response.data["employee_id"], "LUX-SD-CHN-007")
         updates = database.users.update_one.call_args.args[1]["$set"]
         self.assertEqual(updates["profile.location"], "Portland, Oregon")
         self.assertEqual(updates["profile.jobTitle"], "Engineer")
+
+    @override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
+    @patch("AppCore.Auth.views.profile.get_database")
+    def test_profile_patch_rejects_employee_id_changes(self, get_database):
+        response = self.client.patch(
+            "/api/auth/profile/",
+            {"employee_id": "LUX-SD-HYD-0009", "jobTitle": "Engineer"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("Only admins", response.data["error"])
+        get_database.return_value.users.update_one.assert_not_called()
+
+    @override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
+    @patch("AppCore.Auth.views.profile.get_database")
+    def test_configured_admin_can_update_employee_id(self, get_database):
+        admin = MongoUser(
+            id=self.user_id,
+            username="nexus_admin",
+            email="admin@example.com",
+            first_name="Admin",
+            last_name="",
+            role="admin",
+        )
+        self.client.force_authenticate(user=admin)
+        database = get_database.return_value
+        database.users.find_one.side_effect = [
+            None,
+            {
+                "_id": self.user_id,
+                "username": admin.username,
+                "email": admin.email,
+                "employee_id": "LUX-SD-HYD-009",
+                "first_name": admin.first_name,
+            },
+        ]
+
+        response = self.client.patch(
+            "/api/auth/profile/",
+            {"employee_id": "lux-sd-hyd-009"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["employee_id"], "LUX-SD-HYD-009")
+        self.assertTrue(response.data["can_edit_employee_id"])
+        updates = database.users.update_one.call_args.args[1]["$set"]
+        self.assertEqual(updates["employee_id"], "LUX-SD-HYD-009")
+        self.assertEqual(updates["employee_id_sequence"], 9)
+
+    @override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
+    @patch("AppCore.Auth.views.profile.get_database")
+    def test_profile_admin_cannot_assign_zero_employee_number(self, get_database):
+        admin = MongoUser(
+            id=self.user_id,
+            username="nexus_admin",
+            email="admin@example.com",
+            first_name="Admin",
+            last_name="",
+            role="admin",
+        )
+        self.client.force_authenticate(user=admin)
+
+        response = self.client.patch(
+            "/api/auth/profile/",
+            {"employee_id": "LUX-SD-CHN-000"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("001 through LUX-SD-CHN-999", response.data["error"])
+        get_database.assert_not_called()
+
+    @override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
+    @patch("AppCore.Auth.views.profile.get_database")
+    def test_admin_cannot_assign_employee_number_already_in_use(self, get_database):
+        admin = MongoUser(
+            id=self.user_id,
+            username="nexus_admin",
+            email="admin@example.com",
+            first_name="Admin",
+            last_name="",
+            role="admin",
+        )
+        self.client.force_authenticate(user=admin)
+        database = get_database.return_value
+        database.users.find_one.return_value = {
+            "_id": ObjectId(),
+            "employee_id": "LUX-SD-CHN-009",
+        }
+
+        response = self.client.patch(
+            "/api/auth/profile/",
+            {"employee_id": "LUX-SD-BNG-009"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("already assigned", response.data["error"])
+        database.users.update_one.assert_not_called()
 
     @patch("AppCore.Auth.views.profile.get_database")
     def test_profile_avatar_upload_is_persisted_in_mongodb(self, get_database):
@@ -793,28 +1462,26 @@ class MongoProfileApiTests(SimpleTestCase):
         self.assertEqual(updates["profile.photo"], expected_photo)
 
 
+@override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
 class RolePermissionTests(SimpleTestCase):
-    @patch("AppCore.Auth.role_permissions.get_role_policies")
-    def test_admin_always_has_every_role_permission(self, get_role_policies):
-        get_role_policies.return_value = {
-            **DEFAULT_ROLE_POLICIES,
-            "admin": {key: False for key in DEFAULT_ROLE_POLICIES["admin"]},
-        }
-        admin = MongoUser(
-            id=ObjectId(),
-            username="admin",
-            email="admin@example.com",
-            first_name="Admin",
-            last_name="",
-            role="admin",
-        )
+    def test_role_permission_policy_restricts_member_sprint_and_task_creation(self):
+        for role in ("admin", "team_lead", "user"):
+            user = MongoUser(
+                id=ObjectId(),
+                username=role,
+                email=f"{role}@example.com",
+                first_name=role,
+                last_name="",
+                role=role,
+            )
+            for permission in DEFAULT_ROLE_POLICIES[role]:
+                with self.subTest(role=role, permission=permission):
+                    if role == "user" and permission in {"manage_tasks", "manage_sprints"}:
+                        self.assertFalse(has_role_permission(user, permission))
+                    else:
+                        self.assertTrue(has_role_permission(user, permission))
 
-        for permission in DEFAULT_ROLE_POLICIES["admin"]:
-            with self.subTest(permission=permission):
-                self.assertTrue(has_role_permission(admin, permission))
-
-    @patch("AppCore.Auth.views.permissions.get_database")
-    def test_permissions_endpoint_returns_full_admin_policy(self, get_database):
+    def test_permissions_endpoint_returns_full_admin_policy(self):
         user = MongoUser(
             id=ObjectId(),
             username="admin",
@@ -823,41 +1490,94 @@ class RolePermissionTests(SimpleTestCase):
             last_name="",
             role="admin",
         )
-        database = get_database.return_value
-        database.settings.find_one.return_value = {
-            "_id": "role_permissions",
-            "policies": {
-                **DEFAULT_ROLE_POLICIES,
-                "admin": {key: False for key in DEFAULT_ROLE_POLICIES["admin"]},
-            },
-        }
         client = APIClient()
         client.force_authenticate(user=user)
 
         response = client.get("/api/auth/permissions/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["policies"]["admin"], DEFAULT_ROLE_POLICIES["admin"])
-
-    @patch("AppCore.Auth.role_permissions.get_role_policies")
-    def test_role_capability_permission_uses_current_policy(self, get_role_policies):
-        get_role_policies.return_value = DEFAULT_ROLE_POLICIES
-        request = APIRequestFactory().get("/api/tasks/")
-        request.user = MongoUser(
-            id=ObjectId(),
-            username="team_lead",
-            email="lead@example.com",
-            first_name="Team Lead",
-            last_name="",
-            role="team_lead",
+        for role in ("admin", "team_lead", "user"):
+            self.assertEqual(
+                response.data["policies"][role],
+                DEFAULT_ROLE_POLICIES[role],
+            )
+        self.assertEqual(
+            response.data["policies"]["admin"],
+            response.data["policies"]["team_lead"],
         )
+        self.assertFalse(response.data["policies"]["user"]["manage_tasks"])
+        self.assertFalse(response.data["policies"]["user"]["manage_sprints"])
+
+    def test_all_roles_can_access_tasks(self):
         view = type("TaskListView", (), {"role_capabilities": {"GET": "view_tasks"}})()
+        for role in ("admin", "team_lead", "user"):
+            request = APIRequestFactory().get("/api/tasks/")
+            request.user = MongoUser(
+                id=ObjectId(),
+                username=role,
+                email=f"{role}@example.com",
+                first_name=role,
+                last_name="",
+                role=role,
+            )
+            with self.subTest(role=role):
+                self.assertTrue(RoleCapabilityPermission().has_permission(request, view))
 
-        self.assertTrue(RoleCapabilityPermission().has_permission(request, view))
+    def test_only_configured_admin_can_delete_sprints(self):
+        permission = AdminOnlyDeletePermission()
+        view = object()
 
-    @patch("AppCore.Auth.role_permissions.get_role_policies")
-    def test_user_can_edit_only_assigned_tasks(self, get_role_policies):
-        get_role_policies.return_value = DEFAULT_ROLE_POLICIES
+        for role, email, expected in (
+            ("admin", "admin@example.com", True),
+            ("team_lead", "lead@example.com", False),
+            ("user", "member@example.com", False),
+            ("admin", "unconfigured@example.com", False),
+        ):
+            request = APIRequestFactory().delete("/api/backlog/sprints/test-id/")
+            request.user = MongoUser(
+                id=ObjectId(),
+                username=role,
+                email=email,
+                first_name=role,
+                last_name="",
+                role=role,
+            )
+            with self.subTest(role=role, email=email):
+                self.assertEqual(permission.has_permission(request, view), expected)
+
+        read_request = APIRequestFactory().get("/api/backlog/sprints/test-id/")
+        read_request.user = MongoUser(
+            id=ObjectId(),
+            username="member",
+            email="member@example.com",
+            first_name="Member",
+            last_name="",
+            role="user",
+        )
+        self.assertTrue(permission.has_permission(read_request, view))
+
+    def test_team_lead_cannot_delete_sprints_through_either_api(self):
+        client = APIClient()
+        client.force_authenticate(
+            user=MongoUser(
+                id=ObjectId(),
+                username="lead",
+                email="lead@example.com",
+                first_name="Team Lead",
+                last_name="",
+                role="team_lead",
+            )
+        )
+
+        for path in (
+            "/api/backlog/sprints/0123456789abcdef01234567/",
+            "/api/all-sprints/sprints/0123456789abcdef01234567/",
+        ):
+            with self.subTest(path=path):
+                response = client.delete(path)
+                self.assertEqual(response.status_code, 403)
+
+    def test_member_can_update_tasks_assigned_to_member(self):
         request = APIRequestFactory().put("/api/tasks/1/")
         request.user = MongoUser(
             id=ObjectId(),
@@ -877,8 +1597,87 @@ class RolePermissionTests(SimpleTestCase):
 
         self.assertTrue(permission.has_permission(request, view))
         self.assertTrue(permission.has_object_permission(request, view, task))
-        task.owner.email = "someone-else@example.com"
-        self.assertFalse(permission.has_object_permission(request, view, task))
+
+    def test_role_module_permissions_match_workspace_policy(self):
+        permission = RoleModulePermission()
+        view = object()
+        team_lead = MongoUser(
+            id=ObjectId(),
+            username="team_lead",
+            email="lead@example.com",
+            first_name="Team Lead",
+            last_name="",
+            role="team_lead",
+        )
+        member = MongoUser(
+            id=ObjectId(),
+            username="member",
+            email="member@example.com",
+            first_name="Member",
+            last_name="",
+            role="user",
+        )
+
+        admin = MongoUser(
+            id=ObjectId(),
+            username="admin",
+            email="admin@example.com",
+            first_name="Admin",
+            last_name="",
+            role="admin",
+        )
+        roles = (team_lead, member, admin)
+        paths = (
+            "/api/portfolios/",
+            "/api/people/",
+            "/api/auth/invitations/",
+            "/api/reporting/eod-reports/",
+            "/api/profile/",
+        )
+        for role_user in roles:
+            for path in paths:
+                request = APIRequestFactory().get(path)
+                request.user = role_user
+                with self.subTest(role=role_user.role, path=path):
+                    self.assertTrue(permission.has_permission(request, view))
+
+    def test_configured_admin_cannot_edit_the_fixed_policy(self):
+        client = APIClient()
+        client.force_authenticate(
+            user=MongoUser(
+                id=ObjectId(),
+                username="admin",
+                email="admin@example.com",
+                first_name="Admin",
+                last_name="",
+                role="admin",
+            )
+        )
+
+        response = client.put(
+            "/api/auth/permissions/",
+            {"policies": DEFAULT_ROLE_POLICIES},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json()["detail"],
+            "Role access is fixed by the workspace policy.",
+        )
+
+    def test_unconfigured_admin_is_treated_as_member(self):
+        unconfigured_admin = MongoUser(
+            id=ObjectId(),
+            username="other_admin",
+            email="not-configured@example.com",
+            first_name="Other",
+            last_name="Admin",
+            role="admin",
+        )
+
+        self.assertEqual(get_effective_role(unconfigured_admin), "user")
+        self.assertTrue(has_role_permission(unconfigured_admin, "manage_portfolios"))
 
     def test_non_admin_cannot_change_role_permissions(self):
         client = APIClient()
@@ -902,6 +1701,7 @@ class RolePermissionTests(SimpleTestCase):
         self.assertEqual(response.status_code, 403)
 
 
+@override_settings(NEXUS_ADMIN_EMAILS=frozenset({"owner@example.com"}))
 class MongoSerializerTests(SimpleTestCase):
     @patch("AppCore.views.views.get_database")
     def test_future_project_dates_are_saved(self, get_database):
@@ -910,7 +1710,12 @@ class MongoSerializerTests(SimpleTestCase):
         database.users.find_one.return_value = None
         database.allocations.find.return_value.sort.return_value = []
         user = MongoUser.from_document(
-            {"_id": ObjectId(), "username": "project_owner", "email": "owner@example.com"}
+            {
+                "_id": ObjectId(),
+                "username": "project_owner",
+                "email": "owner@example.com",
+                "role": "admin",
+            }
         )
         client = APIClient()
         client.force_authenticate(user=user)
@@ -979,6 +1784,110 @@ class MongoSerializerTests(SimpleTestCase):
 
                 self.assertTrue(serializer.is_valid(), serializer.errors)
 
+
+@override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
+class ProjectDataAccessTests(SimpleTestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(
+            user=MongoUser(
+                id=ObjectId(),
+                username="member",
+                email="member@example.com",
+                first_name="Project",
+                last_name="Member",
+                role="user",
+            )
+        )
+        self.project_id = ObjectId()
+        self.project = {
+            "_id": self.project_id,
+            "created_by": ObjectId(),
+            "name": "Private resourcing project",
+        }
+
+    @patch("AppCore.project_access.get_database")
+    @patch("AppCore.Projects.views.views.get_projects_collection")
+    @patch("AppCore.Projects.views.views.get_database")
+    def test_create_project_persists_valid_selected_members(
+        self, get_database, get_projects_collection, get_access_database
+    ):
+        admin_id = ObjectId()
+        member_id = ObjectId()
+        self.client.force_authenticate(
+            user=MongoUser(
+                id=admin_id,
+                username="admin",
+                email="admin@example.com",
+                first_name="App",
+                last_name="Admin",
+                role="admin",
+            )
+        )
+        database = get_database.return_value
+        get_access_database.return_value = database
+        database.users.find.return_value = [{"_id": member_id}]
+        collection = get_projects_collection.return_value
+        collection.find_one.return_value = None
+        collection.insert_one.return_value.inserted_id = self.project_id
+
+        response = self.client.post(
+            "/api/projects/",
+            {"name": "Member project", "members": [str(member_id)]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["members"], [str(member_id)])
+        self.assertEqual(
+            collection.insert_one.call_args.args[0]["members"],
+            [str(member_id)],
+        )
+        stored_project = dict(collection.insert_one.call_args.args[0])
+        stored_project["_id"] = self.project_id
+        collection.find.return_value.sort.return_value = [stored_project]
+        database.projects.find.return_value = [stored_project]
+
+        self.client.force_authenticate(
+            user=MongoUser(
+                id=member_id,
+                username="project_member",
+                email="project_member@example.com",
+                first_name="Project",
+                last_name="Member",
+                role="user",
+            )
+        )
+        list_response = self.client.get("/api/projects/")
+
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual([project["id"] for project in list_response.data], [str(self.project_id)])
+
+    @patch("AppCore.project_access.get_database")
+    @patch("AppCore.views.views.get_database")
+    def test_foreign_resourcing_project_and_allocation_return_forbidden(
+        self, get_view_database, get_access_database
+    ):
+        database = get_view_database.return_value
+        get_access_database.return_value = database
+        database.projects.find_one.return_value = self.project
+        database.projects.find.return_value = [self.project]
+        allocation_id = ObjectId()
+        database.allocations.find_one.return_value = {
+            "_id": allocation_id,
+            "project": self.project_id,
+        }
+
+        project_response = self.client.get(
+            f"/api/auth/resourcing/projects/{self.project_id}/"
+        )
+        allocation_response = self.client.get(
+            f"/api/auth/resourcing/allocations/{allocation_id}/"
+        )
+
+        self.assertEqual(project_response.status_code, 403)
+        self.assertEqual(allocation_response.status_code, 403)
+
     def test_project_dates_reject_invalid_or_empty_values(self):
         for start_date, end_date in (("", ""), ("2026-02-30", "2026-03-01")):
             with self.subTest(start_date=start_date, end_date=end_date):
@@ -1007,6 +1916,9 @@ class ChangePasswordBackendTests(SimpleTestCase):
             "role": "user",
             "is_active": True,
         }
+        self.client.force_authenticate(
+            user=MongoUser.from_document(self.mock_user)
+        )
 
     @patch("AppCore.Auth.views.change_password.get_database")
     def test_change_password_success(self, mock_get_database):
@@ -1079,8 +1991,9 @@ class ChangePasswordBackendTests(SimpleTestCase):
     def test_change_password_via_otp(self, mock_get_database, _mock_otp):
         mock_db = mock_get_database.return_value
         mock_db.users.find_one.return_value = self.mock_user.copy()
+        client = APIClient()
 
-        response = self.client.post(
+        response = client.post(
             "/api/profile/change-password/",
             {
                 "email": "siva@example.com",
@@ -1158,9 +2071,20 @@ class SessionHistoryViewTests(SimpleTestCase):
         self.assertEqual(response.json()[0]["ip"], "203.0.113.42")
 
 
+@override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
 class PortfoliosViewTests(SimpleTestCase):
     def setUp(self):
         self.client = APIClient()
+        self.client.force_authenticate(
+            user=MongoUser(
+                id=ObjectId(),
+                username="admin",
+                email="admin@example.com",
+                first_name="Admin",
+                last_name="",
+                role="admin",
+            )
+        )
 
     @patch("AppCore.Portfolios.views.get_portfolios_collection")
     def test_list_portfolios_returns_metrics_and_items(self, mock_get_coll):
@@ -1220,9 +2144,20 @@ class PortfoliosViewTests(SimpleTestCase):
         self.assertEqual(len(data["projects"]), 2)
 
 
+@override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
 class KnowledgeMeetingsViewTests(SimpleTestCase):
     def setUp(self):
         self.client = APIClient()
+        self.client.force_authenticate(
+            user=MongoUser.from_document(
+                {
+                    "_id": ObjectId(),
+                    "username": "admin",
+                    "email": "admin@example.com",
+                    "role": "admin",
+                }
+            )
+        )
 
     @patch("AppCore.Knowledge.views.get_meetings_collection")
     def test_get_meetings_list(self, mock_get_coll):
@@ -1287,6 +2222,7 @@ class KnowledgeMeetingsViewTests(SimpleTestCase):
         self.assertEqual(data["meeting"]["title"], "Weekly Architectural Sync")
 
 
+@override_settings(NEXUS_ADMIN_EMAILS=frozenset({"reports@example.com"}))
 class EODReportTests(SimpleTestCase):
     def test_eod_detection_is_case_insensitive_and_matches_whole_tokens(self):
         self.assertIsNotNone(EOD_PATTERN.search("EOD: finished the task"))
@@ -1347,8 +2283,7 @@ class EODReportTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"count": 0, "results": []})
 
-    @patch("AppCore.Reporting.views.reports.has_role_permission", return_value=False)
-    def test_authenticated_user_without_report_permission_is_forbidden(self, _has_permission):
+    def test_authenticated_team_lead_can_access_reports(self):
         client = APIClient()
         client.force_authenticate(user=MongoUser(
             id=ObjectId(),
@@ -1356,12 +2291,17 @@ class EODReportTests(SimpleTestCase):
             email="no-reports@example.com",
             first_name="No",
             last_name="Reports",
-            role="user",
+            role="team_lead",
         ))
 
-        response = client.get("/api/reporting/eod-reports/")
+        with patch("AppCore.Reporting.views.reports.get_eod_reports_collection") as get_reports, patch(
+            "AppCore.Reporting.views.reports.get_database"
+        ) as get_database:
+            get_reports.return_value.find.return_value.sort.return_value.limit.return_value = []
+            get_database.return_value.backlog_task_comments.find.return_value.sort.return_value.limit.return_value = []
+            response = client.get("/api/reporting/eod-reports/")
 
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200)
 
     def test_report_creation_validates_and_persists_a_record(self):
         client = APIClient()
@@ -1516,43 +2456,6 @@ class EODReportTests(SimpleTestCase):
         self.assertEqual(imported.status_code, 200)
         self.assertEqual(imported.json()["imported"], 1)
         self.assertEqual(imported.json()["duplicates"], 1)
-
-    def test_sample_reports_are_saved_once_with_real_filter_options(self):
-        client = APIClient()
-        client.force_authenticate(user=MongoUser(
-            id=ObjectId(),
-            username="report_admin",
-            email="reports@example.com",
-            first_name="Report",
-            last_name="Admin",
-            role="admin",
-        ))
-        with patch("AppCore.Reporting.views.reports._available_options", return_value={
-            "projects": [{"id": "project-1", "name": "Real Project"}],
-            "sprints": [{"id": "sprint-1", "name": "Sprint 1"}],
-            "employees": [{"id": "employee-1", "name": "Real Employee"}],
-        }), patch("AppCore.Reporting.views.reports.get_eod_reports_collection") as get_reports:
-            collection = get_reports.return_value
-            collection.find_one.return_value = None
-            collection.insert_one.return_value.inserted_id = ObjectId()
-
-            response = client.post("/api/reporting/eod-reports/sample-data/")
-
-            self.assertEqual(response.status_code, 201)
-            self.assertEqual(response.json()["created"], 12)
-            first_document = collection.insert_one.call_args_list[0].args[0]
-            self.assertEqual(first_document["source"], "sample")
-            self.assertEqual(first_document["project_id"], "project-1")
-            self.assertEqual(first_document["sprint_id"], "sprint-1")
-            self.assertTrue(first_document["title"].startswith("Sample:"))
-
-            collection.find_one.return_value = {"sample_key": "sample-v1-0"}
-            collection.count_documents.return_value = 12
-            duplicate_response = client.post("/api/reporting/eod-reports/sample-data/")
-
-        self.assertEqual(duplicate_response.status_code, 200)
-        self.assertEqual(duplicate_response.json()["created"], 0)
-        self.assertIn("already been added", duplicate_response.json()["message"])
 
     def test_csv_spreadsheet_preview_parses_headers_and_rows(self):
         client = APIClient()

@@ -1,15 +1,12 @@
 from rest_framework import serializers
 
-from jira_clone.models import ResourcingProject
 
-
-class CapacityProjectSerializer(serializers.ModelSerializer):
+class CapacityProjectSerializer(serializers.Serializer):
     id = serializers.CharField(read_only=True)
+    name = serializers.CharField()
+    start_date = serializers.DateField()
+    end_date = serializers.DateField()
     allocations = serializers.SerializerMethodField()
-
-    class Meta:
-        model = ResourcingProject
-        fields = ["id", "name", "start_date", "end_date", "allocations"]
 
     def get_allocations(self, project):
         allocations = project.allocations.select_related("user").order_by("month", "user__username")

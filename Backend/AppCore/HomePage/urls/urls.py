@@ -12,7 +12,6 @@ from AppCore.HomePage.views.views import (
     DashboardWidgetViewSet,
     DashboardSummaryView,
     HealthCheckView,
-    SeedDataView,
 )
 
 router = DefaultRouter()
@@ -31,9 +30,8 @@ urlpatterns = [
     path('auth/me/', CurrentUserView.as_view(), name='auth-me'),
     path('auth/token/refresh/', TokenRefreshView.as_view(), name='token-refresh'),
 
-    # System Health & Seeding Utilities
+    # System health
     path('health/', HealthCheckView.as_view(), name='health-check'),
-    path('seed/', SeedDataView.as_view(), name='seed-data'),
 
     # ViewSet Router endpoints
     path('', include(router.urls)),

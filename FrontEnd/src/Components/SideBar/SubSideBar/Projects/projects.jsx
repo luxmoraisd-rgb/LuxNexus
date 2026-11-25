@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   FolderKanban,
@@ -12,22 +12,19 @@ import {
   Calendar,
   Trash2,
   Edit2,
-  Star,
   RefreshCw,
   Loader2,
   Sparkles,
-  Info,
 } from "lucide-react";
 import { getStoredTasks, getStoredSprints } from "../MyTasks/Backlog/backlogApi";
 import {
   fetchProjects,
-  fetchProjectStats,
   createProject,
   updateProject,
   deleteProject,
   setActiveWorkspaceProject,
-  getCachedProjects,
 } from "./projectsApi";
+import { peopleApi } from "../People/peopleApi";
 import "./projects.css";
 
 const COLOR_OPTIONS = [
@@ -42,9 +39,11 @@ const COLOR_OPTIONS = [
 
 const CATEGORIES = ["All", "Engineering", "Design", "Marketing", "Operations"];
 
-export default function Projects({ currentUser, rolePermissions }) {
+export default function Projects({ rolePermissions, currentUser }) {
   const navigate = useNavigate();
-  const [projects, setProjects] = useState(getCachedProjects);
+  const effectiveRole = rolePermissions?.current_role || currentUser?.role || "user";
+  const isAdmin = effectiveRole === "admin";
+  const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
@@ -60,7 +59,15 @@ export default function Projects({ currentUser, rolePermissions }) {
   const [formCategory, setFormCategory] = useState("Engineering");
   const [formDescription, setFormDescription] = useState("");
   const [formColor, setFormColor] = useState(COLOR_OPTIONS[0]);
-  const [formProgress, setFormProgress] = useState(0);
+  const [formLead, setFormLead] = useState("");
+  const [formMembers, setFormMembers] = useState([]);
+  const [formStartDate, setFormStartDate] = useState("");
+  const [formEndDate, setFormEndDate] = useState("");
+  const [formStatus, setFormStatus] = useState("Active");
+  const [teamLeads, setTeamLeads] = useState([]);
+  const [members, setMembers] = useState([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [formError, setFormError] = useState("");
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -72,7 +79,7 @@ export default function Projects({ currentUser, rolePermissions }) {
     setLoading(true);
     try {
       const data = await fetchProjects();
-      if (Array.isArray(data) && data.length > 0) {
+      if (Array.isArray(data)) {
         setProjects(data);
       }
     } catch (err) {
@@ -83,7 +90,24 @@ export default function Projects({ currentUser, rolePermissions }) {
   };
 
   useEffect(() => {
-    loadProjects();
+    let active = true;
+    Promise.allSettled([
+      fetchProjects(),
+      peopleApi.getMembers(),
+    ]).then(([projectsResult, membersResult]) => {
+      if (!active) return;
+      if (projectsResult.status === "fulfilled") setProjects(projectsResult.value);
+      else console.warn("Failed to load projects from server:", projectsResult.reason);
+      if (membersResult.status === "fulfilled") {
+        setTeamLeads(membersResult.value.filter((member) => member.role === "team_lead"));
+        setMembers(membersResult.value);
+      } else {
+        console.warn("Failed to load members:", membersResult.reason);
+      }
+    });
+    return () => {
+      active = false;
+    };
   }, []);
 
   // Live sprint and task counts for statistics
@@ -103,9 +127,9 @@ export default function Projects({ currentUser, rolePermissions }) {
     }
   }, []);
 
-  const activeSprintCount = sprints.filter((s) => s.isStarted && !s.isCompleted).length || 1;
+  const activeSprintCount = sprints.filter((s) => s.isStarted && !s.isCompleted).length;
   const completedTasksCount = tasks.filter((t) => t.status === "DONE" || t.status === "Closed").length;
-  const totalTasksCount = tasks.length || 24;
+  const totalTasksCount = tasks.length;
 
   const filteredProjects = useMemo(() => {
     return projects.filter((project) => {
@@ -124,88 +148,115 @@ export default function Projects({ currentUser, rolePermissions }) {
 
   const handleOpenCreateModal = () => {
     setEditingProject(null);
+    setFormError("");
     setFormName("");
     setFormKey("");
     setFormCategory("Engineering");
     setFormDescription("");
     setFormColor(COLOR_OPTIONS[0]);
-    setFormProgress(0);
+    setFormLead("");
+    setFormMembers([]);
+    setFormStartDate(new Date().toISOString().split("T")[0]);
+    setFormEndDate("");
+    setFormStatus("Active");
     setIsModalOpen(true);
   };
 
   const handleOpenEditModal = (proj) => {
     setEditingProject(proj);
+    setFormError("");
     setFormName(proj.name || "");
     setFormKey(proj.key || "");
     setFormCategory(proj.category || "Engineering");
     setFormDescription(proj.description || "");
     setFormColor(proj.color || COLOR_OPTIONS[0]);
-    setFormProgress(proj.progress || 0);
+    setFormLead(proj.lead || proj.project_lead || "");
+    setFormStartDate(proj.start_date || proj.startDate || "");
+    setFormEndDate(proj.end_date || proj.endDate || "");
+    setFormStatus(proj.status || "Active");
     setIsModalOpen(true);
   };
 
   const handleSaveProject = async (e) => {
     e.preventDefault();
-    if (!formName.trim()) return;
+    if (!formName.trim() || isSaving) return;
 
-    if (editingProject) {
-      // Update existing project
-      const updates = {
-        name: formName.trim(),
-        key: formKey.trim() || editingProject.key,
-        category: formCategory,
-        description: formDescription.trim(),
-        color: formColor,
-        progress: Number(formProgress) || 0,
-      };
+    setIsSaving(true);
+    setFormError("");
+    try {
+      if (editingProject) {
+        const updates = {
+          name: formName.trim(),
+          key: formKey.trim() || editingProject.key,
+          category: formCategory,
+          description: formDescription.trim(),
+          color: formColor,
+          lead: formLead.trim(),
+          project_lead: formLead.trim(),
+          start_date: formStartDate,
+          startDate: formStartDate,
+          end_date: formEndDate,
+          endDate: formEndDate,
+          status: formStatus,
+        };
 
-      try {
         await updateProject(editingProject.id, updates);
         setProjects((prev) =>
           prev.map((p) => (p.id === editingProject.id ? { ...p, ...updates } : p))
         );
         showToast(`Project "${formName}" updated successfully!`);
-      } catch (err) {
-        showToast("Error updating project.");
-      }
-    } else {
-      // Create new project
-      const key =
-        formKey.trim() ||
-        formName.slice(0, 3).toUpperCase() + "-" + Math.floor(Math.random() * 900 + 100);
+      } else {
+        const payload = {
+          name: formName.trim(),
+          key: formKey.trim(),
+          category: formCategory,
+          description: formDescription.trim(),
+          color: formColor,
+          is_default_workspace: projects.length === 0,
+          start_date: formStartDate,
+          end_date: formEndDate,
+          lead: formLead.trim(),
+          project_lead: formLead.trim(),
+          members: formMembers,
+          status: formStatus,
+        };
 
-      const payload = {
-        name: formName.trim(),
-        key: key.toUpperCase(),
-        category: formCategory,
-        description: formDescription.trim() || "Workspace initiative tracked in NexusApp.",
-        color: formColor,
-        progress: Number(formProgress) || 0,
-        active_sprint_name: "Sprint 1",
-        is_default_workspace: projects.length === 0,
-        start_date: new Date().toISOString().split("T")[0],
-      };
-
-      try {
         const created = await createProject(payload);
         setProjects((prev) => [created, ...prev.filter((p) => p.id !== created.id)]);
         showToast(`Project "${formName}" created in MongoDB!`);
-      } catch (err) {
-        showToast("Error creating project.");
       }
+      setIsModalOpen(false);
+    } catch (error) {
+      const responseData = error.response?.data;
+      const fieldErrors = responseData && typeof responseData === "object"
+        ? Object.entries(responseData).flatMap(([field, messages]) =>
+            (Array.isArray(messages) ? messages : [messages])
+              .filter((message) => typeof message === "string")
+              .map((message) => `${field}: ${message}`)
+          )
+        : [];
+      const message =
+        (typeof responseData?.detail === "string" && responseData.detail) ||
+        fieldErrors.join(" ") ||
+        error.message ||
+        (editingProject ? "Unable to update project." : "Unable to create project.");
+      setFormError(message);
+      showToast(message);
+    } finally {
+      setIsSaving(false);
     }
-
-    setIsModalOpen(false);
   };
 
   const handleDeleteProject = async (projId, projName) => {
-    if (!window.confirm(`Are you sure you want to delete "${projName}"?`)) return;
+    if (!isAdmin || !window.confirm(
+      `Permanently delete "${projName}" and all of its sprints, tasks, comments, and attachments?`
+    )) return;
     try {
       await deleteProject(projId);
       setProjects((prev) => prev.filter((p) => p.id !== projId));
       showToast(`Project "${projName}" deleted.`);
-    } catch {
-      showToast("Error deleting project.");
+    } catch (deleteError) {
+      showToast(deleteError.response?.data?.detail || "Error deleting project.");
     }
   };
 
@@ -236,7 +287,7 @@ export default function Projects({ currentUser, rolePermissions }) {
           <div>
             <h1 className="projects-title">Projects</h1>
             <p className="projects-subtitle">
-              Manage workspace initiatives, track sprint progress, and assign team resources in MongoDB
+              Manage workspace initiatives and assign team resources in MongoDB
             </p>
           </div>
         </div>
@@ -430,33 +481,19 @@ export default function Projects({ currentUser, rolePermissions }) {
                         <Edit2 size={14} />
                       </button>
 
-                      <button
-                        className="project-icon-action-btn delete"
-                        onClick={() => handleDeleteProject(project.id, project.name)}
-                        title="Delete project"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      {isAdmin && (
+                        <button
+                          className="project-icon-action-btn delete"
+                          onClick={() => handleDeleteProject(project.id, project.name)}
+                          title="Delete project"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
                   </div>
 
                   <p className="project-description">{project.description}</p>
-
-                  <div className="project-progress-container">
-                    <div className="project-progress-label-row">
-                      <span>Sprint Velocity</span>
-                      <span className="project-progress-percent">{project.progress || 0}%</span>
-                    </div>
-                    <div className="project-progress-track">
-                      <div
-                        className="project-progress-fill"
-                        style={{
-                          width: `${project.progress || 0}%`,
-                          backgroundColor: project.color || "#6366f1",
-                        }}
-                      />
-                    </div>
-                  </div>
 
                   <div className="project-sprint-info-row">
                     <div className="sprint-status-col">
@@ -469,7 +506,7 @@ export default function Projects({ currentUser, rolePermissions }) {
                   <div className="project-card-actions">
                     <button
                       className="project-action-btn primary"
-                      onClick={() => navigate("/work/tasks")}
+                      onClick={() => navigate(`/work/projects/${project.id}`)}
                     >
                       <span>Board</span>
                       <ArrowRight size={13} />
@@ -496,7 +533,7 @@ export default function Projects({ currentUser, rolePermissions }) {
 
       {/* Create / Edit Project Modal */}
       {isModalOpen && (
-        <div className="modal-backdrop" onClick={() => setIsModalOpen(false)}>
+        <div className="modal-backdrop" onClick={() => !isSaving && setIsModalOpen(false)}>
           <div
             className="create-project-modal"
             onClick={(e) => e.stopPropagation()}
@@ -506,12 +543,29 @@ export default function Projects({ currentUser, rolePermissions }) {
               <button
                 className="modal-close-btn"
                 onClick={() => setIsModalOpen(false)}
+                disabled={isSaving}
               >
                 <X size={18} />
               </button>
             </div>
 
             <form className="modal-form" onSubmit={handleSaveProject}>
+              {isSaving && !editingProject && (
+                <div
+                  className="project-create-progress"
+                  role="progressbar"
+                  aria-label="Creating project"
+                  aria-valuetext="Creating project"
+                >
+                  <div className="project-create-progress-bar" />
+                  <span>Creating your project...</span>
+                </div>
+              )}
+              {formError && (
+                <p className="project-form-error" role="alert">
+                  {formError}
+                </p>
+              )}
               <div className="form-group">
                 <label>Project Name *</label>
                 <input
@@ -525,38 +579,70 @@ export default function Projects({ currentUser, rolePermissions }) {
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Project Key</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. MOB"
-                    value={formKey}
-                    onChange={(e) => setFormKey(e.target.value.toUpperCase())}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Category</label>
+                  <label>Project Lead</label>
                   <select
-                    value={formCategory}
-                    onChange={(e) => setFormCategory(e.target.value)}
+                    value={formLead}
+                    onChange={(e) => setFormLead(e.target.value)}
                   >
-                    <option value="Engineering">Engineering</option>
-                    <option value="Design">Design</option>
-                    <option value="Marketing">Marketing</option>
-                    <option value="Operations">Operations</option>
+                    <option value="">Select Team Lead</option>
+                    {teamLeads.map((lead) => (
+                      <option key={lead.id} value={lead.name || lead.username || lead.email}>
+                        {lead.name || lead.username || lead.email}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Status</label>
+                  <select value={formStatus} onChange={(e) => setFormStatus(e.target.value)}>
+                    <option value="Planned">Planned</option>
+                    <option value="Active">Active</option>
+                    <option value="On Hold">On Hold</option>
+                    <option value="Completed">Completed</option>
+                    <option value="Archived">Archived</option>
                   </select>
                 </div>
               </div>
 
-              <div className="form-group">
-                <label>Sprint Velocity / Progress (%)</label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={formProgress}
-                  onChange={(e) => setFormProgress(e.target.value)}
-                />
+              {!editingProject && (
+                <div className="form-group project-members-field">
+                  <label id="project-members-label">Members</label>
+                  <details className="project-members-dropdown">
+                    <summary aria-labelledby="project-members-label">
+                      {formMembers.length
+                        ? `${formMembers.length} member${formMembers.length === 1 ? "" : "s"} selected`
+                        : "Select project members"}
+                    </summary>
+                    <div className="project-members-options" role="group" aria-labelledby="project-members-label">
+                      {members.length ? members.map((member) => (
+                        <label className="project-member-option" key={member.id}>
+                          <input
+                            type="checkbox"
+                            checked={formMembers.includes(member.id)}
+                            onChange={(event) => {
+                              setFormMembers((selected) => event.target.checked
+                                ? [...selected, member.id]
+                                : selected.filter((id) => id !== member.id));
+                            }}
+                          />
+                          <span>{member.name || member.username || member.email}</span>
+                          {member.email && <small>{member.email}</small>}
+                        </label>
+                      )) : <p className="project-members-empty">No members available</p>}
+                    </div>
+                  </details>
+                </div>
+              )}
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Start Date</label>
+                  <input type="date" value={formStartDate} onChange={(e) => setFormStartDate(e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label>End Date</label>
+                  <input type="date" min={formStartDate || undefined} value={formEndDate} onChange={(e) => setFormEndDate(e.target.value)} />
+                </div>
               </div>
 
               <div className="form-group">
@@ -589,11 +675,17 @@ export default function Projects({ currentUser, rolePermissions }) {
                   type="button"
                   className="modal-cancel-btn"
                   onClick={() => setIsModalOpen(false)}
+                  disabled={isSaving}
                 >
                   Cancel
                 </button>
-                <button type="submit" className="modal-submit-btn">
-                  {editingProject ? "Save Changes" : "Create Project"}
+                <button type="submit" className="modal-submit-btn" disabled={isSaving}>
+                  {isSaving ? (
+                    <>
+                      <Loader2 size={15} className="spin" />
+                      {editingProject ? "Saving..." : "Creating..."}
+                    </>
+                  ) : editingProject ? "Save Changes" : "Create Project"}
                 </button>
               </div>
             </form>

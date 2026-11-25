@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Globe2, Clock, Calendar, Check, Languages, Sparkles } from "lucide-react";
+import { Globe2, Clock, Calendar, Check, Sparkles } from "lucide-react";
 import "./languageregion.css";
 
 /*
@@ -26,12 +26,12 @@ LanguageRegion.Header = ({ title }) => {
   return (
     <header className="language-region__header">
       <div className="language-region__header-icon-wrap">
-        <Languages size={22} className="language-region__header-icon" />
+        <Globe2 size={22} className="language-region__header-icon" />
       </div>
       <div className="language-region__header-text">
         <h1>{title}</h1>
         <p className="language-region__header-sub">
-          Customize your display language, timezone, and calendar formats
+          Customize your timezone and calendar formats
         </p>
       </div>
     </header>
@@ -160,29 +160,6 @@ LanguageRegion.RadioGroup = ({
 |--------------------------------------------------------------------------
 */
 
-const languageOptions = [
-  {
-    value: "en",
-    label: "English",
-  },
-  {
-    value: "es",
-    label: "Spanish",
-  },
-  {
-    value: "fr",
-    label: "French",
-  },
-  {
-    value: "de",
-    label: "German",
-  },
-  {
-    value: "hi",
-    label: "Hindi",
-  },
-];
-
 /*
 |--------------------------------------------------------------------------
 | Timezone options
@@ -231,14 +208,6 @@ const timezoneOptions = [
 */
 
 const LanguageRegionPage = () => {
-  const [language, setLanguage] = useState(() => {
-    try {
-      return localStorage.getItem("nexus_language") || "en";
-    } catch {
-      return "en";
-    }
-  });
-
   const [timezone, setTimezone] = useState(() => {
     try {
       const stored = localStorage.getItem("nexus_timezone") || sessionStorage.getItem("nexus_timezone");
@@ -265,14 +234,6 @@ const LanguageRegionPage = () => {
     }
   });
 
-  const [firstDay, setFirstDay] = useState(() => {
-    try {
-      return localStorage.getItem("nexus_first_day") || "monday";
-    } catch {
-      return "monday";
-    }
-  });
-
   const [saveIndicator, setSaveIndicator] = useState(false);
 
   const triggerSaveFeedback = () => {
@@ -286,16 +247,6 @@ const LanguageRegionPage = () => {
     try {
       localStorage.setItem("nexus_timezone", val);
       sessionStorage.setItem("nexus_timezone", val);
-    } catch {
-      // ignore
-    }
-  };
-
-  const handleLanguageChange = (val) => {
-    setLanguage(val);
-    triggerSaveFeedback();
-    try {
-      localStorage.setItem("nexus_language", val);
     } catch {
       // ignore
     }
@@ -316,16 +267,6 @@ const LanguageRegionPage = () => {
     triggerSaveFeedback();
     try {
       localStorage.setItem("nexus_date_format", val);
-    } catch {
-      // ignore
-    }
-  };
-
-  const handleFirstDayChange = (val) => {
-    setFirstDay(val);
-    triggerSaveFeedback();
-    try {
-      localStorage.setItem("nexus_first_day", val);
     } catch {
       // ignore
     }
@@ -430,29 +371,12 @@ const LanguageRegionPage = () => {
     },
   ];
 
-  /*
-  |--------------------------------------------------------------------------
-  | First day options
-  |--------------------------------------------------------------------------
-  */
-
-  const firstDayOptions = [
-    {
-      value: "sunday",
-      label: "Sunday",
-    },
-    {
-      value: "monday",
-      label: "Monday",
-    },
-  ];
-
   const currentTzLabel =
     timezoneOptions.find((t) => t.value === timezone)?.label || timezone;
 
   return (
     <LanguageRegion>
-      <LanguageRegion.Header title="Language & Region" />
+      <LanguageRegion.Header title="Time Zone" />
 
       {/* Interactive Live Region & Locale Preview Card */}
       <div className="language-region__live-preview-card">
@@ -497,16 +421,6 @@ const LanguageRegionPage = () => {
       </div>
 
       <div className="language-region__sections-grid">
-        {/* Language */}
-        <LanguageRegion.Section title="Language" className="lang-sec-1">
-          <LanguageRegion.Select
-            value={language}
-            onChange={handleLanguageChange}
-            options={languageOptions}
-            ariaLabel="Language"
-          />
-        </LanguageRegion.Section>
-
         {/* Timezone */}
         <LanguageRegion.Section title="Timezone" className="lang-sec-2">
           <LanguageRegion.Select
@@ -538,18 +452,6 @@ const LanguageRegionPage = () => {
           <p className="language-region__preview">Preview: {datePreview}</p>
         </LanguageRegion.Section>
 
-        {/* First Day */}
-        <LanguageRegion.Section
-          title="First day displayed on your calendars"
-          className="lang-sec-5"
-        >
-          <LanguageRegion.RadioGroup
-            name="first-day"
-            value={firstDay}
-            onChange={handleFirstDayChange}
-            options={firstDayOptions}
-          />
-        </LanguageRegion.Section>
       </div>
     </LanguageRegion>
   );

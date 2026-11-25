@@ -72,6 +72,7 @@ class LoginView(APIView):
             database,
             ip=client_ip,
             user_agent=user_agent,
+            expires_in_days=30 if values.get("remember_me") else 14,
         )
         return Response(
             {

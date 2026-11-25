@@ -358,7 +358,6 @@ export const AllSprintsPage = ({ rolePermissions, currentUser }) => {
         onOpenTypePicker={(task, e) => handleOpenModal('typePicker', task, e)}
         onOpenSPPicker={(task, e) => handleOpenModal('spPicker', task, e)}
         onOpenEpicPicker={(task, e) => handleOpenModal('epicPicker', task, e)}
-        onMoveTask={handleMoveTask}
         onDeleteTask={handleDeleteTask}
         onRemoveEpic={handleRemoveEpic}
         onCreateSprint={handleCreateSprint}

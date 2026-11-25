@@ -71,11 +71,7 @@ const STATUS_CONFIG = {
   
 };
 
-const AVAILABLE_OWNERS = [
-  { name: "Franklin", initials: "FR", role: "Member" },
-  { name: "Sarah Chen", initials: "SC", role: "Engineering Lead" },
-  { name: "Alex Rivera", initials: "AR", role: "Design Lead" },
-];
+const AVAILABLE_OWNERS = [];
 
 const COMMENT_EMOJIS = ["😀", "😄", "😊", "😂", "🎉", "👍", "❤️", "🚀"];
 
@@ -113,10 +109,10 @@ const getStoredLikedGoalIds = () => {
   }
 };
 
-function GoalDetails({ goal, onClose, onSave }) {
+function GoalDetails({ goal, onClose, onSave, currentUser }) {
   const [name, setName] = useState(goal?.name || "");
   const [owner, setOwner] = useState(
-    goal?.owner || { name: "Franklin", initials: "FR" }
+    goal?.owner || null
   );
   const [timePeriod, setTimePeriod] = useState(
     goal?.timePeriod || ""
@@ -160,9 +156,9 @@ function GoalDetails({ goal, onClose, onSave }) {
     if (goal) {
       setName(goal.name || "");
       setOwner(
-        goal.owner || { name: "Franklin", initials: "FR" }
+        goal.owner || null
       );
-      setTimePeriod(goal.timePeriod || "Q2 FY27");
+      setTimePeriod(goal.timePeriod || "");
       setDueDate(
         goal.dueDate || "Set a custom due date"
       );
@@ -262,8 +258,8 @@ function GoalDetails({ goal, onClose, onSave }) {
 
     const newComment = {
       id: Date.now().toString(),
-      author: owner?.name || "Franklin",
-      authorInitials: owner?.initials || "Ja",
+      author: currentUser?.name || currentUser?.username || "",
+      authorInitials: currentUser?.initials || "",
       text: commentText.trim(),
       createdAt: "Just now",
       ...(attachment && {
@@ -407,7 +403,7 @@ function GoalDetails({ goal, onClose, onSave }) {
               aria-expanded={showHeaderOwnerPicker}
               onClick={() => setShowHeaderOwnerPicker((open) => !open)}>
               <span className="owner-badge-avatar">
-                {owner?.initials || "Ja"}
+                {owner?.initials || ""}
               </span>
               <span className="avatar-add-icon">+</span>
             </button>
@@ -566,7 +562,7 @@ function GoalDetails({ goal, onClose, onSave }) {
                     {owner?.initials || "Ja"}
                   </span>
                   <span className="owner-name-text">
-                    {owner?.name || "Franklin"}
+                    {owner?.name || ""}
                   </span>
                 </button>
 

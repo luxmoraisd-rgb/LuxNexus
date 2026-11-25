@@ -98,7 +98,7 @@ function GoalsPage({ currentUser, rolePermissions, initialTab = "My goals" }) {
     currentUser?.name ||
     currentUser?.username ||
     currentUser?.email?.split("@")[0] ||
-    "Franklin"
+    ""
   )
     .split("@")[0]
     .trim();
@@ -308,6 +308,7 @@ function GoalsPage({ currentUser, rolePermissions, initialTab = "My goals" }) {
       <div className="goals-page-wrapper">
         <StrategyMap
           onSelectTab={handleSelectTab}
+          currentUser={currentUser}
         />
       </div>
     );
@@ -328,6 +329,7 @@ function GoalsPage({ currentUser, rolePermissions, initialTab = "My goals" }) {
               <GoalDetails
                 goal={selectedGoal}
                 onClose={() => setSelectedGoal(null)}
+                currentUser={currentUser}
               />
             </aside>
           )}
@@ -413,6 +415,7 @@ function GoalsPage({ currentUser, rolePermissions, initialTab = "My goals" }) {
               goal={selectedGoal}
               onClose={() => setSelectedGoal(null)}
               onSave={handleUpdateGoal}
+              currentUser={currentUser}
             />
           </aside>
         )}

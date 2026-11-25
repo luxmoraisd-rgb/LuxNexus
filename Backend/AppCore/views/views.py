@@ -14,6 +14,11 @@ from rest_framework.views import APIView
 from ..Auth.utils import user_payload as _user_payload
 from ..api_utils import validation_error as _validation_error
 from ..db import get_database, ping_database
+from ..project_access import (
+    accessible_project_ids,
+    require_admin,
+    require_project_access,
+)
 from ..serializers.serializers import AllocationInputSerializer, ProjectInputSerializer
 
 
@@ -35,7 +40,11 @@ def _date_time(value):
 
 
 def _iso_date(value):
-    return value.date().isoformat() if isinstance(value, datetime) else value.isoformat()
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value or "")
 
 
 def _hours_value(value):
@@ -93,12 +102,12 @@ def _project_payload(document, include_allocations=True, capacity=False):
             )
         return output
 
-    owner = database.users.find_one({"_id": document["created_by"]})
+    owner = database.users.find_one({"_id": document.get("created_by")})
     output.update(
         {
             "created_by": _user_payload(owner) if owner else None,
-            "created_at": document["created_at"].isoformat(),
-            "updated_at": document["updated_at"].isoformat(),
+            "created_at": _iso_date(document.get("created_at")),
+            "updated_at": _iso_date(document.get("updated_at")),
             "allocations": [],
         }
     )
@@ -118,15 +127,22 @@ def _get_user_id(request):
     return None
 
 
+def _assigned_project_object_ids(user):
+    project_ids = accessible_project_ids(user)
+    if project_ids is None:
+        return None
+    return [
+        ObjectId(project_id)
+        for project_id in project_ids
+        if ObjectId.is_valid(project_id)
+    ]
+
+
 class ResourcingProjectListCreateView(APIView):
     def get(self, request):
         database = get_database()
-        user_id = _get_user_id(request)
-        query = (
-            {"$or": [{"created_by": user_id}, {"created_by": None}, {"created_by": {"$exists": False}}]}
-            if user_id
-            else {}
-        )
+        project_ids = _assigned_project_object_ids(request.user)
+        query = {} if project_ids is None else {"_id": {"$in": project_ids}}
         projects = database.projects.find(query).sort([("start_date", ASCENDING), ("name", ASCENDING)])
         return Response(
             [_project_payload(project) for project in projects],
@@ -155,20 +171,19 @@ class ResourcingProjectListCreateView(APIView):
         )
 
 
-def _owned_project(project_id, user_id):
+def _owned_project(project_id, user):
     if not ObjectId.is_valid(project_id):
         return None
     db = get_database()
-    if user_id:
-        project = db.projects.find_one({"_id": ObjectId(project_id), "created_by": user_id})
-        if project:
-            return project
-    return db.projects.find_one({"_id": ObjectId(project_id)})
+    project = db.projects.find_one({"_id": ObjectId(project_id)})
+    if project is not None:
+        require_project_access(user, str(project["_id"]))
+    return project
 
 
 class ResourcingProjectDetailView(APIView):
     def get(self, request, project_id):
-        project = _owned_project(project_id, _get_user_id(request))
+        project = _owned_project(project_id, request.user)
         if project is None:
             return Response(
                 {"detail": "Project not found."},
@@ -177,7 +192,7 @@ class ResourcingProjectDetailView(APIView):
         return Response(_project_payload(project), status=status.HTTP_200_OK)
 
     def put(self, request, project_id):
-        project = _owned_project(project_id, _get_user_id(request))
+        project = _owned_project(project_id, request.user)
         if project is None:
             return Response(
                 {"detail": "Project not found."},
@@ -211,15 +226,23 @@ class ResourcingProjectDetailView(APIView):
         return Response(_project_payload(project), status=status.HTTP_200_OK)
 
     def delete(self, request, project_id):
-        project = _owned_project(project_id, _get_user_id(request))
+        require_admin(request.user)
+        project = _owned_project(project_id, request.user)
         if project is None:
             return Response(
                 {"detail": "Project not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
         database = get_database()
-        database.allocations.delete_many({"project": project["_id"]})
-        database.projects.delete_one({"_id": project["_id"]})
+        from AppCore.Projects.views.views import delete_project_data
+
+        delete_project_data(database, project)
+        result = database.projects.delete_one({"_id": project["_id"]})
+        if result.deleted_count == 0:
+            return Response(
+                {"detail": "Project not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         return Response(
             {"message": "Project deleted successfully."},
             status=status.HTTP_204_NO_CONTENT,
@@ -229,7 +252,9 @@ class ResourcingProjectDetailView(APIView):
 class ResourceAllocationListCreateView(APIView):
     def get(self, request):
         database = get_database()
-        allocations = database.allocations.find().sort([("month", ASCENDING)])
+        project_ids = _assigned_project_object_ids(request.user)
+        query = {} if project_ids is None else {"project": {"$in": project_ids}}
+        allocations = database.allocations.find(query).sort([("month", ASCENDING)])
         return Response(
             [_allocation_payload(item) for item in allocations],
             status=status.HTTP_200_OK,
@@ -242,6 +267,7 @@ class ResourceAllocationListCreateView(APIView):
         values = serializer.validated_data
         database = get_database()
         project_id = ObjectId(values["project"])
+        require_project_access(request.user, str(project_id))
         project = database.projects.find_one({"_id": project_id})
         if project is None:
             return Response(
@@ -277,26 +303,20 @@ class ResourceAllocationListCreateView(APIView):
         )
 
 
-def _owned_allocation(allocation_id, user_id):
+def _owned_allocation(allocation_id, user):
     if not ObjectId.is_valid(allocation_id):
         return None
     database = get_database()
     allocation = database.allocations.find_one({"_id": ObjectId(allocation_id)})
     if allocation is None:
         return None
-    if user_id:
-        project = database.projects.find_one(
-            {"_id": allocation["project"], "created_by": user_id},
-            {"_id": 1},
-        )
-        if project:
-            return allocation
+    require_project_access(user, str(allocation["project"]))
     return allocation
 
 
 class ResourceAllocationDetailView(APIView):
     def get(self, request, allocation_id):
-        allocation = _owned_allocation(allocation_id, _get_user_id(request))
+        allocation = _owned_allocation(allocation_id, request.user)
         if allocation is None:
             return Response(
                 {"detail": "Allocation not found."},
@@ -308,7 +328,7 @@ class ResourceAllocationDetailView(APIView):
         )
 
     def put(self, request, allocation_id):
-        allocation = _owned_allocation(allocation_id, _get_user_id(request))
+        allocation = _owned_allocation(allocation_id, request.user)
         if allocation is None:
             return Response(
                 {"detail": "Allocation not found."},
@@ -319,6 +339,7 @@ class ResourceAllocationDetailView(APIView):
             return _validation_error(serializer)
         values = serializer.validated_data
         project_id = ObjectId(values["project"])
+        require_project_access(request.user, str(project_id))
         user_id = ObjectId(values["user"])
         updated_at = datetime.now(timezone.utc)
         update = {
@@ -350,7 +371,7 @@ class ResourceAllocationDetailView(APIView):
         )
 
     def delete(self, request, allocation_id):
-        allocation = _owned_allocation(allocation_id, _get_user_id(request))
+        allocation = _owned_allocation(allocation_id, request.user)
         if allocation is None:
             return Response(
                 {"detail": "Allocation not found."},
@@ -365,12 +386,8 @@ class ResourceAllocationDetailView(APIView):
 
 class CapacityPlanningView(APIView):
     def get(self, request):
-        user_id = _get_user_id(request)
-        query = (
-            {"$or": [{"created_by": user_id}, {"created_by": None}, {"created_by": {"$exists": False}}]}
-            if user_id
-            else {}
-        )
+        project_ids = _assigned_project_object_ids(request.user)
+        query = {} if project_ids is None else {"_id": {"$in": project_ids}}
         start = request.query_params.get("start")
         end = request.query_params.get("end")
         if start:

@@ -20,13 +20,10 @@ const PeopleSidebar = ({ activeItem: propActiveItem, onNavigate }) => {
       <PeopleSidebar.Header title="People" />
 
       <PeopleSidebar.Content>
-        {/* Profile / Directory */}
         <PeopleSidebar.ProfileItem
           active={activeItem === "Profile" || activeItem === "Directory"}
           onClick={() => handleNavigate("Profile")}
         />
-
-        {/* Team */}
         <PeopleSidebar.TeamSection
           expanded={teamExpanded}
           onToggle={() => setTeamExpanded(!teamExpanded)}

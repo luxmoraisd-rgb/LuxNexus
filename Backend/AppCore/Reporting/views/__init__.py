@@ -8,7 +8,6 @@ from .reports import (
     EODReportDetailView,
     EODReportImportView,
     EODReportListCreateView,
-    EODReportSampleDataView,
     EODSpreadsheetPreviewView,
     ReportOptionsView,
 )
@@ -21,7 +20,6 @@ __all__ = [
     "EODReportDetailView",
     "EODReportImportView",
     "EODReportListCreateView",
-    "EODReportSampleDataView",
     "EODSpreadsheetPreviewView",
     "ReportOptionsView",
 ]

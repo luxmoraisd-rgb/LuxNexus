@@ -36,6 +36,7 @@ button {
   --font-scale: 1;
   width: 100%;
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--app-bg);
   color: var(--app-text);
 }
@@ -50,6 +51,7 @@ button {
 
 .app-body {
   height: calc(100vh - 54px);
+  height: calc(100dvh - 54px);
   min-height: 0;
   display: flex;
   background: var(--app-bg);
@@ -86,6 +88,18 @@ button {
   min-height: 0;
   overflow: auto;
   background: var(--app-surface, #18191e);
+}
+
+.route-loading {
+  padding: 24px;
+  color: var(--app-muted);
+}
+
+.app .auth-wrapper {
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .app[data-theme="light"] .top-navbar,
@@ -254,9 +268,14 @@ button {
     overflow: hidden;
   }
 
+  .app .auth-wrapper {
+    align-items: flex-start;
+    padding-block: 24px;
+  }
+
   .sub-wrapper {
     position: absolute;
-    left: 0;
+    left: 78px;
     top: 0;
     bottom: 0;
     width: min(255px, calc(100vw - 78px));

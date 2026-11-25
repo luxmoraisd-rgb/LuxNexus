@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, BarChart3, CalendarDays, Check, FileSpreadsheet, LoaderCircle, Plus, RefreshCw, Search, Sparkles, Trash2, X } from "lucide-react";
+import { AlertCircle, BarChart3, CalendarDays, Check, FileSpreadsheet, LoaderCircle, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { getApiError, reportApi } from "./reportApi";
 import ImportSpreadsheet from "./ImportSpreadsheet";
 import "./Reports.css";
@@ -69,7 +69,6 @@ export default function Reports() {
   const [showCreate, setShowCreate] = useState(false);
   const [newReport, setNewReport] = useState(emptyDraft);
   const [savingNew, setSavingNew] = useState(false);
-  const [addingSamples, setAddingSamples] = useState(false);
 
   const query = useMemo(() => ({
     type: activeTab,
@@ -208,21 +207,6 @@ export default function Reports() {
     return result;
   };
 
-  const addSampleReports = async () => {
-    setAddingSamples(true);
-    setError("");
-    setNotice("");
-    try {
-      const result = await reportApi.addSampleReports();
-      setNotice(result.message || `Added ${result.created || 0} sample reports.`);
-      await loadReports();
-    } catch (sampleError) {
-      setError(getApiError(sampleError));
-    } finally {
-      setAddingSamples(false);
-    }
-  };
-
   const reportOptions = (key) => options[key] || [];
   const yearOptions = Array.from({ length: 8 }, (_, index) => String(currentDate.getFullYear() - index));
   const hasDraft = (row) => Boolean(drafts[row.id] && Object.keys(drafts[row.id]).length);
@@ -239,10 +223,6 @@ export default function Reports() {
           <p>Review daily work updates and reports generated from your team’s saved activity.</p>
         </div>
         <div className="reports-heading-actions">
-          <button type="button" className="reports-button secondary" onClick={addSampleReports} disabled={addingSamples}>
-            {addingSamples ? <LoaderCircle className="reports-spin" size={16} /> : <Sparkles size={16} />}
-            {addingSamples ? "Adding samples…" : "Add sample data"}
-          </button>
           <button type="button" className="reports-button secondary" onClick={() => loadReports()}>
             <RefreshCw size={16} /> Refresh
           </button>
@@ -314,7 +294,7 @@ export default function Reports() {
               ) : visibleRows.length === 0 ? (
                 <tr><td className="reports-state-cell" colSpan={EDITABLE_FIELDS.length + 1}>No reports match these filters. Add a report or check for EOD comments.</td></tr>
               ) : visibleRows.map((row) => (
-                <tr key={row.id} className={`${row.source === "eod_comment" ? "reports-eod-row" : ""} ${row.source === "sample" ? "reports-sample-row" : ""}`}>
+                <tr key={row.id} className={row.source === "eod_comment" ? "reports-eod-row" : ""}>
                   {EDITABLE_FIELDS.map(([field]) => (
                     <td key={field}>
                       {row.editable ? (

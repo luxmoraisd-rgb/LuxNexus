@@ -88,7 +88,7 @@ const getMinutesFromTime = (timeValue) => {
 
 export default function MeetingsPage({ currentUser }) {
   const [meetings, setMeetings] = useState([]);
-  const [metrics, setMetrics] = useState({ total: 0, upcoming: 0, recent: 0, hours_recorded: "18.5 hrs" });
+  const [metrics, setMetrics] = useState({ total: 0, upcoming: 0, recent: 0, hours_recorded: "0 hrs" });
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("all"); // "all" | "upcoming" | "recent"
   const [searchQuery, setSearchQuery] = useState("");
@@ -271,9 +271,11 @@ export default function MeetingsPage({ currentUser }) {
         duration: `${duration} mins`,
         attendees: [
           {
-            name: currentUser?.username || "Jagadeep",
+            name: currentUser?.name || currentUser?.username || "",
             role: "Host",
-            initials: currentUser?.username ? currentUser.username.slice(0, 2).toUpperCase() : "JA",
+            initials: (currentUser?.name || currentUser?.username || "")
+              .slice(0, 2)
+              .toUpperCase(),
             color: "#6366f1",
           },
         ],
@@ -377,7 +379,7 @@ export default function MeetingsPage({ currentUser }) {
             <Clock size={20} />
           </div>
           <div className="stat-info">
-            <span className="stat-value">{metrics.hours_recorded || "18.5 hrs"}</span>
+            <span className="stat-value">{metrics.hours_recorded || "0 hrs"}</span>
             <span className="stat-label">Recorded Audio/Notes</span>
           </div>
         </div>
@@ -442,7 +444,7 @@ export default function MeetingsPage({ currentUser }) {
                   </span>
                   <div className="meeting-time-badge">
                     <Clock size={12} />
-                    <span>{meeting.date} • {meeting.duration || "60 mins"}</span>
+                    <span>{meeting.date}{meeting.duration ? ` • ${meeting.duration}` : ""}</span>
                   </div>
                 </div>
 
@@ -450,14 +452,14 @@ export default function MeetingsPage({ currentUser }) {
                   <h3 className="meeting-card-title">{meeting.title}</h3>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, fontSize: "0.78rem", color: "var(--app-muted)" }}>
                     <Video size={13} style={{ color: "#818cf8" }} />
-                    <span>{meeting.platform || "Google Meet"}</span>
+                    <span>{meeting.platform || "Platform not specified"}</span>
                     <span>•</span>
                     <span>{meeting.time}</span>
                   </div>
                 </div>
 
                 <p className="meeting-agenda-snippet">
-                  {meeting.agenda || meeting.keyTakeaways || "No detailed agenda provided for this sync."}
+                  {meeting.agenda || meeting.keyTakeaways || "No agenda provided."}
                 </p>
 
                 <div className="meeting-card-footer">

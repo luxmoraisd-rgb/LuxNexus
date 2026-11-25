@@ -8,6 +8,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { STATUS_CONFIG, TYPE_CONFIG, isTaskAssignedToPerson } from '../Backlog/TaskRowUtils';
+import TaskOwnerAvatar from '../Backlog/TaskOwnerAvatar';
 import './KanbanBoard.css';
 
 const DEFAULT_COLUMNS = [
@@ -307,9 +308,32 @@ const KanbanBoard = ({
                 {tasks.map((task) => {
                   const typeBg = typeConfig[task.type]?.bg || '#579bfc';
                   const isTaskDragging = draggingTaskId === task.id;
-                  const ownerName = task.owner?.name || task.owner || 'Unassigned';
-                  const ownerInitial = task.owner?.initial || (ownerName ? ownerName[0].toUpperCase() : 'U');
-                  const ownerBg = task.owner?.avatarBg || '#6366f1';
+                  const matchedOwner = personFilterMembers.find((person) =>
+                    isTaskAssignedToPerson(task.owner, person)
+                  );
+                  const ownerRecord = {
+                    ...(matchedOwner || {}),
+                    ...(typeof task.owner === 'object' && task.owner ? task.owner : {}),
+                  };
+                  const rawOwnerLabel =
+                    typeof task.owner === 'string' && !/^[a-f\d]{24}$/i.test(task.owner.trim())
+                      ? task.owner.trim()
+                      : '';
+                  const ownerName =
+                    ownerRecord.name ||
+                    ownerRecord.display_name ||
+                    ownerRecord.username ||
+                    ownerRecord.email ||
+                    rawOwnerLabel ||
+                    'Unassigned';
+                  const ownerInitial =
+                    ownerRecord.initial ||
+                    ownerRecord.initials ||
+                    (ownerName ? ownerName[0].toUpperCase() : 'U');
+                  const ownerBg = ownerRecord.avatarBg || ownerRecord.avatarColor || '#6366f1';
+                  ownerRecord.name = ownerName;
+                  ownerRecord.initial = ownerInitial;
+                  ownerRecord.avatarBg = ownerBg;
 
                   return (
                     <article
@@ -353,9 +377,11 @@ const KanbanBoard = ({
                       {/* Footer: Assignee & Quick Actions */}
                       <div className="kanban-card-footer" onClick={(e) => e.stopPropagation()}>
                         <div className="kanban-card-assignee" title={`Assigned to ${ownerName}`}>
-                          <div className="kanban-avatar" style={{ backgroundColor: ownerBg }}>
-                            {ownerInitial}
-                          </div>
+                          <TaskOwnerAvatar
+                            key={ownerRecord.avatar || ownerRecord.avatarUrl || ownerRecord.name}
+                            owner={ownerRecord}
+                            className="kanban-avatar"
+                          />
                           <span className="kanban-assignee-name">{ownerName}</span>
                         </div>
 
