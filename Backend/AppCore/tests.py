@@ -1784,6 +1784,110 @@ class MongoSerializerTests(SimpleTestCase):
 
                 self.assertTrue(serializer.is_valid(), serializer.errors)
 
+
+@override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
+class ProjectDataAccessTests(SimpleTestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(
+            user=MongoUser(
+                id=ObjectId(),
+                username="member",
+                email="member@example.com",
+                first_name="Project",
+                last_name="Member",
+                role="user",
+            )
+        )
+        self.project_id = ObjectId()
+        self.project = {
+            "_id": self.project_id,
+            "created_by": ObjectId(),
+            "name": "Private resourcing project",
+        }
+
+    @patch("AppCore.project_access.get_database")
+    @patch("AppCore.Projects.views.views.get_projects_collection")
+    @patch("AppCore.Projects.views.views.get_database")
+    def test_create_project_persists_valid_selected_members(
+        self, get_database, get_projects_collection, get_access_database
+    ):
+        admin_id = ObjectId()
+        member_id = ObjectId()
+        self.client.force_authenticate(
+            user=MongoUser(
+                id=admin_id,
+                username="admin",
+                email="admin@example.com",
+                first_name="App",
+                last_name="Admin",
+                role="admin",
+            )
+        )
+        database = get_database.return_value
+        get_access_database.return_value = database
+        database.users.find.return_value = [{"_id": member_id}]
+        collection = get_projects_collection.return_value
+        collection.find_one.return_value = None
+        collection.insert_one.return_value.inserted_id = self.project_id
+
+        response = self.client.post(
+            "/api/projects/",
+            {"name": "Member project", "members": [str(member_id)]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["members"], [str(member_id)])
+        self.assertEqual(
+            collection.insert_one.call_args.args[0]["members"],
+            [str(member_id)],
+        )
+        stored_project = dict(collection.insert_one.call_args.args[0])
+        stored_project["_id"] = self.project_id
+        collection.find.return_value.sort.return_value = [stored_project]
+        database.projects.find.return_value = [stored_project]
+
+        self.client.force_authenticate(
+            user=MongoUser(
+                id=member_id,
+                username="project_member",
+                email="project_member@example.com",
+                first_name="Project",
+                last_name="Member",
+                role="user",
+            )
+        )
+        list_response = self.client.get("/api/projects/")
+
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual([project["id"] for project in list_response.data], [str(self.project_id)])
+
+    @patch("AppCore.project_access.get_database")
+    @patch("AppCore.views.views.get_database")
+    def test_foreign_resourcing_project_and_allocation_return_forbidden(
+        self, get_view_database, get_access_database
+    ):
+        database = get_view_database.return_value
+        get_access_database.return_value = database
+        database.projects.find_one.return_value = self.project
+        database.projects.find.return_value = [self.project]
+        allocation_id = ObjectId()
+        database.allocations.find_one.return_value = {
+            "_id": allocation_id,
+            "project": self.project_id,
+        }
+
+        project_response = self.client.get(
+            f"/api/auth/resourcing/projects/{self.project_id}/"
+        )
+        allocation_response = self.client.get(
+            f"/api/auth/resourcing/allocations/{allocation_id}/"
+        )
+
+        self.assertEqual(project_response.status_code, 403)
+        self.assertEqual(allocation_response.status_code, 403)
+
     def test_project_dates_reject_invalid_or_empty_values(self):
         for start_date, end_date in (("", ""), ("2026-02-30", "2026-03-01")):
             with self.subTest(start_date=start_date, end_date=end_date):

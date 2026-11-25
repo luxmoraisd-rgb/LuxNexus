@@ -1,6 +1,7 @@
 from datetime import datetime
 from django.utils import timezone
 from django.contrib.auth.models import User
+from django.http import Http404
 from django.db.models import Q
 from rest_framework import viewsets, status, permissions
 from rest_framework.exceptions import PermissionDenied
@@ -14,6 +15,7 @@ from AppCore.Auth.role_permissions import (
     RoleModulePermission,
     TaskViewSetRolePermission,
 )
+from AppCore.project_access import is_project_admin
 from AppCore.HomePage.models import Workspace, Project, Task, DashboardWidget
 from AppCore.HomePage.serializers import (
     UserSerializer,
@@ -128,11 +130,23 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = get_active_user(self.request)
-        if getattr(self.request.user, "role", "user") in {"admin", "team_lead"}:
+        if is_project_admin(self.request.user):
             return Project.objects.all()
         if user:
             return Project.objects.filter(Q(owner=user) | Q(members=user)).distinct()
         return Project.objects.none()
+
+    def get_object(self):
+        project = Project.objects.filter(pk=self.kwargs.get(self.lookup_field, self.kwargs.get("pk"))).first()
+        if project is None:
+            raise Http404
+        user = get_active_user(self.request)
+        if not is_project_admin(self.request.user) and not (
+            user and (project.owner_id == user.id or project.members.filter(id=user.id).exists())
+        ):
+            raise PermissionDenied("You do not have access to this project.")
+        self.check_object_permissions(self.request, project)
+        return project
 
     def perform_create(self, serializer):
         user = get_active_user(self.request)
@@ -169,8 +183,16 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = Task.objects.all()
-        if getattr(self.request.user, "role", "user") not in {"admin", "team_lead"}:
-            qs = qs.filter(assignee__email__iexact=self.request.user.email)
+        if not is_project_admin(self.request.user):
+            user = get_active_user(self.request)
+            if user is None:
+                return qs.none()
+            accessible_projects = Project.objects.filter(
+                Q(owner=user) | Q(members=user)
+            ).distinct()
+            qs = qs.filter(project__in=accessible_projects)
+            if getattr(self.request.user, "role", "user") != "team_lead":
+                qs = qs.filter(assignee=user)
         category = self.request.query_params.get('category')
         project_id = self.request.query_params.get('project')
         assignee_id = self.request.query_params.get('assignee')
@@ -191,14 +213,54 @@ class TaskViewSet(viewsets.ModelViewSet):
 
         return qs
 
+    def get_object(self):
+        task = Task.objects.filter(
+            pk=self.kwargs.get(self.lookup_field, self.kwargs.get("pk"))
+        ).first()
+        if task is None:
+            raise Http404
+        user = get_active_user(self.request)
+        if not is_project_admin(self.request.user) and (
+            task.project is None
+            or user is None
+            or not (
+                task.project.owner_id == user.id
+                or task.project.members.filter(id=user.id).exists()
+            )
+        ):
+            raise PermissionDenied("You do not have access to this project.")
+        self.check_object_permissions(self.request, task)
+        return task
+
     def perform_create(self, serializer):
         user = get_active_user(self.request)
         if user is None:
             raise PermissionDenied("A linked workspace account is required to create tasks.")
-        serializer.save(
-            created_by=user,
-            assignee=serializer.validated_data.get('assignee', user)
+        project = serializer.validated_data.get("project")
+        if project is None:
+            if not is_project_admin(self.request.user):
+                raise PermissionDenied("A project assignment is required.")
+        elif not is_project_admin(self.request.user) and not (
+            project.owner_id == user.id or project.members.filter(id=user.id).exists()
+        ):
+            raise PermissionDenied("You do not have access to this project.")
+        serializer.save(created_by=user, assignee=serializer.validated_data.get('assignee', user))
+
+    def perform_update(self, serializer):
+        user = get_active_user(self.request)
+        project = serializer.validated_data.get(
+            "project", serializer.instance.project
         )
+        if not is_project_admin(self.request.user) and (
+            project is None
+            or user is None
+            or not (
+                project.owner_id == user.id
+                or project.members.filter(id=user.id).exists()
+            )
+        ):
+            raise PermissionDenied("You do not have access to this project.")
+        serializer.save()
 
     @action(detail=True, methods=['post'])
     def toggle_complete(self, request, pk=None):
@@ -218,6 +280,14 @@ class TaskViewSet(viewsets.ModelViewSet):
             if user
             else Task.objects.filter(assignee__email__iexact=request.user.email)
         )
+        if not is_project_admin(request.user):
+            if user is None:
+                base_qs = base_qs.none()
+            else:
+                accessible_projects = Project.objects.filter(
+                    Q(owner=user) | Q(members=user)
+                ).distinct()
+                base_qs = base_qs.filter(project__in=accessible_projects)
 
         upcoming = base_qs.filter(is_completed=False).filter(Q(due_date__gte=today) | Q(due_date__isnull=True))
         overdue = base_qs.filter(is_completed=False, due_date__lt=today)
@@ -300,16 +370,22 @@ class DashboardSummaryView(APIView):
             if user
             else Task.objects.filter(assignee__email__iexact=request.user.email)
         )
+        if is_project_admin(request.user):
+            user_projects = Project.objects.all()
+        elif user:
+            user_projects = Project.objects.filter(Q(owner=user) | Q(members=user)).distinct()
+            base_tasks = base_tasks.filter(project__in=user_projects)
+        else:
+            user_projects = Project.objects.none()
+            base_tasks = base_tasks.none()
+
         tasks_completed_count = base_tasks.filter(is_completed=True).count()
         upcoming_tasks = base_tasks.filter(is_completed=False).filter(Q(due_date__gte=today) | Q(due_date__isnull=True))
         overdue_tasks = base_tasks.filter(is_completed=False, due_date__lt=today)
 
-        # Collaborators count across projects
         if user:
-            user_projects = Project.objects.filter(Q(owner=user) | Q(members=user)).distinct()
             collaborators_count = User.objects.filter(assigned_projects__in=user_projects).exclude(id=user.id).distinct().count()
         else:
-            user_projects = Project.objects.none()
             collaborators_count = 0
 
         # Workspaces

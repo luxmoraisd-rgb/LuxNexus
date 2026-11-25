@@ -14,6 +14,12 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APIClient
 from rest_framework import status
 from bson import ObjectId
+from AppCore.models import MongoUser
+from AppCore.ActiveSprint.models import (
+    Board as ActiveBoard,
+    Sprint as ActiveSprint,
+    Task as ActiveTask,
+)
 from .models import Board, Sprint, BoardView, BoardColumn, Task
 
 User = get_user_model()
@@ -177,6 +183,276 @@ class AgileBoardAPITests(TestCase):
         self.assertFalse(any(task["project_id"] == other_project_id for task in response.data))
         other_task.refresh_from_db()
         self.assertEqual(other_task.sprint_id, other_sprint.id)
+
+    def test_project_scope_filters_member_and_team_lead_api_responses(self):
+        member_project_id = str(ObjectId())
+        lead_project_id = str(ObjectId())
+        other_project_id = str(ObjectId())
+        member_sprint = Sprint.objects.create(
+            board=self.board,
+            project_id=member_project_id,
+            name="Member sprint",
+        )
+        lead_sprint = Sprint.objects.create(
+            board=self.board,
+            project_id=lead_project_id,
+            name="Lead sprint",
+        )
+        other_sprint = Sprint.objects.create(
+            board=self.board,
+            project_id=other_project_id,
+            name="Restricted sprint",
+        )
+        member_task = Task.objects.create(
+            board=self.board,
+            sprint=member_sprint,
+            project_id=member_project_id,
+            title="Member task",
+        )
+        sprint_assigned_task = Task.objects.create(
+            board=self.board,
+            sprint=member_sprint,
+            title="Sprint-assigned task without project id",
+        )
+        Task.objects.create(
+            board=self.board,
+            sprint=lead_sprint,
+            project_id=lead_project_id,
+            title="Lead task",
+        )
+        other_task = Task.objects.create(
+            board=self.board,
+            sprint=other_sprint,
+            project_id=other_project_id,
+            title="Restricted task",
+        )
+        projects = [
+            {"_id": ObjectId(member_project_id), "name": "Member project", "members": ["member@example.com"]},
+            {"_id": ObjectId(lead_project_id), "name": "Lead project", "lead": "Taylor Lead"},
+            {"_id": ObjectId(other_project_id), "name": "Restricted project", "lead": "someone-else@example.com"},
+        ]
+        database = type("DatabaseStub", (), {"projects": type(
+            "ProjectsStub", (), {"find": lambda _self, _query: projects}
+        )()})()
+
+        with (
+            patch("AppCore.project_access.get_database", return_value=database),
+            patch("AppCore.Projects.views.views.get_projects_collection") as collection,
+        ):
+            collection.return_value.find_one.return_value = projects[2]
+            collection.return_value.find.return_value.sort.return_value = projects
+            for user, expected_project_id in (
+                (
+                    MongoUser(
+                        id=ObjectId(),
+                        username="member",
+                        email="member@example.com",
+                        first_name="Morgan",
+                        last_name="Member",
+                        role="user",
+                    ),
+                    member_project_id,
+                ),
+                (
+                    MongoUser(
+                        id=ObjectId(),
+                        username="taylor",
+                        email="taylor@example.com",
+                        first_name="Taylor",
+                        last_name="Lead",
+                        role="team_lead",
+                    ),
+                    lead_project_id,
+                ),
+            ):
+                self.client.force_authenticate(user=user)
+                response = self.client.get("/api/all-sprints/")
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(
+                    {
+                        sprint["project_id"]
+                        for sprint in response.data["all_sprints_summary"]
+                    },
+                    {expected_project_id},
+                )
+                self.assertEqual(
+                    {
+                        task["project_id"]
+                        for task in response.data["tasks"]
+                        if task["project_id"]
+                    },
+                    {expected_project_id},
+                )
+                if expected_project_id == member_project_id:
+                    self.assertIn(
+                        sprint_assigned_task.title,
+                        {task["title"] for task in response.data["tasks"]},
+                    )
+                    project_tasks_response = self.client.get(
+                        "/api/backlog/tasks/",
+                        {"project_id": member_project_id},
+                    )
+                    self.assertEqual(
+                        project_tasks_response.status_code,
+                        status.HTTP_200_OK,
+                    )
+                    self.assertIn(
+                        sprint_assigned_task.title,
+                        {task["title"] for task in project_tasks_response.data},
+                    )
+                    sprint_assigned_detail = self.client.get(
+                        f"/api/backlog/tasks/{sprint_assigned_task.id}/"
+                    )
+                    self.assertEqual(
+                        sprint_assigned_detail.status_code,
+                        status.HTTP_200_OK,
+                    )
+                    all_sprints_task_detail = self.client.get(
+                        f"/api/all-sprints/tasks/{sprint_assigned_task.id}/"
+                    )
+                    self.assertEqual(
+                        all_sprints_task_detail.status_code,
+                        status.HTTP_200_OK,
+                    )
+                project_list_response = self.client.get("/api/projects/")
+                self.assertEqual(project_list_response.status_code, status.HTTP_200_OK)
+                self.assertEqual(
+                    [project["id"] for project in project_list_response.data],
+                    [expected_project_id],
+                )
+
+                detail_response = self.client.get(
+                    f"/api/all-sprints/tasks/{other_task.id}/"
+                )
+                self.assertEqual(detail_response.status_code, status.HTTP_403_FORBIDDEN)
+                if expected_project_id == lead_project_id:
+                    member_task_response = self.client.get(
+                        f"/api/backlog/tasks/{sprint_assigned_task.id}/"
+                    )
+                    self.assertEqual(
+                        member_task_response.status_code,
+                        status.HTTP_403_FORBIDDEN,
+                    )
+                sprint_response = self.client.patch(
+                    f"/api/backlog/sprints/{other_sprint.id}/",
+                    {"name": "Unauthorized update"},
+                    format="json",
+                )
+                self.assertEqual(sprint_response.status_code, status.HTTP_403_FORBIDDEN)
+                task_response = self.client.delete(
+                    f"/api/backlog/tasks/{other_task.id}/"
+                )
+                self.assertEqual(task_response.status_code, status.HTTP_403_FORBIDDEN)
+                create_response = self.client.post(
+                    "/api/backlog/tasks/",
+                    {
+                        "title": "Unauthorized task",
+                        "project_id": other_project_id,
+                        "board_id": str(self.board.id),
+                    },
+                    format="json",
+                )
+                self.assertEqual(create_response.status_code, status.HTTP_403_FORBIDDEN)
+                project_response = self.client.get(
+                    f"/api/projects/{other_project_id}/"
+                )
+                self.assertEqual(project_response.status_code, status.HTTP_403_FORBIDDEN)
+                project_update_response = self.client.patch(
+                    f"/api/projects/{other_project_id}/",
+                    {"name": "Unauthorized update"},
+                    format="json",
+                )
+                self.assertEqual(
+                    project_update_response.status_code,
+                    status.HTTP_403_FORBIDDEN,
+                )
+
+            self.client.force_authenticate(user=self.user_s)
+            admin_response = self.client.get("/api/all-sprints/")
+            self.assertEqual(admin_response.status_code, status.HTTP_200_OK)
+            self.assertIn(
+                other_project_id,
+                {sprint["project_id"] for sprint in admin_response.data["all_sprints_summary"]},
+            )
+            admin_projects = self.client.get("/api/projects/")
+            self.assertEqual(admin_projects.status_code, status.HTTP_200_OK)
+            self.assertEqual(len(admin_projects.data), len(projects))
+
+    @patch("AppCore.Projects.views.views.GridFSBucket")
+    @patch("AppCore.Projects.views.views.get_projects_collection")
+    @patch("AppCore.Projects.views.views.get_database")
+    def test_only_admin_can_delete_project_and_project_data(
+        self, get_database, get_projects_collection, gridfs_bucket
+    ):
+        project_id = str(ObjectId())
+        other_project_id = str(ObjectId())
+        project_sprint = Sprint.objects.create(
+            board=self.board,
+            project_id=project_id,
+            name="Project sprint",
+        )
+        project_task = Task.objects.create(
+            board=self.board,
+            sprint=project_sprint,
+            title="Project task",
+        )
+        other_sprint = Sprint.objects.create(
+            board=self.board,
+            project_id=other_project_id,
+            name="Other project sprint",
+        )
+        other_task = Task.objects.create(
+            board=self.board,
+            sprint=other_sprint,
+            project_id=other_project_id,
+            title="Other project task",
+        )
+        active_board = ActiveBoard.objects.create(name="Active board", key="ACT")
+        active_sprint = ActiveSprint.objects.create(
+            board=active_board,
+            project_id=project_id,
+            name="Active project sprint",
+        )
+        active_task = ActiveTask.objects.create(
+            board=active_sprint.board,
+            sprint=active_sprint,
+            project_id=project_id,
+            title="Active project task",
+        )
+        project_doc = {"_id": ObjectId(project_id), "name": "Project"}
+        collection = get_projects_collection.return_value
+        collection.find_one.return_value = project_doc
+        collection.delete_one.return_value.deleted_count = 1
+        database = get_database.return_value
+        asset_id = ObjectId()
+        gridfs_id = ObjectId()
+        database.board_assets.find.return_value = [
+            {"_id": asset_id, "kind": "archive", "gridfs_id": gridfs_id}
+        ]
+        gridfs_bucket.return_value.delete.return_value = None
+
+        self.client.force_authenticate(user=self.user_franklin)
+        denied_response = self.client.delete(f"/api/projects/{project_id}/")
+        self.assertEqual(denied_response.status_code, status.HTTP_403_FORBIDDEN)
+        collection.find_one.assert_not_called()
+
+        self.client.force_authenticate(user=self.user_s)
+        delete_response = self.client.delete(f"/api/projects/{project_id}/")
+
+        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Task.objects.filter(pk=project_task.id).exists())
+        self.assertFalse(Sprint.objects.filter(pk=project_sprint.id).exists())
+        self.assertFalse(ActiveTask.objects.filter(pk=active_task.id).exists())
+        self.assertFalse(ActiveSprint.objects.filter(pk=active_sprint.id).exists())
+        self.assertTrue(Task.objects.filter(pk=other_task.id).exists())
+        database.backlog_task_comments.delete_many.assert_called_once_with(
+            {"task_id": {"$in": [str(project_task.id)]}}
+        )
+        database.board_assets.delete_many.assert_called_once_with(
+            {"task_id": {"$in": [str(project_task.id)]}}
+        )
+        gridfs_bucket.return_value.delete.assert_called_once_with(gridfs_id)
 
     def test_member_cannot_create_tasks_or_sprints_or_complete_sprints(self):
         member = User.objects.create_user(

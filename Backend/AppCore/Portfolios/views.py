@@ -8,6 +8,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ..Auth.role_permissions import RoleModulePermission
+from ..project_access import (
+    get_accessible_projects,
+    is_project_admin,
+)
 from .db import get_portfolios_collection
 
 
@@ -31,11 +35,57 @@ def _metrics(portfolios):
     }
 
 
+def _portfolio_is_accessible(user, document, accessible_projects=None):
+    if is_project_admin(user):
+        return True
+    if accessible_projects is None:
+        accessible_projects = get_accessible_projects(user) or []
+    project_identifiers = set()
+    project_names = set()
+    for project in accessible_projects:
+        for value in (project.get("_id"), project.get("id"), project.get("key")):
+            if value is not None:
+                project_identifiers.add(str(value).strip().casefold())
+        name = str(project.get("name") or "").strip().casefold()
+        if name:
+            project_names.add(name)
+
+    portfolio_projects = document.get("projects") or []
+    if not portfolio_projects:
+        return False
+    for project in portfolio_projects:
+        if isinstance(project, dict):
+            identifiers = tuple(
+                project.get(field) for field in ("id", "key") if project.get(field)
+            )
+            if identifiers:
+                allowed = all(
+                    str(value).strip().casefold() in project_identifiers
+                    for value in identifiers
+                )
+            else:
+                allowed = (
+                    str(project.get("name") or "").strip().casefold()
+                    in project_names
+                )
+        else:
+            value = str(project or "").strip().casefold()
+            allowed = value in project_identifiers or value in project_names
+        if not allowed:
+            return False
+    return True
+
+
 class PortfoliosView(APIView):
     permission_classes = [IsAuthenticated, RoleModulePermission]
 
     def get(self, request):
         collection = get_portfolios_collection()
+        accessible_projects = (
+            None
+            if is_project_admin(request.user)
+            else get_accessible_projects(request.user) or []
+        )
         query = {}
         status_filter = (request.query_params.get("status") or "").strip().lower()
         search = (request.query_params.get("search") or "").strip()
@@ -50,11 +100,17 @@ class PortfoliosView(APIView):
                 {"owner.name": {"$regex": escaped, "$options": "i"}},
                 {"projects.name": {"$regex": escaped, "$options": "i"}},
             ]
-        documents = list(collection.find(query))
+        documents = [
+            document
+            for document in collection.find(query)
+            if _portfolio_is_accessible(request.user, document, accessible_projects)
+        ]
         documents.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)
         portfolios = [serialize_portfolio(document) for document in documents]
         all_portfolios = [
-            serialize_portfolio(document) for document in collection.find({})
+            serialize_portfolio(document)
+            for document in collection.find({})
+            if _portfolio_is_accessible(request.user, document, accessible_projects)
         ]
         return Response(
             {"portfolios": portfolios, "metrics": _metrics(all_portfolios)},
@@ -97,6 +153,13 @@ class PortfoliosView(APIView):
                     }
                 )
 
+        if not is_project_admin(request.user):
+            access_document = {"projects": projects}
+            if not _portfolio_is_accessible(request.user, access_document):
+                from rest_framework.exceptions import PermissionDenied
+
+                raise PermissionDenied("You do not have access to one or more projects.")
+
         document = {
             "_id": f"pf-{datetime.now().timestamp()}",
             "name": name,
@@ -135,6 +198,10 @@ class PortfolioDetailView(APIView):
         document = self._find_document(get_portfolios_collection(), portfolio_id)
         if document is None:
             return Response({"detail": "Portfolio not found."}, status=status.HTTP_404_NOT_FOUND)
+        if not _portfolio_is_accessible(request.user, document):
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have access to this project.")
         return Response(serialize_portfolio(document), status=status.HTTP_200_OK)
 
     def put(self, request, portfolio_id):
@@ -142,12 +209,22 @@ class PortfolioDetailView(APIView):
         document = self._find_document(collection, portfolio_id)
         if document is None:
             return Response({"detail": "Portfolio not found."}, status=status.HTTP_404_NOT_FOUND)
+        if not _portfolio_is_accessible(request.user, document):
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have access to this project.")
         updates = {
             key: value
             for key, value in (request.data or {}).items()
             if key in {"name", "description", "status", "progress", "priority", "timeframe", "budget", "color", "owner", "projects"}
         }
         updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+        if "projects" in updates and not _portfolio_is_accessible(
+            request.user, {"projects": updates["projects"]}
+        ):
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have access to one or more projects.")
         collection.update_one({"_id": document["_id"]}, {"$set": updates})
         updated = collection.find_one({"_id": document["_id"]})
         return Response(serialize_portfolio(updated), status=status.HTTP_200_OK)
@@ -157,5 +234,9 @@ class PortfolioDetailView(APIView):
         document = self._find_document(collection, portfolio_id)
         if document is None:
             return Response({"detail": "Portfolio not found."}, status=status.HTTP_404_NOT_FOUND)
+        if not _portfolio_is_accessible(request.user, document):
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have access to this project.")
         collection.delete_one({"_id": document["_id"]})
         return Response({"detail": "Portfolio deleted successfully."}, status=status.HTTP_200_OK)

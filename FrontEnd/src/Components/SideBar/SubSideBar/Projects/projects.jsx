@@ -39,8 +39,10 @@ const COLOR_OPTIONS = [
 
 const CATEGORIES = ["All", "Engineering", "Design", "Marketing", "Operations"];
 
-export default function Projects() {
+export default function Projects({ rolePermissions, currentUser }) {
   const navigate = useNavigate();
+  const effectiveRole = rolePermissions?.current_role || currentUser?.role || "user";
+  const isAdmin = effectiveRole === "admin";
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -57,12 +59,13 @@ export default function Projects() {
   const [formCategory, setFormCategory] = useState("Engineering");
   const [formDescription, setFormDescription] = useState("");
   const [formColor, setFormColor] = useState(COLOR_OPTIONS[0]);
-  const [formProgress, setFormProgress] = useState(0);
   const [formLead, setFormLead] = useState("");
+  const [formMembers, setFormMembers] = useState([]);
   const [formStartDate, setFormStartDate] = useState("");
   const [formEndDate, setFormEndDate] = useState("");
   const [formStatus, setFormStatus] = useState("Active");
   const [teamLeads, setTeamLeads] = useState([]);
+  const [members, setMembers] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState("");
 
@@ -90,13 +93,17 @@ export default function Projects() {
     let active = true;
     Promise.allSettled([
       fetchProjects(),
-      peopleApi.getMembers({ role: "team_lead" }),
-    ]).then(([projectsResult, teamLeadsResult]) => {
+      peopleApi.getMembers(),
+    ]).then(([projectsResult, membersResult]) => {
       if (!active) return;
       if (projectsResult.status === "fulfilled") setProjects(projectsResult.value);
       else console.warn("Failed to load projects from server:", projectsResult.reason);
-      if (teamLeadsResult.status === "fulfilled") setTeamLeads(teamLeadsResult.value);
-      else console.warn("Failed to load team leads:", teamLeadsResult.reason);
+      if (membersResult.status === "fulfilled") {
+        setTeamLeads(membersResult.value.filter((member) => member.role === "team_lead"));
+        setMembers(membersResult.value);
+      } else {
+        console.warn("Failed to load members:", membersResult.reason);
+      }
     });
     return () => {
       active = false;
@@ -147,8 +154,8 @@ export default function Projects() {
     setFormCategory("Engineering");
     setFormDescription("");
     setFormColor(COLOR_OPTIONS[0]);
-    setFormProgress(0);
     setFormLead("");
+    setFormMembers([]);
     setFormStartDate(new Date().toISOString().split("T")[0]);
     setFormEndDate("");
     setFormStatus("Active");
@@ -163,7 +170,6 @@ export default function Projects() {
     setFormCategory(proj.category || "Engineering");
     setFormDescription(proj.description || "");
     setFormColor(proj.color || COLOR_OPTIONS[0]);
-    setFormProgress(proj.progress || 0);
     setFormLead(proj.lead || proj.project_lead || "");
     setFormStartDate(proj.start_date || proj.startDate || "");
     setFormEndDate(proj.end_date || proj.endDate || "");
@@ -185,7 +191,6 @@ export default function Projects() {
           category: formCategory,
           description: formDescription.trim(),
           color: formColor,
-          progress: Number(formProgress) || 0,
           lead: formLead.trim(),
           project_lead: formLead.trim(),
           start_date: formStartDate,
@@ -207,12 +212,12 @@ export default function Projects() {
           category: formCategory,
           description: formDescription.trim(),
           color: formColor,
-          progress: Number(formProgress) || 0,
           is_default_workspace: projects.length === 0,
           start_date: formStartDate,
           end_date: formEndDate,
           lead: formLead.trim(),
           project_lead: formLead.trim(),
+          members: formMembers,
           status: formStatus,
         };
 
@@ -243,13 +248,15 @@ export default function Projects() {
   };
 
   const handleDeleteProject = async (projId, projName) => {
-    if (!window.confirm(`Are you sure you want to delete "${projName}"?`)) return;
+    if (!isAdmin || !window.confirm(
+      `Permanently delete "${projName}" and all of its sprints, tasks, comments, and attachments?`
+    )) return;
     try {
       await deleteProject(projId);
       setProjects((prev) => prev.filter((p) => p.id !== projId));
       showToast(`Project "${projName}" deleted.`);
-    } catch {
-      showToast("Error deleting project.");
+    } catch (deleteError) {
+      showToast(deleteError.response?.data?.detail || "Error deleting project.");
     }
   };
 
@@ -280,7 +287,7 @@ export default function Projects() {
           <div>
             <h1 className="projects-title">Projects</h1>
             <p className="projects-subtitle">
-              Manage workspace initiatives, track sprint progress, and assign team resources in MongoDB
+              Manage workspace initiatives and assign team resources in MongoDB
             </p>
           </div>
         </div>
@@ -474,33 +481,19 @@ export default function Projects() {
                         <Edit2 size={14} />
                       </button>
 
-                      <button
-                        className="project-icon-action-btn delete"
-                        onClick={() => handleDeleteProject(project.id, project.name)}
-                        title="Delete project"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      {isAdmin && (
+                        <button
+                          className="project-icon-action-btn delete"
+                          onClick={() => handleDeleteProject(project.id, project.name)}
+                          title="Delete project"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
                   </div>
 
                   <p className="project-description">{project.description}</p>
-
-                  <div className="project-progress-container">
-                    <div className="project-progress-label-row">
-                      <span>Sprint Velocity</span>
-                      <span className="project-progress-percent">{project.progress || 0}%</span>
-                    </div>
-                    <div className="project-progress-track">
-                      <div
-                        className="project-progress-fill"
-                        style={{
-                          width: `${project.progress || 0}%`,
-                          backgroundColor: project.color || "#6366f1",
-                        }}
-                      />
-                    </div>
-                  </div>
 
                   <div className="project-sprint-info-row">
                     <div className="sprint-status-col">
@@ -611,6 +604,36 @@ export default function Projects() {
                 </div>
               </div>
 
+              {!editingProject && (
+                <div className="form-group project-members-field">
+                  <label id="project-members-label">Members</label>
+                  <details className="project-members-dropdown">
+                    <summary aria-labelledby="project-members-label">
+                      {formMembers.length
+                        ? `${formMembers.length} member${formMembers.length === 1 ? "" : "s"} selected`
+                        : "Select project members"}
+                    </summary>
+                    <div className="project-members-options" role="group" aria-labelledby="project-members-label">
+                      {members.length ? members.map((member) => (
+                        <label className="project-member-option" key={member.id}>
+                          <input
+                            type="checkbox"
+                            checked={formMembers.includes(member.id)}
+                            onChange={(event) => {
+                              setFormMembers((selected) => event.target.checked
+                                ? [...selected, member.id]
+                                : selected.filter((id) => id !== member.id));
+                            }}
+                          />
+                          <span>{member.name || member.username || member.email}</span>
+                          {member.email && <small>{member.email}</small>}
+                        </label>
+                      )) : <p className="project-members-empty">No members available</p>}
+                    </div>
+                  </details>
+                </div>
+              )}
+
               <div className="form-row">
                 <div className="form-group">
                   <label>Start Date</label>
@@ -620,24 +643,6 @@ export default function Projects() {
                   <label>End Date</label>
                   <input type="date" min={formStartDate || undefined} value={formEndDate} onChange={(e) => setFormEndDate(e.target.value)} />
                 </div>
-              </div>
-
-              <div className="form-group progress-range-group">
-                <div className="progress-range-header">
-                  <label htmlFor="project-progress">Sprint Velocity / Progress</label>
-                  <span>{formProgress}%</span>
-                </div>
-                <input
-                  id="project-progress"
-                  className="progress-range"
-                  type="range"
-                  min="0"
-                  max="100"
-                  step="1"
-                  value={formProgress}
-                  onChange={(e) => setFormProgress(Number(e.target.value))}
-                  style={{ "--progress": `${formProgress}%` }}
-                />
               </div>
 
               <div className="form-group">

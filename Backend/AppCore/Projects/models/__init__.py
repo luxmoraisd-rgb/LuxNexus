@@ -26,8 +26,6 @@ def serialize_project(doc):
     lead = data.get("lead", data.get("project_lead", ""))
     data["lead"] = lead
     data["project_lead"] = lead
-
-    if "progress" not in data:
-        data["progress"] = 0
+    data.setdefault("members", [])
 
     return data

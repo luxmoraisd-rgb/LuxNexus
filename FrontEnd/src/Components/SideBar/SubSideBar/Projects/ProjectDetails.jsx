@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -50,7 +50,7 @@ export default function ProjectDetails({ rolePermissions, currentUser }) {
   const canManageSprints = isElevated && rolePermissions?.manage_sprints !== false;
   const canDeleteSprints = effectiveRole === "admin" && canManageSprints;
   const canManageTasks = isElevated && rolePermissions?.manage_tasks !== false;
-  const canManageProject = isElevated && rolePermissions?.manage_portfolios !== false;
+  const canManageProject = effectiveRole === "admin" && rolePermissions?.manage_portfolios !== false;
 
   const showToast = (message) => {
     setToast(message);
@@ -95,11 +95,6 @@ export default function ProjectDetails({ rolePermissions, currentUser }) {
 
   const completedTasks = tasks.filter((task) => task.status === "Done").length;
   const activeSprint = sprints.find((sprint) => sprint.status === "active");
-  const projectProgress = useMemo(() => {
-    if (!tasks.length) return 0;
-    return Math.round((completedTasks / tasks.length) * 100);
-  }, [completedTasks, tasks.length]);
-
   const createSprint = async (event) => {
     event.preventDefault();
     if (!sprintName.trim()) return;
@@ -167,9 +162,15 @@ export default function ProjectDetails({ rolePermissions, currentUser }) {
   };
 
   const deleteProjectRecord = async () => {
-    if (!project || !window.confirm(`Delete "${project.name}" and its project data?`)) return;
-    await deleteProject(project.id);
-    navigate("/work/projects");
+    if (!project || !window.confirm(
+      `Permanently delete "${project.name}" and all of its sprints, tasks, comments, and attachments?`
+    )) return;
+    try {
+      await deleteProject(project.id);
+      navigate("/work/projects");
+    } catch (deleteError) {
+      showToast(deleteError.response?.data?.detail || "Unable to delete project.");
+    }
   };
 
   if (loading) {
@@ -222,11 +223,6 @@ export default function ProjectDetails({ rolePermissions, currentUser }) {
       {tab === "overview" && (
         <div className="project-details-content">
           <section className="project-overview-grid">
-            <article className="project-overview-card">
-              <span>Project Progress</span>
-              <strong>{projectProgress}%</strong>
-              <div className="project-progress-track"><div style={{ width: `${projectProgress}%`, background: project.color || "#6366f1" }} /></div>
-            </article>
             <article className="project-overview-card"><span>Sprints</span><strong>{sprints.length}</strong><small>{activeSprint ? `Active: ${activeSprint.name}` : "No active sprint"}</small></article>
             <article className="project-overview-card"><span>Tasks</span><strong>{tasks.length}</strong><small>{completedTasks} completed</small></article>
           </section>

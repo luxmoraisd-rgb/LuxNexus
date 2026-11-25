@@ -3,6 +3,7 @@ Serializers for Board, Sprint, BoardView, BoardColumn, Task, and User models.
 Supports request payloads and nested responses matching the Agile UI specifications.
 """
 from rest_framework import serializers
+from django.db.models import Q
 from django.contrib.auth import get_user_model
 from AppCore.serializers.serializers import (
     MongoModelSerializer,
@@ -12,6 +13,18 @@ from ..models import Board, Sprint, BoardView, BoardColumn, Task
 
 User = get_user_model()
 STORY_POINT_VALUES = {1, 2, 3, 5, 7, 9, 10, 12, 13}
+
+
+def _accessible_ids_for_context(context):
+    if "accessible_project_ids" not in context:
+        request = context.get("request")
+        if request is None:
+            context["accessible_project_ids"] = None
+        else:
+            from AppCore.project_access import accessible_project_ids
+
+            context["accessible_project_ids"] = accessible_project_ids(request.user)
+    return context["accessible_project_ids"]
 
 
 class UserSerializer(MongoModelSerializer):
@@ -155,6 +168,20 @@ class TaskSerializer(MongoModelSerializer):
 
         return attrs
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get("request")
+        if request is None or instance.sprint is None:
+            return data
+
+        project_ids = _accessible_ids_for_context(self.context)
+        if project_ids is not None:
+            if str(instance.sprint.project_id or "") not in project_ids:
+                data["sprint"] = None
+                data["sprintId"] = None
+                data["sprint_name"] = ""
+        return data
+
 
 class SprintSerializer(MongoModelSerializer):
     dates = serializers.CharField(source='duration_text', read_only=True)
@@ -193,6 +220,26 @@ class SprintSerializer(MongoModelSerializer):
             'updated_at',
         ]
         read_only_fields = ['id', 'total_sp', 'issues_count', 'created_at', 'updated_at']
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get("request")
+        if request is None:
+            return data
+
+        project_ids = _accessible_ids_for_context(self.context)
+        if project_ids is None:
+            return data
+
+        tasks = instance.tasks.filter(
+            Q(project_id__in=project_ids) | Q(project_id="")
+        )
+        data["tasks"] = TaskSerializer(
+            tasks, many=True, context=self.context
+        ).data
+        data["total_sp"] = sum(task.estimated_sp for task in tasks)
+        data["issues_count"] = tasks.count()
+        return data
 
     def get_isStarted(self, obj):
         return obj.status == 'active'

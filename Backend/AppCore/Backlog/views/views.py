@@ -38,6 +38,12 @@ from ...Auth.role_permissions import (
     TaskDetailRolePermission,
     has_role_permission,
 )
+from ...project_access import (
+    accessible_project_ids,
+    is_project_admin,
+    require_project_access,
+    task_project_id,
+)
 from ..models import Board, Sprint, BoardView, BoardColumn, Task
 from ..serializers import (
     UserSerializer,
@@ -60,6 +66,111 @@ User = get_user_model()
 
 class RoleProtectedAPIView(APIView):
     permission_classes = [IsAuthenticated, RoleModulePermission, RoleCapabilityPermission]
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if is_project_admin(request.user):
+            return
+
+        model_targets = (
+            ("sprint_id", Sprint),
+            ("task_id", Task),
+        )
+        for key, model in model_targets:
+            object_id = kwargs.get(key)
+            if object_id is not None:
+                obj = model.objects.filter(pk=object_id).first()
+                if obj is not None:
+                    project_id = (
+                        task_project_id(obj) if model is Task else obj.project_id
+                    )
+                    require_project_access(request.user, project_id)
+
+        for key, model in (("view_id", BoardView), ("column_id", BoardColumn)):
+            object_id = kwargs.get(key)
+            if object_id is not None:
+                obj = model.objects.filter(pk=object_id).select_related("board").first()
+                if obj is not None:
+                    self.require_board_access(request.user, obj.board_id)
+
+        board_id = kwargs.get("board_id")
+        if board_id is None and request.method in {"POST", "PUT", "PATCH"}:
+            board_id = request.data.get("board_id")
+        supplied_project_id = (
+            request.data.get("project_id") or request.data.get("projectId")
+            if request.method in {"POST", "PUT", "PATCH"}
+            else None
+        )
+        if board_id is not None and not supplied_project_id:
+            self.require_board_access(request.user, board_id)
+
+        for key in ("project_id",):
+            project_id = request.query_params.get(key)
+            if project_id is None and request.method in {"POST", "PUT", "PATCH"}:
+                project_id = request.data.get(key) or request.data.get("projectId")
+                if (
+                    key in request.data or "projectId" in request.data
+                ) and not project_id:
+                    from rest_framework.exceptions import PermissionDenied
+
+                    raise PermissionDenied("A project assignment is required.")
+            if project_id:
+                require_project_access(request.user, project_id)
+
+        if request.method in {"POST", "PUT", "PATCH"}:
+            sprint_id = request.data.get("sprint_id") or request.data.get("sprintId")
+            if sprint_id not in (None, "", "backlog"):
+                sprint = Sprint.objects.filter(pk=sprint_id).first()
+                if sprint is not None:
+                    require_project_access(request.user, sprint.project_id)
+
+        asset_id = kwargs.get("asset_id")
+        task_id = request.query_params.get("task_id")
+        if request.method in {"POST", "PUT", "PATCH"}:
+            task_id = request.data.get("task_id") or task_id
+        if asset_id and ObjectId.is_valid(str(asset_id)):
+            asset = get_database().board_assets.find_one({"_id": ObjectId(asset_id)})
+            task_id = asset.get("task_id") if asset else task_id
+        if task_id:
+            task = Task.objects.filter(pk=task_id).first()
+            if task is not None:
+                require_project_access(request.user, task_project_id(task))
+            elif asset_id:
+                from rest_framework.exceptions import PermissionDenied
+
+                raise PermissionDenied("You do not have access to this project.")
+
+    @staticmethod
+    def require_board_access(user, board_id):
+        board = Board.objects.filter(pk=board_id).first()
+        if board is None or is_project_admin(user):
+            return
+        project_ids = accessible_project_ids(user)
+        if not (
+            board.sprints.filter(project_id__in=project_ids).exists()
+            or board.tasks.filter(project_id__in=project_ids).exists()
+        ):
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have access to this project.")
+
+    @staticmethod
+    def scoped_queryset(user, queryset):
+        project_ids = accessible_project_ids(user)
+        if project_ids is None:
+            return queryset
+        if queryset.model is Task:
+            return queryset.filter(
+                (
+                    models.Q(project_id__in=project_ids)
+                    & (
+                        models.Q(sprint__isnull=True)
+                        | models.Q(sprint__project_id__in=project_ids)
+                    )
+                )
+                | models.Q(project_id="", sprint__project_id__in=project_ids)
+            )
+        return queryset.filter(project_id__in=project_ids)
 
 
 class TaskCommentRolePermission(BasePermission):
@@ -101,8 +212,12 @@ class BoardSprintsView(RoleProtectedAPIView):
     @extend_schema(summary="Fetch all sprints for a board", responses={200: SprintSerializer(many=True)})
     def get(self, request, board_id):
         board = get_object_or_404(Board, pk=board_id)
-        sprints = board.sprints.all().prefetch_related('tasks')
-        serializer = SprintSerializer(sprints, many=True)
+        sprints = self.scoped_queryset(
+            request.user, board.sprints.all()
+        ).prefetch_related('tasks')
+        serializer = SprintSerializer(
+            sprints, many=True, context={"request": request}
+        )
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -114,7 +229,9 @@ class SprintCreateView(RoleProtectedAPIView):
     """
     @extend_schema(summary="List all sprints", responses={200: SprintSerializer(many=True)})
     def get(self, request):
-        sprints = Sprint.objects.all().select_related('board').prefetch_related('tasks')
+        sprints = self.scoped_queryset(
+            request.user, Sprint.objects.all()
+        ).select_related('board').prefetch_related('tasks')
         board_id = request.query_params.get('board_id')
         if board_id:
             sprints = sprints.filter(board_id=board_id)
@@ -122,7 +239,9 @@ class SprintCreateView(RoleProtectedAPIView):
         if project_id:
             sprints = sprints.filter(project_id=project_id)
         return Response(
-            SprintSerializer(sprints, many=True).data,
+            SprintSerializer(
+                sprints, many=True, context={"request": request}
+            ).data,
             status=status.HTTP_200_OK,
         )
 
@@ -138,6 +257,10 @@ class SprintCreateView(RoleProtectedAPIView):
         data = request.data.copy()
         data['board_id'] = board_id
         project_id = data.get('project_id') or data.get('projectId') or ""
+        if not is_project_admin(request.user) and not project_id:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("A project assignment is required.")
         data['project_id'] = str(project_id)
         if "goal" in data and "goals" not in data:
             data["goals"] = data.pop("goal")
@@ -152,10 +275,13 @@ class SprintCreateView(RoleProtectedAPIView):
         data.setdefault('order', order)
         data.setdefault('status', 'future')
 
-        serializer = SprintSerializer(data=data)
+        serializer = SprintSerializer(data=data, context={"request": request})
         if serializer.is_valid():
             sprint = serializer.save()
-            return Response(SprintSerializer(sprint).data, status=status.HTTP_201_CREATED)
+            return Response(
+                SprintSerializer(sprint, context={"request": request}).data,
+                status=status.HTTP_201_CREATED,
+            )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -167,15 +293,19 @@ class SprintLastCreatedView(RoleProtectedAPIView):
     """
     @extend_schema(summary="Fetch metadata of the last created sprint", responses={200: SprintSerializer})
     def get(self, request):
-        last_sprint = Sprint.objects.order_by('-created_at').first()
+        last_sprint = self.scoped_queryset(
+            request.user, Sprint.objects.all()
+        ).order_by('-created_at').first()
         if not last_sprint:
             return Response({
                 "message": "No sprints created yet",
                 "suggested_name": "Sprint 1",
                 "default_duration_weeks": 1
             }, status=status.HTTP_200_OK)
-        serializer = SprintSerializer(last_sprint)
-        next_number = Sprint.objects.count() + 1
+        serializer = SprintSerializer(last_sprint, context={"request": request})
+        next_number = self.scoped_queryset(
+            request.user, Sprint.objects.all()
+        ).count() + 1
         data = serializer.data
         data["suggested_next_name"] = f"Sprint {next_number}"
         return Response(data, status=status.HTTP_200_OK)
@@ -201,7 +331,9 @@ class SprintDatesUpdateView(RoleProtectedAPIView):
             sprint.save()
             return Response({
                 "message": "Sprint dates updated successfully",
-                "sprint": SprintSerializer(sprint).data
+                "sprint": SprintSerializer(
+                    sprint, context={"request": request}
+                ).data
             }, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -240,7 +372,9 @@ class SprintStartView(RoleProtectedAPIView):
         sprint.save()
         return Response({
             "message": f"Sprint '{sprint.name}' is now Active",
-            "sprint": SprintSerializer(sprint).data
+            "sprint": SprintSerializer(
+                sprint, context={"request": request}
+            ).data
         }, status=status.HTTP_200_OK)
 
 
@@ -260,7 +394,9 @@ class SprintDetailView(RoleProtectedAPIView):
 
     def get(self, request, sprint_id):
         sprint = get_object_or_404(Sprint, pk=sprint_id)
-        return Response(SprintSerializer(sprint).data)
+        return Response(
+            SprintSerializer(sprint, context={"request": request}).data
+        )
 
     def patch(self, request, sprint_id):
         sprint = get_object_or_404(Sprint, pk=sprint_id)
@@ -269,11 +405,15 @@ class SprintDetailView(RoleProtectedAPIView):
             data["duration_text"] = data.pop("dates")
         if "goal" in data and "goals" not in data:
             data["goals"] = data.pop("goal")
-        serializer = SprintSerializer(sprint, data=data, partial=True)
+        serializer = SprintSerializer(
+            sprint, data=data, partial=True, context={"request": request}
+        )
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         sprint = serializer.save()
-        return Response(SprintSerializer(sprint).data)
+        return Response(
+            SprintSerializer(sprint, context={"request": request}).data
+        )
 
     def put(self, request, sprint_id):
         return self.patch(request, sprint_id)
@@ -293,7 +433,12 @@ class SprintCompleteView(RoleProtectedAPIView):
         sprint.status = "completed"
         sprint.save(update_fields=["status", "updated_at"])
         return Response(
-            {"message": f"Sprint '{sprint.name}' completed.", "sprint": SprintSerializer(sprint).data},
+            {
+                "message": f"Sprint '{sprint.name}' completed.",
+                "sprint": SprintSerializer(
+                    sprint, context={"request": request}
+                ).data,
+            },
             status=status.HTTP_200_OK,
         )
 
@@ -345,7 +490,7 @@ class BoardSearchView(RoleProtectedAPIView):
         board = get_object_or_404(Board, pk=board_id)
         query = request.query_params.get('q', '').strip()
         
-        tasks_qs = board.tasks.all()
+        tasks_qs = self.scoped_queryset(request.user, board.tasks.all())
         if query:
             tasks_qs = tasks_qs.filter(
                 Q(title__icontains=query) |
@@ -764,7 +909,18 @@ class BoardAssetListCreateView(RoleProtectedAPIView):
         database = get_database()
         task_id = request.query_params.get("task_id")
         query = {"task_id": task_id} if task_id else {}
-        assets = database.board_assets.find(query).sort("created_at", -1)
+        assets = list(database.board_assets.find(query).sort("created_at", -1))
+        if not is_project_admin(request.user):
+            project_ids = accessible_project_ids(request.user)
+            accessible_tasks = Task.objects.filter(
+                project_id__in=project_ids
+            ).values_list("id", flat=True)
+            accessible_task_ids = {str(task_id) for task_id in accessible_tasks}
+            assets = [
+                asset
+                for asset in assets
+                if str(asset.get("task_id") or "") in accessible_task_ids
+            ]
         return Response(
             {"assets": [self.serialize_asset(asset) for asset in assets]},
             status=status.HTTP_200_OK,
@@ -938,14 +1094,19 @@ class TaskCreateListView(RoleProtectedAPIView):
     """
     @extend_schema(summary="List all tasks", responses={200: TaskSerializer(many=True)})
     def get(self, request):
-        tasks = Task.objects.all().select_related('board', 'sprint', 'owner')
+        tasks = self.scoped_queryset(
+            request.user, Task.objects.all()
+        ).select_related('board', 'sprint', 'owner')
         project_id = request.query_params.get('project_id')
         board_id = request.query_params.get('board_id')
         sprint_id = request.query_params.get('sprint_id')
         status_filter = request.query_params.get('status')
         type_filter = request.query_params.get('type')
         if project_id:
-            tasks = tasks.filter(project_id=project_id)
+            tasks = tasks.filter(
+                models.Q(project_id=project_id)
+                | models.Q(project_id="", sprint__project_id=project_id)
+            )
 
         # Rollover past-due incomplete tasks to Backlog (like Jira & Monday.com)
         today = datetime.now(timezone.utc).date()
@@ -969,7 +1130,9 @@ class TaskCreateListView(RoleProtectedAPIView):
         if type_filter:
             tasks = tasks.filter(task_type=type_filter)
 
-        serializer = TaskSerializer(tasks, many=True)
+        serializer = TaskSerializer(
+            tasks, many=True, context={"request": request}
+        )
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @extend_schema(summary="Create a new task", request=TaskSerializer, responses={201: TaskSerializer})
@@ -982,6 +1145,10 @@ class TaskCreateListView(RoleProtectedAPIView):
                 data['project_id'] = str(data.get('project_id') or data.get('projectId') or sprint.project_id)
         else:
             data['project_id'] = str(data.get('project_id') or data.get('projectId') or "")
+        if not is_project_admin(request.user) and not data["project_id"]:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("A project assignment is required.")
         for sprint_field in ('sprint_id', 'sprintId'):
             if data.get(sprint_field) in ('', 'backlog'):
                 data[sprint_field] = None
@@ -1020,14 +1187,17 @@ class TaskCreateListView(RoleProtectedAPIView):
 
         data['board_id'] = board_id
 
-        serializer = TaskSerializer(data=data)
+        serializer = TaskSerializer(data=data, context={"request": request})
         if serializer.is_valid():
             task = serializer.save()
-            return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
+            return Response(
+                TaskSerializer(task, context={"request": request}).data,
+                status=status.HTTP_201_CREATED,
+            )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-class TaskDetailView(APIView):
+class TaskDetailView(RoleProtectedAPIView):
     permission_classes = [IsAuthenticated, RoleModulePermission, TaskDetailRolePermission]
     """
     GET /api/tasks/{taskId} - Retrieve task detail
@@ -1037,17 +1207,28 @@ class TaskDetailView(APIView):
     @extend_schema(summary="Retrieve task detail", responses={200: TaskSerializer})
     def get(self, request, task_id):
         task = get_object_or_404(Task, pk=task_id)
-        return Response(TaskSerializer(task).data, status=status.HTTP_200_OK)
+        return Response(
+            TaskSerializer(task, context={"request": request}).data,
+            status=status.HTTP_200_OK,
+        )
 
     @extend_schema(summary="Update task detail", request=TaskSerializer)
     def put(self, request, task_id):
         task = get_object_or_404(Task, pk=task_id)
         self.check_object_permissions(request, task)
-        serializer = TaskSerializer(task, data=request.data, partial=True)
+        serializer = TaskSerializer(
+            task, data=request.data, partial=True, context={"request": request}
+        )
         if serializer.is_valid():
             updated_task = serializer.save()
-            return Response(TaskSerializer(updated_task).data, status=status.HTTP_200_OK)
+            return Response(
+                TaskSerializer(updated_task, context={"request": request}).data,
+                status=status.HTTP_200_OK,
+            )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def patch(self, request, task_id):
+        return self.put(request, task_id)
 
     @extend_schema(summary="Delete task")
     def delete(self, request, task_id):
@@ -1057,7 +1238,7 @@ class TaskDetailView(APIView):
         return Response({"message": f"Task {task_id} deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
 
 
-class TaskMoveView(APIView):
+class TaskMoveView(RoleProtectedAPIView):
     permission_classes = [IsAuthenticated, RoleModulePermission, TaskDetailRolePermission]
 
     def post(self, request, task_id):
@@ -1078,10 +1259,13 @@ class TaskMoveView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         task.save()
-        return Response(TaskSerializer(task).data, status=status.HTTP_200_OK)
+        return Response(
+            TaskSerializer(task, context={"request": request}).data,
+            status=status.HTTP_200_OK,
+        )
 
 
-class TaskBatchUpdateView(APIView):
+class TaskBatchUpdateView(RoleProtectedAPIView):
     permission_classes = [IsAuthenticated, RoleModulePermission, TaskDetailRolePermission]
 
     def post(self, request):
@@ -1099,9 +1283,23 @@ class TaskBatchUpdateView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
         for task in tasks:
+            require_project_access(request.user, task_project_id(task))
             self.check_object_permissions(request, task)
 
         normalized = updates.copy()
+        project_id = normalized.get("project_id") or normalized.get("projectId")
+        if "project_id" in normalized or "projectId" in normalized:
+            if not project_id and not is_project_admin(request.user):
+                from rest_framework.exceptions import PermissionDenied
+
+                raise PermissionDenied("A project assignment is required.")
+            if project_id:
+                require_project_access(request.user, project_id)
+        sprint_id = normalized.get("sprint_id") or normalized.get("sprintId")
+        if sprint_id not in (None, "", "backlog"):
+            sprint = Sprint.objects.filter(pk=sprint_id).first()
+            if sprint is not None:
+                require_project_access(request.user, sprint.project_id)
         if "sprintId" in normalized and "sprint_id" not in normalized:
             normalized["sprint_id"] = normalized.pop("sprintId")
         if normalized.get("sprint_id") in ("", "backlog"):
@@ -1117,10 +1315,15 @@ class TaskBatchUpdateView(APIView):
         updated_tasks = []
         for serializer in serializers:
             updated_tasks.append(serializer.save())
-        return Response(TaskSerializer(updated_tasks, many=True).data, status=status.HTTP_200_OK)
+        return Response(
+            TaskSerializer(
+                updated_tasks, many=True, context={"request": request}
+            ).data,
+            status=status.HTTP_200_OK,
+        )
 
 
-class TaskCommentView(APIView):
+class TaskCommentView(RoleProtectedAPIView):
     permission_classes = [IsAuthenticated, RoleModulePermission, TaskCommentRolePermission]
 
     @staticmethod
@@ -1171,7 +1374,7 @@ class TaskCommentView(APIView):
         return Response(self._serialize(comment), status=status.HTTP_201_CREATED)
 
 
-class TaskCommentDetailView(APIView):
+class TaskCommentDetailView(RoleProtectedAPIView):
     permission_classes = [IsAuthenticated, RoleModulePermission, TaskCommentRolePermission]
 
     def delete(self, request, task_id, comment_id):

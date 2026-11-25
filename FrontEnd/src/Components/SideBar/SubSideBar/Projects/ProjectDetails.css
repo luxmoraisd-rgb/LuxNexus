@@ -85,8 +85,6 @@
 .project-overview-card { min-height:110px; padding:16px; display:flex; flex-direction:column; gap:7px; }
 .project-overview-card strong { font-size:26px; }
 .project-overview-card small, .project-overview-card span { color: var(--app-muted,#94a3b8); }
-.project-progress-track { height:6px; border-radius:999px; background:rgba(148,163,184,.14); overflow:hidden; }
-.project-progress-track div { height:100%; }
 .project-info-grid { margin-top:14px; padding:16px; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
 .project-info-grid div { display:grid; grid-template-columns:20px 1fr; gap:3px 7px; }
 .project-info-grid span { color:var(--app-muted,#94a3b8); font-size:12px; }
