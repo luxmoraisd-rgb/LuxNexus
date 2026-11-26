@@ -3,7 +3,6 @@ import { Trash2 } from 'lucide-react';
 import {
   ChevronDownIcon,
   ChevronRightIcon,
-  MoreIcon,
   SparklePlusIcon,
   InfoCircleIcon,
   PlayIcon,
@@ -415,14 +414,6 @@ const AllSprints = memo(({
                       </button>
                     )}
 
-                    <button
-                      type="button"
-                      className="backlog-header-icon-btn"
-                      title={`${sprint.name} settings & actions`}
-                      onClick={(e) => onOpenModal && onOpenModal('sprintMore', sprint, e)}
-                    >
-                      <MoreIcon />
-                    </button>
                   </div>
                 </div>
 
@@ -508,16 +499,16 @@ const AllSprints = memo(({
                             typeConfig={typeConfig}
                             onToggleTask={onToggleTask}
                             onOpenComments={onOpenComments}
-                            onOpenOwnerPicker={onOpenOwnerPicker}
+                            onOpenOwnerPicker={canManageTasks ? onOpenOwnerPicker : undefined}
                             onOpenStatusPicker={onOpenStatusPicker}
-                            onOpenTypePicker={onOpenTypePicker}
-                            onOpenSPPicker={onOpenSPPicker}
-                            onOpenEpicPicker={onOpenEpicPicker}
-                            onOpenEditTaskId={(targetTask, e) =>
+                            onOpenTypePicker={canManageTasks ? onOpenTypePicker : undefined}
+                            onOpenSPPicker={canManageTasks ? onOpenSPPicker : undefined}
+                            onOpenEpicPicker={canManageTasks ? onOpenEpicPicker : undefined}
+                            onOpenEditTaskId={canManageTasks ? (targetTask, e) =>
                               onOpenModal && onOpenModal('editTaskId', targetTask, e)
-                            }
-                            onDeleteTask={onDeleteTask}
-                            onRemoveEpic={onRemoveEpic}
+                            : undefined}
+                            onDeleteTask={canManageTasks ? onDeleteTask : undefined}
+                            onRemoveEpic={canManageTasks ? onRemoveEpic : undefined}
                             showToast={showToast}
                             customColumns={customColumns}
                             teamMembers={teamMembers}

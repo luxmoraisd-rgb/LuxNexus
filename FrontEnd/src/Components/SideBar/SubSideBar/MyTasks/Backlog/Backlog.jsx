@@ -90,6 +90,8 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
 
   // Bulk / Batch task selection state
   const [selectedTaskIds, setSelectedTaskIds] = useState(new Set());
+  const [inlineTaskTitles, setInlineTaskTitles] = useState({});
+  const [creatingTaskSprintId, setCreatingTaskSprintId] = useState(null);
 
   // SPRINTS: Pure in-memory React state (populated from API database only)
   const [sprints, setSprints] = useState(() => getStoredSprints() || []);
@@ -289,7 +291,6 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
 
   // ALL TASKS: Pure in-memory React state (populated from API database only - NO browser storage)
   const [allTasks, setAllTasks] = useState(() => getStoredTasks() || []);
-  // Role-based admin restrictions removed: open access to all tasks and board capabilities
   const effectiveRole = rolePermissions?.current_role || currentUser?.role || 'user';
   const isElevatedTaskRole = effectiveRole === 'admin' || effectiveRole === 'team_lead';
   const canManageTasks = isElevatedTaskRole && (
@@ -301,7 +302,26 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
   );
   const canDeleteSprints = effectiveRole === 'admin' && canManageSprints;
   const canManageBoard = rolePermissions ? rolePermissions.manage_board !== false : true;
-  const canEditTask = useCallback(() => true, []);
+  const canEditTask = useCallback((taskId) => {
+    if (canManageTasks) return true;
+    const task = allTasks.find((item) => String(item.id) === String(taskId));
+    if (!task) return false;
+    const owner = task.owner;
+    const ownerValues = typeof owner === 'object' && owner !== null
+      ? [owner.id, owner._id, owner.email, owner.username, owner.name]
+      : [owner];
+    ownerValues.push(task.owner_id, task.ownerId, task.assignee_id);
+    const currentValues = [
+      currentUser?.id,
+      currentUser?._id,
+      currentUser?.email,
+      currentUser?.username,
+      currentUser?.name,
+    ].filter(Boolean).map((value) => String(value).trim().toLowerCase());
+    return ownerValues.some((value) =>
+      value && currentValues.includes(String(value).trim().toLowerCase())
+    );
+  }, [allTasks, canManageTasks, currentUser]);
 
   useEffect(() => {
     let isSubscribed = true;
@@ -654,6 +674,32 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
     }
   }, [allTasks, canManageTasks, projectKey, requirePermission, sprints, showToast]);
 
+  const handleCreateTaskBelowSprint = useCallback(async (event, sprint) => {
+    event.preventDefault();
+    const sprintId = String(sprint.id);
+    const title = String(inlineTaskTitles[sprintId] || '').trim();
+    if (!title || creatingTaskSprintId) return;
+
+    setCreatingTaskSprintId(sprintId);
+    try {
+      const created = await handleCreateTaskFromModal({
+        title,
+        type: 'Frontend',
+        sp: 3,
+        status: 'Ready to start',
+        sprint: sprintId,
+        dueDate: String(sprint.end_date || sprint.endDate || '').slice(0, 10),
+      });
+      if (created) {
+        setInlineTaskTitles((current) => ({ ...current, [sprintId]: '' }));
+      }
+    } catch (error) {
+      showToast(`Unable to create task: ${getTaskCreationErrorMessage(error)}`, 'error');
+    } finally {
+      setCreatingTaskSprintId(null);
+    }
+  }, [creatingTaskSprintId, handleCreateTaskFromModal, inlineTaskTitles, showToast]);
+
   
   const handleUpdateProjectKey = useCallback((newKey) => {
     if (!requirePermission(canManageBoard, 'You do not have permission to change board settings.')) return;
@@ -690,7 +736,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
   }, [allTasks, canManageTasks, requirePermission, showToast]);
 
 
-  const handleCreateSprint = useCallback(async ({ name, goal, dates }) => {
+  const handleCreateSprint = useCallback(async ({ name, goal, dates, startDate, endDate }) => {
     if (!requirePermission(canManageSprints, 'You do not have permission to create sprints.')) return;
     const sprintNum = sprints.length + 1;
     const newName = name?.trim() || `Sprint ${sprintNum}`;
@@ -699,6 +745,10 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
       name: newName,
       goal: goal?.trim() || '',
       dates: dates?.trim() || 'Add Sprint dates',
+      start_date: startDate || '',
+      end_date: endDate || '',
+      startDate: startDate || '',
+      endDate: endDate || '',
       isStarted: false,
       isExpanded: true,
     };
@@ -784,17 +834,6 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
     await sprintApi.complete(targetId);
   }, [allTasks, canManageSprints, requirePermission, sprints, showToast]);
 
-  const handleMoveAllToBacklog = useCallback(async (sprintId) => {
-    if (!requirePermission(canManageTasks || canManageSprints, 'You do not have permission to move tasks between sprints.')) return;
-    const targetId = sprintId || sprints[0]?.id;
-    if (!targetId) return;
-    setAllTasks((prev) =>
-      prev.map((t) => (t.sprintId === targetId ? { ...t, sprintId: 'backlog' } : t))
-    );
-    setActiveModal(null);
-    showToast('All tasks moved to Backlog', 'info');
-  }, [canManageSprints, canManageTasks, requirePermission, sprints, showToast]);
-
   const handleStatusChange = useCallback(async (taskId, newStatus) => {
     if (!requirePermission(canEditTask(taskId), 'You can only update tasks assigned to you.')) return;
     setAllTasks((prev) => prev.map((t) => {
@@ -823,13 +862,13 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
   }, [canEditTask, requirePermission, showToast]);
 
   const handleTypeChange = useCallback(async (taskId, newType) => {
-    if (!requirePermission(canEditTask(taskId), 'You can only update tasks assigned to you.')) return;
+    if (!requirePermission(canManageTasks, 'Only admins and team leads can edit task details.')) return;
     setAllTasks((prev) => prev.map((t) => (String(t.id) === String(taskId) ? { ...t, type: newType } : t)));
     setActiveTaskTarget((prev) => (prev && String(prev.id) === String(taskId) ? { ...prev, type: newType } : prev));
     setActiveModal((prev) => (prev === 'typePicker' ? null : prev));
     showToast(`Type changed to "${newType}"`, 'info');
     await taskApi.update(taskId, { type: newType });
-  }, [canEditTask, requirePermission, showToast]);
+  }, [canManageTasks, requirePermission, showToast]);
 
   const handleOwnerChange = useCallback(async (taskId, newOwner) => {
     if (!requirePermission(canManageTasks, 'You do not have permission to reassign tasks.')) return;
@@ -842,38 +881,38 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
   }, [canManageTasks, personFilterMembers, requirePermission, showToast]);
 
   const handleSPChange = useCallback(async (taskId, newSP) => {
-    if (!requirePermission(canEditTask(taskId), 'You can only update tasks assigned to you.')) return;
+    if (!requirePermission(canManageTasks, 'Only admins and team leads can edit task details.')) return;
     setAllTasks((prev) => prev.map((t) => (String(t.id) === String(taskId) ? { ...t, sp: newSP } : t)));
     setActiveTaskTarget((prev) => (prev && String(prev.id) === String(taskId) ? { ...prev, sp: newSP } : prev));
     setActiveModal((prev) => (prev === 'spPicker' ? null : prev));
     showToast(`Story Points updated to ${newSP || 0} SP`, 'info');
     await taskApi.update(taskId, { sp: newSP });
-  }, [canEditTask, requirePermission, showToast]);
+  }, [canManageTasks, requirePermission, showToast]);
 
   const handleEpicChange = useCallback(async (taskId, newEpic) => {
-    if (!requirePermission(canEditTask(taskId), 'You can only update tasks assigned to you.')) return;
+    if (!requirePermission(canManageTasks, 'Only admins and team leads can edit task details.')) return;
     setAllTasks((prev) => prev.map((t) => (String(t.id) === String(taskId) ? { ...t, epic: newEpic } : t)));
     setActiveTaskTarget((prev) => (prev && String(prev.id) === String(taskId) ? { ...prev, epic: newEpic } : prev));
     setActiveModal((prev) => (prev === 'epicPicker' ? null : prev));
     showToast(newEpic ? `Epic set to "${newEpic}"` : 'Epic removed', 'info');
     await taskApi.update(taskId, { epic: newEpic });
-  }, [canEditTask, requirePermission, showToast]);
+  }, [canManageTasks, requirePermission, showToast]);
 
   const handleRemoveEpic = useCallback(async (taskId) => {
-    if (!requirePermission(canEditTask(taskId), 'You can only update tasks assigned to you.')) return;
+    if (!requirePermission(canManageTasks, 'Only admins and team leads can edit task details.')) return;
     setAllTasks((prev) => prev.map((t) => (String(t.id) === String(taskId) ? { ...t, epic: '' } : t)));
     setActiveTaskTarget((prev) => (prev && String(prev.id) === String(taskId) ? { ...prev, epic: '' } : prev));
     showToast('Epic removed', 'info');
     await taskApi.update(taskId, { epic: '' });
-  }, [canEditTask, requirePermission, showToast]);
+  }, [canManageTasks, requirePermission, showToast]);
 
   const handleGithubLink = useCallback(async (taskId, branch) => {
-    if (!requirePermission(canEditTask(taskId), 'You can only update tasks assigned to you.')) return;
+    if (!requirePermission(canManageTasks, 'Only admins and team leads can edit task details.')) return;
     setAllTasks((prev) => prev.map((t) => (String(t.id) === String(taskId) ? { ...t, githubLink: branch } : t)));
     setActiveModal(null);
     showToast(`Linked to GitHub branch ${branch}`, 'success');
     await taskApi.update(taskId, { githubLink: branch });
-  }, [canEditTask, requirePermission, showToast]);
+  }, [canManageTasks, requirePermission, showToast]);
 
   const handleSelectBoardView = useCallback(
     (viewLabel) => {
@@ -1001,7 +1040,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
   }, [canEditTask, requirePermission, showToast]);
 
   const handleUpdateTaskDetails = useCallback(async (taskId, updates) => {
-    if (!requirePermission(canEditTask(taskId), 'You can only update tasks assigned to you.')) return;
+    if (!requirePermission(canManageTasks, 'Only admins and team leads can edit task details.')) return;
     let finalUpdates = { ...updates };
     setAllTasks((prev) => {
       const updated = prev.map((t) => {
@@ -1028,7 +1067,7 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
       return prev;
     });
     await taskApi.update(taskId, finalUpdates);
-  }, [canEditTask, requirePermission]);
+  }, [canManageTasks, requirePermission]);
 
  
   const handleOpenComments = useCallback((task) => {
@@ -1046,19 +1085,19 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
   }, [canEditTask, handleOpenModal, requirePermission]);
 
   const handleOpenTypePicker = useCallback((task, e) => {
-    if (!requirePermission(canEditTask(task.id), 'You can only update tasks assigned to you.')) return;
+    if (!requirePermission(canManageTasks, 'Only admins and team leads can edit task details.')) return;
     handleOpenModal('typePicker', task, e);
-  }, [canEditTask, handleOpenModal, requirePermission]);
+  }, [canManageTasks, handleOpenModal, requirePermission]);
 
   const handleOpenSPPicker = useCallback((task, e) => {
-    if (!requirePermission(canEditTask(task.id), 'You can only update tasks assigned to you.')) return;
+    if (!requirePermission(canManageTasks, 'Only admins and team leads can edit task details.')) return;
     handleOpenModal('spPicker', task, e);
-  }, [canEditTask, handleOpenModal, requirePermission]);
+  }, [canManageTasks, handleOpenModal, requirePermission]);
 
   const handleOpenEpicPicker = useCallback((task, e) => {
-    if (!requirePermission(canEditTask(task.id), 'You can only update tasks assigned to you.')) return;
+    if (!requirePermission(canManageTasks, 'Only admins and team leads can edit task details.')) return;
     handleOpenModal('epicPicker', task, e);
-  }, [canEditTask, handleOpenModal, requirePermission]);
+  }, [canManageTasks, handleOpenModal, requirePermission]);
 
 
 
@@ -1523,13 +1562,13 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
               onToggleSprintExpand={handleToggleSprintExpand}
               onOpenModal={handleOpenModal}
               onOpenComments={handleOpenComments}
-              onOpenOwnerPicker={handleOpenOwnerPicker}
+              onOpenOwnerPicker={canManageTasks ? handleOpenOwnerPicker : undefined}
               onOpenStatusPicker={handleOpenStatusPicker}
-              onOpenTypePicker={handleOpenTypePicker}
-              onOpenSPPicker={handleOpenSPPicker}
-              onOpenEpicPicker={handleOpenEpicPicker}
-              onDeleteTask={handleDeleteTask}
-              onRemoveEpic={handleRemoveEpic}
+              onOpenTypePicker={canManageTasks ? handleOpenTypePicker : undefined}
+              onOpenSPPicker={canManageTasks ? handleOpenSPPicker : undefined}
+              onOpenEpicPicker={canManageTasks ? handleOpenEpicPicker : undefined}
+              onDeleteTask={canManageTasks ? handleDeleteTask : undefined}
+              onRemoveEpic={canManageTasks ? handleRemoveEpic : undefined}
               onUpdateTaskStatus={handleStatusChange}
               onCreateTask={handleCreateTaskFromModal}
               currentUser={currentUser}
@@ -1558,13 +1597,13 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
               onToggleSprintExpand={handleToggleSprintExpand}
               onOpenModal={handleOpenModal}
               onOpenComments={handleOpenComments}
-              onOpenOwnerPicker={handleOpenOwnerPicker}
+              onOpenOwnerPicker={canManageTasks ? handleOpenOwnerPicker : undefined}
               onOpenStatusPicker={handleOpenStatusPicker}
-              onOpenTypePicker={handleOpenTypePicker}
-              onOpenSPPicker={handleOpenSPPicker}
-              onOpenEpicPicker={handleOpenEpicPicker}
-              onDeleteTask={handleDeleteTask}
-              onRemoveEpic={handleRemoveEpic}
+              onOpenTypePicker={canManageTasks ? handleOpenTypePicker : undefined}
+              onOpenSPPicker={canManageTasks ? handleOpenSPPicker : undefined}
+              onOpenEpicPicker={canManageTasks ? handleOpenEpicPicker : undefined}
+              onDeleteTask={canManageTasks ? handleDeleteTask : undefined}
+              onRemoveEpic={canManageTasks ? handleRemoveEpic : undefined}
               onAddTaskToSprint={(sprintId, title, type) =>
                 handleCreateTaskFromModal({
                   title,
@@ -1715,14 +1754,6 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
                         </button>
                       )}
 
-                      <button
-                        type="button"
-                        className="backlog-header-icon-btn"
-                        title={`${sprint.name} settings & actions`}
-                        onClick={(e) => handleOpenModal('sprintMore', sprint, e)}
-                      >
-                        <MoreIcon />
-                      </button>
                     </div>
                   </div>
 
@@ -1805,14 +1836,14 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
                               typeConfig={typeConfig}
                               onToggleTask={handleToggleTask}
                               onOpenComments={handleOpenComments}
-                              onOpenOwnerPicker={handleOpenOwnerPicker}
+                              onOpenOwnerPicker={canManageTasks ? handleOpenOwnerPicker : undefined}
                               onOpenStatusPicker={handleOpenStatusPicker}
-                              onOpenTypePicker={handleOpenTypePicker}
-                              onOpenSPPicker={handleOpenSPPicker}
-                              onOpenEpicPicker={handleOpenEpicPicker}
-                              onOpenEditTaskId={(task, e) => handleOpenModal('editTaskId', task, e)}
-                              onDeleteTask={handleDeleteTask}
-                              onRemoveEpic={handleRemoveEpic}
+                              onOpenTypePicker={canManageTasks ? handleOpenTypePicker : undefined}
+                              onOpenSPPicker={canManageTasks ? handleOpenSPPicker : undefined}
+                              onOpenEpicPicker={canManageTasks ? handleOpenEpicPicker : undefined}
+                              onOpenEditTaskId={canManageTasks ? (task, e) => handleOpenModal('editTaskId', task, e) : undefined}
+                              onDeleteTask={canManageTasks ? handleDeleteTask : undefined}
+                              onRemoveEpic={canManageTasks ? handleRemoveEpic : undefined}
                               showToast={showToast}
                               customColumns={customColumns}
                               teamMembers={personFilterMembers}
@@ -1877,6 +1908,30 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
                         </tfoot>
                       </table>
                     </div>
+                  )}
+                  {sprint.isExpanded && canManageTasks && (
+                    <form
+                      className="backlog-inline-create-task"
+                      onSubmit={(event) => handleCreateTaskBelowSprint(event, sprint)}
+                    >
+                      <input
+                        type="text"
+                        value={inlineTaskTitles[String(sprint.id)] || ''}
+                        onChange={(event) => setInlineTaskTitles((current) => ({
+                          ...current,
+                          [String(sprint.id)]: event.target.value,
+                        }))}
+                        placeholder={`Create a task in ${sprint.name}...`}
+                        aria-label={`Create a task in ${sprint.name}`}
+                        disabled={Boolean(creatingTaskSprintId)}
+                      />
+                      <button
+                        type="submit"
+                        disabled={Boolean(creatingTaskSprintId) || !String(inlineTaskTitles[String(sprint.id)] || '').trim()}
+                      >
+                        {creatingTaskSprintId === String(sprint.id) ? 'Adding...' : 'Add Task'}
+                      </button>
+                    </form>
                   )}
                 </section>
               );
@@ -2002,14 +2057,14 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
                           typeConfig={typeConfig}
                           onToggleTask={handleToggleTask}
                           onOpenComments={handleOpenComments}
-                          onOpenOwnerPicker={handleOpenOwnerPicker}
+                          onOpenOwnerPicker={canManageTasks ? handleOpenOwnerPicker : undefined}
                           onOpenStatusPicker={handleOpenStatusPicker}
-                          onOpenTypePicker={handleOpenTypePicker}
-                          onOpenSPPicker={handleOpenSPPicker}
-                          onOpenEpicPicker={handleOpenEpicPicker}
-                          onOpenEditTaskId={(task, e) => handleOpenModal('editTaskId', task, e)}
-                          onDeleteTask={handleDeleteTask}
-                          onRemoveEpic={handleRemoveEpic}
+                          onOpenTypePicker={canManageTasks ? handleOpenTypePicker : undefined}
+                          onOpenSPPicker={canManageTasks ? handleOpenSPPicker : undefined}
+                          onOpenEpicPicker={canManageTasks ? handleOpenEpicPicker : undefined}
+                          onOpenEditTaskId={canManageTasks ? (task, e) => handleOpenModal('editTaskId', task, e) : undefined}
+                          onDeleteTask={canManageTasks ? handleDeleteTask : undefined}
+                          onRemoveEpic={canManageTasks ? handleRemoveEpic : undefined}
                           showToast={showToast}
                           customColumns={customColumns}
                           teamMembers={personFilterMembers}
@@ -2096,7 +2151,9 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
             onClose={handleCloseModal}
             anchorRect={anchorRect}
             activeTaskTarget={activeTaskTarget}
+            canEditTaskStatus={activeTaskTarget ? canEditTask(activeTaskTarget.id) : false}
             canUploadTaskAssets={canManageTasks}
+            canManageTaskDetails={canManageTasks}
             sprints={sprints}
             allTasks={allTasks}
             sprint1Tasks={sprint1Tasks}
@@ -2107,8 +2164,6 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
             isSprint1Started={isSprint1Started}
             sprint1Dates={sprint1Dates}
             onUpdateSprintDates={handleUpdateSprintDates}
-            onDeleteSprint={handleDeleteSprint}
-            canDeleteSprint={canDeleteSprints}
             automations={automations}
             setAutomations={setAutomations}
             statusConfig={statusConfig}
@@ -2132,26 +2187,25 @@ const Backlog = ({ defaultTab = 'Backlog', rolePermissions, currentUser }) => {
             groupBy={groupBy}
             setGroupBy={setGroupBy}
             onStatusChange={handleStatusChange}
-            onTypeChange={handleTypeChange}
-            onOwnerChange={handleOwnerChange}
-            onSPChange={handleSPChange}
-            onEpicChange={handleEpicChange}
-            onGithubLink={handleGithubLink}
+            onTypeChange={canManageTasks ? handleTypeChange : undefined}
+            onOwnerChange={canManageTasks ? handleOwnerChange : undefined}
+            onSPChange={canManageTasks ? handleSPChange : undefined}
+            onEpicChange={canManageTasks ? handleEpicChange : undefined}
+            onGithubLink={canManageTasks ? handleGithubLink : undefined}
             onPostComment={handlePostComment}
             onToggleCommentLike={handleToggleCommentLike}
             onDeleteComment={handleDeleteComment}
-            onUpdateTaskDetails={handleUpdateTaskDetails}
-            onMoveTask={handleMoveTask}
-            onDeleteTask={handleDeleteTask}
+            onUpdateTaskDetails={canManageTasks ? handleUpdateTaskDetails : undefined}
+            onMoveTask={canManageTasks ? handleMoveTask : undefined}
+            onDeleteTask={canManageTasks ? handleDeleteTask : undefined}
             onCreateTask={handleCreateTaskFromModal}
-            onUpdateTaskId={handleUpdateTaskId}
+            onUpdateTaskId={canManageTasks ? handleUpdateTaskId : undefined}
             projectKey={projectKey}
             canInviteElevatedRoles={true}
             onUpdateProjectKey={handleUpdateProjectKey}
             onCreateSprint={handleCreateSprint}
             onStartSprint={handleStartSprint}
             onCompleteSprint={handleCompleteSprint}
-            onMoveAllToBacklog={handleMoveAllToBacklog}
             onSelectAllTasks={handleSelectAllTasks}
             onClearSelection={handleClearSelection}
             onSelectBoardView={handleSelectBoardView}

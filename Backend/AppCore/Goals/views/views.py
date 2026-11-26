@@ -10,6 +10,7 @@ from rest_framework.response import Response
 
 from ..db import db
 from ..serializers import GoalSerializer
+from ..goal_sync import sync_goals_from_projects
 
 
 class GoalViewSet(viewsets.ViewSet):
@@ -62,6 +63,10 @@ class GoalViewSet(viewsets.ViewSet):
 
     def list(self, request):
         """List goals with optional filters, sorting and pagination."""
+        try:
+            sync_goals_from_projects(db)
+        except Exception:
+            pass
         filters = {}
 
         for field in ("status", "team", "accountable_team", "owner", "time_period", "timePeriod"):

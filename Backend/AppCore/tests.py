@@ -1,18 +1,21 @@
 import base64
 import hashlib
 from datetime import datetime, timezone, timedelta
+from io import BytesIO
 import json
 from unittest.mock import Mock, patch
 
 from bson import ObjectId
+from docx import Document
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone as django_timezone
 from django.urls import resolve
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.test import APIClient, APIRequestFactory
-from pymongo.errors import DuplicateKeyError, PyMongoError
+from pymongo.errors import PyMongoError
 
 from .Auth.authentication import MongoTokenAuthentication
 from .Auth.role_permissions import (
@@ -21,6 +24,7 @@ from .Auth.role_permissions import (
     RoleCapabilityPermission,
     RoleModulePermission,
     TaskDetailRolePermission,
+    TaskViewSetRolePermission,
     get_effective_role,
     has_role_permission,
 )
@@ -28,14 +32,143 @@ from .Auth.views.permissions import RolePermissionsView
 from .checks import check_email_configuration
 from .models import MongoUser
 from .People.views import _format_user, _invitation_days_left
-from .Reporting.views.reports import EOD_PATTERN, _aggregate_reports, _eod_comment_reports
+from .project_access import get_accessible_projects
+from .Reporting.views.reports import (
+    EOD_PATTERN,
+    _aggregate_monthly_reports,
+    _available_options,
+    _default_report_assignment,
+    _eod_comment_reports,
+    _report_sprint_project_id,
+)
 from .ActiveSprint.serializers.serializer import TaskSerializer as ActiveSprintTaskSerializer
+from .Backlog.views.views import SprintDatesUpdateView, SprintDetailView, SprintGoalsUpdateView
 from .Backlog.serializers.serializer import (
     TaskSerializer as BacklogTaskSerializer,
     UserSerializer as BacklogUserSerializer,
 )
-from .serializers.serializers import ProjectInputSerializer
 from .task_assignees import list_task_assignees
+from .Inbox.notifications import notify_project_activity, notify_project_comment
+
+
+class ProjectInboxNotificationTests(SimpleTestCase):
+    def setUp(self):
+        self.actor_id = ObjectId()
+        self.member_id = ObjectId()
+        self.lead_id = ObjectId()
+        self.admin_id = ObjectId()
+        self.other_id = ObjectId()
+        self.actor = MongoUser(
+            id=self.actor_id,
+            username="creator",
+            email="creator@example.com",
+            first_name="Project",
+            last_name="Creator",
+            role="user",
+        )
+        self.project = {
+            "_id": ObjectId(),
+            "name": "Orion",
+            "key": "NEX-ORI-101",
+            "lead": "lead@example.com",
+            "members": [str(self.member_id), str(self.lead_id)],
+        }
+
+    @patch("AppCore.Inbox.notifications.get_database")
+    def test_project_activity_notifies_only_project_members_and_leads(self, get_database):
+        database = get_database.return_value
+        database.projects.find_one.return_value = self.project
+        database.users.find.return_value = [
+            {"_id": self.actor_id, "username": "creator", "email": "creator@example.com"},
+            {"_id": self.member_id, "username": "member", "email": "member@example.com"},
+            {
+                "_id": self.lead_id,
+                "username": "lead",
+                "email": "lead@example.com",
+                "role": "team_lead",
+            },
+            {"_id": self.other_id, "username": "other", "email": "other@example.com"},
+        ]
+
+        notify_project_activity(
+            self.project["_id"],
+            self.actor,
+            "Task created",
+            "A task was created.",
+        )
+
+        recipients = database.notifications.insert_many.call_args.args[0]
+        self.assertEqual(
+            {item["user_id"] for item in recipients},
+            {str(self.member_id), str(self.lead_id)},
+        )
+
+    @patch("AppCore.Inbox.notifications.get_database")
+    def test_comment_notifies_project_leads_and_all_admins_only(self, get_database):
+        database = get_database.return_value
+        database.projects.find_one.return_value = self.project
+        database.users.find.return_value = [
+            {"_id": self.actor_id, "username": "creator", "email": "creator@example.com"},
+            {"_id": self.member_id, "username": "member", "email": "member@example.com"},
+            {
+                "_id": self.lead_id,
+                "username": "lead",
+                "email": "lead@example.com",
+                "role": "team_lead",
+            },
+            {
+                "_id": self.admin_id,
+                "username": "admin",
+                "email": "admin@example.com",
+                "role": "admin",
+            },
+            {
+                "_id": self.other_id,
+                "username": "other",
+                "email": "other@example.com",
+                "role": "team_lead",
+            },
+        ]
+
+        notify_project_comment(
+            self.project["_id"],
+            self.actor,
+            "NEX-ORI-101-1",
+            "Please review this change.",
+        )
+
+        recipients = database.notifications.insert_many.call_args.args[0]
+        self.assertEqual(
+            {item["user_id"] for item in recipients},
+            {str(self.lead_id), str(self.admin_id)},
+        )
+
+
+class ProjectMembershipAccessTests(SimpleTestCase):
+    @patch("AppCore.project_access.get_database")
+    def test_project_membership_matches_employee_id(self, get_database):
+        employee_id = "FRANKLIN-042"
+        user = MongoUser(
+            id=ObjectId(),
+            username="franklin",
+            email="franklin@example.com",
+            first_name="Franklin",
+            last_name="",
+            employee_id=employee_id,
+            role="user",
+        )
+
+        projects = (
+            {"members": [employee_id]},
+            {"members": [{"employeeId": employee_id}]},
+            {"teamMembers": [{"userId": str(user.id)}]},
+            {"assignedUsers": [{"employeeID": employee_id}]},
+        )
+        for project in projects:
+            project["_id"] = ObjectId()
+            with self.subTest(project=project):
+                get_database.return_value.projects.find.return_value = [project]
+                self.assertEqual(get_accessible_projects(user), [project])
 
 
 class PeopleInvitationExpiryTests(SimpleTestCase):
@@ -93,6 +226,49 @@ class PeopleMemberFormattingTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data[0]["employeeId"], "LUX-SD-CHN-007")
         self.assertTrue(response.data[0]["can_edit_employee_id"])
+
+
+class ProjectSquadListingTests(SimpleTestCase):
+    @patch("AppCore.People.views.get_database")
+    def test_project_members_are_resolved_with_one_projected_user_lookup(self, get_database):
+        project_id = ObjectId()
+        member_id = ObjectId()
+        client = APIClient()
+        client.force_authenticate(
+            user=MongoUser(
+                id=ObjectId(),
+                username="viewer",
+                email="viewer@example.com",
+                first_name="Project",
+                last_name="Viewer",
+                role="user",
+            )
+        )
+        database = get_database.return_value
+        database.projects.find.return_value.sort.return_value = [
+            {
+                "_id": project_id,
+                "name": "Design System",
+                "key": "NEX-DS-172",
+                "members": [str(member_id)],
+            }
+        ]
+        database.users.find.return_value = [
+            {
+                "_id": member_id,
+                "first_name": "Avery",
+                "last_name": "Stone",
+                "username": "avery",
+                "email": "avery@example.com",
+                "role": "user",
+            }
+        ]
+
+        response = client.get("/api/people/teams/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data[0]["members"][0]["name"], "Avery Stone")
+        self.assertEqual(database.users.find.call_count, 1)
 
 
 @override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
@@ -409,8 +585,6 @@ class FrontendApiRouteTests(SimpleTestCase):
             f"/api/backlog/sprints/{object_id}/complete/",
             "/api/backlog/health/",
             "/api/reporting/eod-reports/",
-            "/api/reporting/eod-reports/import/",
-            "/api/reporting/eod-reports/preview-import/",
             f"/api/reporting/eod-reports/{object_id}/",
             "/api/reporting/eod-comments/",
             "/api/reporting/eod-options/",
@@ -1556,7 +1730,7 @@ class RolePermissionTests(SimpleTestCase):
         )
         self.assertTrue(permission.has_permission(read_request, view))
 
-    def test_team_lead_cannot_delete_sprints_through_either_api(self):
+    def test_team_lead_cannot_edit_or_delete_sprints(self):
         client = APIClient()
         client.force_authenticate(
             user=MongoUser(
@@ -1577,8 +1751,36 @@ class RolePermissionTests(SimpleTestCase):
                 response = client.delete(path)
                 self.assertEqual(response.status_code, 403)
 
+        sprint_id = "0123456789abcdef01234567"
+        for view, method, data in (
+            (SprintDetailView(), "patch", {"name": "Changed sprint"}),
+            (SprintDatesUpdateView(), "put", {"duration_text": "June 1 - June 14"}),
+            (SprintGoalsUpdateView(), "put", {"goals": "Ship the release"}),
+        ):
+            request = getattr(APIRequestFactory(), method)(
+                f"/api/backlog/sprints/{sprint_id}/",
+                data,
+                format="json",
+            )
+            request.user = MongoUser(
+                id=ObjectId(),
+                username="lead",
+                email="lead@example.com",
+                first_name="Team Lead",
+                last_name="",
+                role="team_lead",
+            )
+            with self.subTest(view=view.__class__.__name__):
+                with self.assertRaises(PermissionDenied):
+                    getattr(view, method)(request, sprint_id)
+
     def test_member_can_update_tasks_assigned_to_member(self):
-        request = APIRequestFactory().put("/api/tasks/1/")
+        request = APIRequestFactory().patch(
+            "/api/tasks/1/",
+            {"status": "Done"},
+            format="json",
+        )
+        request.data = {"status": "Done"}
         request.user = MongoUser(
             id=ObjectId(),
             username="member",
@@ -1597,6 +1799,99 @@ class RolePermissionTests(SimpleTestCase):
 
         self.assertTrue(permission.has_permission(request, view))
         self.assertTrue(permission.has_object_permission(request, view, task))
+
+    def test_member_cannot_edit_task_details_or_move_assigned_task(self):
+        user = MongoUser(
+            id=ObjectId(),
+            username="member",
+            email="member@example.com",
+            first_name="Member",
+            last_name="",
+            role="user",
+        )
+        task = type(
+            "Task",
+            (),
+            {"owner": type("Owner", (), {"email": user.email})()},
+        )()
+        permission = TaskDetailRolePermission()
+
+        for method, path, payload in (
+            ("patch", "/api/tasks/1/", {"title": "Changed title"}),
+            ("patch", "/api/tasks/1/", {"owner": str(ObjectId())}),
+            ("post", "/api/tasks/1/move/", {"sprintId": "sprint-2"}),
+        ):
+            request = getattr(APIRequestFactory(), method)(
+                path,
+                payload,
+                format="json",
+            )
+            request.data = payload
+            request.user = user
+            with self.subTest(payload=payload):
+                self.assertFalse(permission.has_object_permission(request, object(), task))
+
+    @override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
+    def test_team_lead_can_edit_task_details(self):
+        lead = MongoUser(
+            id=ObjectId(),
+            username="lead",
+            email="lead@example.com",
+            first_name="Team Lead",
+            last_name="",
+            role="team_lead",
+        )
+        request = APIRequestFactory().patch(
+            "/api/tasks/1/",
+            {"title": "Updated by team lead", "estimated_sp": 5},
+            format="json",
+        )
+        request.data = {"title": "Updated by team lead", "estimated_sp": 5}
+        request.user = lead
+        task = type("Task", (), {})()
+
+        self.assertTrue(
+            TaskDetailRolePermission().has_object_permission(
+                request,
+                object(),
+                task,
+            )
+        )
+
+    def test_task_viewset_members_can_update_status_but_not_task_details(self):
+        user = MongoUser(
+            id=ObjectId(),
+            username="member",
+            email="member@example.com",
+            first_name="Member",
+            last_name="",
+            role="user",
+        )
+        task = type(
+            "Task",
+            (),
+            {"assignee": type("Assignee", (), {"email": user.email})()},
+        )()
+        permission = TaskViewSetRolePermission()
+        view = type("TaskViewSet", (), {"action": "partial_update"})()
+
+        status_request = APIRequestFactory().patch(
+            "/api/all-sprints/tasks/1/",
+            {"status": "Done"},
+            format="json",
+        )
+        status_request.data = {"status": "Done"}
+        status_request.user = user
+        title_request = APIRequestFactory().patch(
+            "/api/all-sprints/tasks/1/",
+            {"title": "Changed title"},
+            format="json",
+        )
+        title_request.data = {"title": "Changed title"}
+        title_request.user = user
+
+        self.assertTrue(permission.has_object_permission(status_request, view, task))
+        self.assertFalse(permission.has_object_permission(title_request, view, task))
 
     def test_role_module_permissions_match_workspace_policy(self):
         permission = RoleModulePermission()
@@ -1701,93 +1996,10 @@ class RolePermissionTests(SimpleTestCase):
         self.assertEqual(response.status_code, 403)
 
 
-@override_settings(NEXUS_ADMIN_EMAILS=frozenset({"owner@example.com"}))
-class MongoSerializerTests(SimpleTestCase):
-    @patch("AppCore.views.views.get_database")
-    def test_future_project_dates_are_saved(self, get_database):
-        database = get_database.return_value
-        database.projects.insert_one.return_value.inserted_id = ObjectId()
-        database.users.find_one.return_value = None
-        database.allocations.find.return_value.sort.return_value = []
-        user = MongoUser.from_document(
-            {
-                "_id": ObjectId(),
-                "username": "project_owner",
-                "email": "owner@example.com",
-                "role": "admin",
-            }
-        )
-        client = APIClient()
-        client.force_authenticate(user=user)
-        start_date = django_timezone.localdate() + timedelta(days=1)
-        end_date = start_date + timedelta(days=1)
-
-        response = client.post(
-            "/api/resourcing/projects/",
-            {
-                "name": "Roadmap",
-                "start_date": start_date.isoformat(),
-                "end_date": end_date.isoformat(),
-            },
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, 201)
-        database.projects.insert_one.assert_called_once()
-        saved_project = database.projects.insert_one.call_args.args[0]
-        self.assertEqual(saved_project["start_date"].date(), start_date)
-        self.assertEqual(saved_project["end_date"].date(), end_date)
-
-    def test_project_dates_must_be_ordered(self):
-        start_date = (django_timezone.localdate() + timedelta(days=1)).isoformat()
-        end_date = (django_timezone.localdate() + timedelta(days=2)).isoformat()
-        serializer = ProjectInputSerializer(
-            data={
-                "name": "Roadmap",
-                "start_date": end_date,
-                "end_date": start_date,
-            }
-        )
-
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("end_date", serializer.errors)
-
-    def test_project_start_date_cannot_be_in_the_past(self):
-        yesterday = (django_timezone.localdate() - timedelta(days=1)).isoformat()
-        serializer = ProjectInputSerializer(
-            data={
-                "name": "Roadmap",
-                "start_date": yesterday,
-                "end_date": django_timezone.localdate().isoformat(),
-            }
-        )
-
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("start_date", serializer.errors)
-
-    def test_project_dates_accept_today_and_future_ranges(self):
-        today = django_timezone.localdate()
-        ranges = (
-            (today, today),
-            (today, today + timedelta(days=1)),
-            (today + timedelta(days=1), today + timedelta(days=2)),
-        )
-        for start_date, end_date in ranges:
-            with self.subTest(start_date=start_date, end_date=end_date):
-                serializer = ProjectInputSerializer(
-                    data={
-                        "name": "Roadmap",
-                        "start_date": start_date.isoformat(),
-                        "end_date": end_date.isoformat(),
-                    }
-                )
-
-                self.assertTrue(serializer.is_valid(), serializer.errors)
-
-
 @override_settings(NEXUS_ADMIN_EMAILS=frozenset({"admin@example.com"}))
 class ProjectDataAccessTests(SimpleTestCase):
     def setUp(self):
+        self.project_id = ObjectId()
         self.client = APIClient()
         self.client.force_authenticate(
             user=MongoUser(
@@ -1799,12 +2011,70 @@ class ProjectDataAccessTests(SimpleTestCase):
                 role="user",
             )
         )
-        self.project_id = ObjectId()
-        self.project = {
+
+    @patch("AppCore.project_access.get_database")
+    @patch("AppCore.Projects.views.views.get_projects_collection")
+    def test_team_lead_cannot_change_project_description(
+        self, get_projects_collection, get_access_database
+    ):
+        project = {
             "_id": self.project_id,
-            "created_by": ObjectId(),
-            "name": "Private resourcing project",
+            "lead": "lead@example.com",
+            "description": "Original description",
+            "members": [],
         }
+        get_projects_collection.return_value.find_one.return_value = project
+        get_access_database.return_value.projects.find.return_value = [project]
+        self.client.force_authenticate(
+            user=MongoUser(
+                id=ObjectId(),
+                username="lead",
+                email="lead@example.com",
+                first_name="Team Lead",
+                last_name="",
+                role="team_lead",
+            )
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.project_id}/",
+            {"description": "Updated description"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        get_projects_collection.return_value.update_one.assert_not_called()
+
+    @patch("AppCore.Projects.views.views.get_projects_collection")
+    def test_admin_can_change_project_description(self, get_projects_collection):
+        project = {
+            "_id": self.project_id,
+            "name": "Project",
+            "description": "Original description",
+            "members": [],
+        }
+        updated_project = {**project, "description": "Updated description"}
+        collection = get_projects_collection.return_value
+        collection.find_one.side_effect = [project, updated_project]
+        self.client.force_authenticate(
+            user=MongoUser(
+                id=ObjectId(),
+                username="admin",
+                email="admin@example.com",
+                first_name="Admin",
+                last_name="",
+                role="admin",
+            )
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.project_id}/",
+            {"description": "Updated description"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["description"], "Updated description")
 
     @patch("AppCore.project_access.get_database")
     @patch("AppCore.Projects.views.views.get_projects_collection")
@@ -1862,45 +2132,6 @@ class ProjectDataAccessTests(SimpleTestCase):
 
         self.assertEqual(list_response.status_code, 200)
         self.assertEqual([project["id"] for project in list_response.data], [str(self.project_id)])
-
-    @patch("AppCore.project_access.get_database")
-    @patch("AppCore.views.views.get_database")
-    def test_foreign_resourcing_project_and_allocation_return_forbidden(
-        self, get_view_database, get_access_database
-    ):
-        database = get_view_database.return_value
-        get_access_database.return_value = database
-        database.projects.find_one.return_value = self.project
-        database.projects.find.return_value = [self.project]
-        allocation_id = ObjectId()
-        database.allocations.find_one.return_value = {
-            "_id": allocation_id,
-            "project": self.project_id,
-        }
-
-        project_response = self.client.get(
-            f"/api/auth/resourcing/projects/{self.project_id}/"
-        )
-        allocation_response = self.client.get(
-            f"/api/auth/resourcing/allocations/{allocation_id}/"
-        )
-
-        self.assertEqual(project_response.status_code, 403)
-        self.assertEqual(allocation_response.status_code, 403)
-
-    def test_project_dates_reject_invalid_or_empty_values(self):
-        for start_date, end_date in (("", ""), ("2026-02-30", "2026-03-01")):
-            with self.subTest(start_date=start_date, end_date=end_date):
-                serializer = ProjectInputSerializer(
-                    data={
-                        "name": "Roadmap",
-                        "start_date": start_date,
-                        "end_date": end_date,
-                    }
-                )
-
-                self.assertFalse(serializer.is_valid())
-
 
 class ChangePasswordBackendTests(SimpleTestCase):
     def setUp(self):
@@ -2224,6 +2455,25 @@ class KnowledgeMeetingsViewTests(SimpleTestCase):
 
 @override_settings(NEXUS_ADMIN_EMAILS=frozenset({"reports@example.com"}))
 class EODReportTests(SimpleTestCase):
+    def test_sprint_and_project_report_types_are_rejected(self):
+        client = APIClient()
+        client.force_authenticate(user=MongoUser(
+            id=ObjectId(),
+            username="report_admin",
+            email="reports@example.com",
+            first_name="Report",
+            last_name="Admin",
+            role="admin",
+        ))
+
+        for report_type in ("sprint", "project"):
+            with self.subTest(report_type=report_type):
+                response = client.get(
+                    "/api/reporting/eod-reports/",
+                    {"type": report_type},
+                )
+                self.assertEqual(response.status_code, 400)
+
     def test_eod_detection_is_case_insensitive_and_matches_whole_tokens(self):
         self.assertIsNotNone(EOD_PATTERN.search("EOD: finished the task"))
         self.assertIsNotNone(EOD_PATTERN.search("eod update complete"))
@@ -2231,33 +2481,433 @@ class EODReportTests(SimpleTestCase):
         self.assertIsNone(EOD_PATTERN.search("preorder"))
         self.assertIsNone(EOD_PATTERN.search("episode"))
 
-    def test_sprint_report_aggregates_real_entries_without_inventing_progress(self):
+    @patch("AppCore.Reporting.views.reports.get_effective_role", return_value="admin")
+    @patch("AppCore.Reporting.views.reports.Board.objects.all")
+    @patch("AppCore.Reporting.views.reports.ActiveBoardSprint.objects.all")
+    @patch("AppCore.Reporting.views.reports.Sprint.objects.all")
+    @patch("AppCore.Reporting.views.reports._default_report_assignment")
+    def test_report_options_keep_authenticated_user_when_listing_employees(
+        self,
+        default_assignment,
+        all_backlog_sprints,
+        all_active_sprints,
+        all_boards,
+        _get_effective_role,
+    ):
+        user = MongoUser(
+            id=ObjectId(),
+            username="report_lead",
+            email="reports@example.com",
+            first_name="Report",
+            last_name="Lead",
+            role="admin",
+        )
+        assigned_project = {"id": "project-id", "name": "Assigned project"}
+        active_sprint = {"id": "sprint-id", "name": "Active sprint"}
+        default_assignment.return_value = (assigned_project, active_sprint)
+        all_backlog_sprints.return_value.order_by.return_value = []
+        all_active_sprints.return_value.order_by.return_value = []
+        all_boards.return_value.order_by.return_value = []
+        database = Mock()
+        database.projects.find.return_value.sort.return_value.limit.return_value = []
+        database.sprints.find.return_value.sort.return_value.limit.return_value = []
+        database.users.find.return_value.sort.return_value.limit.return_value = [
+            {
+                "_id": ObjectId(),
+                "username": "different_user",
+                "first_name": "Different",
+                "last_name": "User",
+            }
+        ]
+
+        with patch(
+            "AppCore.Reporting.views.reports.get_database",
+            return_value=database,
+        ):
+            options = _available_options(user)
+
+        default_assignment.assert_called_once_with(user, database, "")
+        self.assertEqual(options["current_user"]["name"], "Report Lead")
+        self.assertEqual(options["assigned_project"], assigned_project)
+        self.assertEqual(options["active_sprint"], active_sprint)
+
+    @patch("AppCore.Reporting.views.reports._eod_comment_reports", return_value=[])
+    @patch("AppCore.Reporting.views.reports.get_eod_reports_collection")
+    def test_admin_and_team_lead_can_export_daily_and_monthly_docx_tables(
+        self, get_reports, eod_comments
+    ):
+        records = [
+            {
+                "_id": ObjectId(),
+                "title": "API work",
+                "report_type": "daily",
+                "report_date": "2026-10-27",
+                "employee_id": "employee-1",
+                "employee": "Report User",
+                "project_id": "project-1",
+                "project": "Project One",
+                "sprint_id": "sprint-1",
+                "sprint": "Sprint One",
+                "activity": "Implemented API",
+                "status": "In Progress",
+                "progress": 40,
+                "created_by": "member-1",
+                "source": "manual",
+            },
+            {
+                "_id": ObjectId(),
+                "title": "UI work",
+                "report_type": "daily",
+                "report_date": "2026-10-28",
+                "employee_id": "employee-1",
+                "employee": "Report User",
+                "project_id": "project-1",
+                "project": "Project One",
+                "sprint_id": "sprint-1",
+                "sprint": "Sprint One",
+                "activity": "Reviewed UI",
+                "status": "Done",
+                "progress": 80,
+                "created_by": "member-1",
+                "source": "manual",
+            },
+            {
+                "_id": ObjectId(),
+                "title": "November work",
+                "report_type": "daily",
+                "report_date": "2026-11-02",
+                "employee_id": "employee-1",
+                "employee": "Report User",
+                "project_id": "project-1",
+                "project": "Project One",
+                "sprint_id": "sprint-1",
+                "sprint": "Sprint One",
+                "activity": "Prepared follow-up",
+                "status": "Ready to start",
+                "progress": None,
+                "created_by": "member-1",
+                "source": "manual",
+            },
+        ]
+        get_reports.return_value.find.return_value.sort.return_value.limit.return_value = records
+
+        for role, email in (
+            ("admin", "reports@example.com"),
+            ("team_lead", "lead@example.com"),
+        ):
+            with self.subTest(role=role):
+                client = APIClient()
+                client.force_authenticate(user=MongoUser(
+                    id=ObjectId(),
+                    username=f"{role}_exporter",
+                    email=email,
+                    first_name="Report",
+                    last_name="Exporter",
+                    role=role,
+                ))
+
+                daily = client.get(
+                    "/api/reporting/eod-reports/export/",
+                    {"type": "daily"},
+                )
+                monthly = client.get(
+                    "/api/reporting/eod-reports/export/",
+                    {"type": "monthly", "month": "10", "year": "2026"},
+                )
+
+                self.assertEqual(daily.status_code, 200)
+                self.assertEqual(monthly.status_code, 200)
+                self.assertIn(
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    daily["Content-Type"],
+                )
+                self.assertIn("daily-report-", daily["Content-Disposition"])
+                self.assertEqual(
+                    [cell.text for cell in Document(BytesIO(daily.content)).tables[0].rows[0].cells],
+                    ["Date", "Report title", "Employee", "Project", "Sprint", "EOD comments", "Status", "Progress %"],
+                )
+                monthly_document = Document(BytesIO(monthly.content))
+                self.assertEqual(len(monthly_document.tables[0].rows), 2)
+                monthly_cells = monthly_document.tables[0].rows[1].cells
+                self.assertEqual(monthly_cells[0].text, "2026-10")
+                self.assertIn("Implemented API", monthly_cells[5].text)
+                self.assertIn("Reviewed UI", monthly_cells[5].text)
+
+        eod_comments.assert_called()
+
+    def test_regular_member_cannot_export_reports(self):
+        client = APIClient()
+        client.force_authenticate(user=MongoUser(
+            id=ObjectId(),
+            username="report_member",
+            email="member@example.com",
+            first_name="Report",
+            last_name="Member",
+            role="user",
+        ))
+
+        with patch("AppCore.Reporting.views.reports.get_eod_reports_collection") as get_reports:
+            response = client.get("/api/reporting/eod-reports/export/", {"type": "daily"})
+
+        self.assertEqual(response.status_code, 403)
+        get_reports.assert_not_called()
+
+    @patch("AppCore.Reporting.views.reports.Sprint.objects.filter")
+    @patch("AppCore.Reporting.views.reports.get_accessible_projects")
+    def test_report_defaults_to_assigned_project_and_its_active_sprint(
+        self, get_accessible_projects, filter_sprints
+    ):
+        project_id = ObjectId()
+        sprint_id = ObjectId()
+        get_accessible_projects.return_value = [
+            {"_id": project_id, "name": "Assigned project"}
+        ]
+        sprint = type(
+            "SprintData",
+            (),
+            {"pk": sprint_id, "name": "Current sprint", "project_id": str(project_id)},
+        )()
+        filter_sprints.return_value.order_by.return_value.first.return_value = sprint
+
+        project, active_sprint = _default_report_assignment(
+            MongoUser(
+                id=ObjectId(),
+                username="report_user",
+                email="report_user@example.com",
+                first_name="Report",
+                last_name="User",
+                role="user",
+            ),
+            Mock(),
+        )
+
+        self.assertEqual(project, {"id": str(project_id), "name": "Assigned project"})
+        self.assertEqual(active_sprint["id"], str(sprint_id))
+        self.assertEqual(active_sprint["name"], "Current sprint")
+
+    @patch("AppCore.Reporting.views.reports.ActiveBoardSprint.objects.filter")
+    @patch("AppCore.Reporting.views.reports.Sprint.objects.filter")
+    @patch("AppCore.Reporting.views.reports.get_accessible_projects")
+    def test_report_defaults_to_active_sprint_from_active_sprint_board(
+        self, get_accessible_projects, filter_backlog_sprints, filter_active_sprints
+    ):
+        project_id = ObjectId()
+        sprint_id = ObjectId()
+        get_accessible_projects.return_value = [
+            {"_id": project_id, "name": "Assigned project"}
+        ]
+        filter_backlog_sprints.return_value.order_by.return_value.first.return_value = None
+        active_sprint = type(
+            "SprintData",
+            (),
+            {"pk": sprint_id, "name": "Active board sprint", "project_id": str(project_id)},
+        )()
+        filter_active_sprints.return_value.order_by.return_value.first.return_value = active_sprint
+        database = Mock()
+        database.sprints.find_one.return_value = None
+        user = MongoUser(
+            id=ObjectId(),
+            username="report_user",
+            email="report_user@example.com",
+            first_name="Report",
+            last_name="User",
+            role="user",
+        )
+
+        project, sprint = _default_report_assignment(user, database)
+
+        self.assertEqual(project, {"id": str(project_id), "name": "Assigned project"})
+        self.assertEqual(sprint["id"], str(sprint_id))
+        self.assertEqual(sprint["name"], "Active board sprint")
+
+    @patch("AppCore.Reporting.views.reports.ActiveBoardSprint.objects.filter")
+    @patch("AppCore.Reporting.views.reports.Sprint.objects.filter")
+    def test_team_lead_defaults_to_assigned_project_and_legacy_active_sprint(
+        self, filter_backlog_sprints, filter_active_sprints
+    ):
+        unrelated_project = {"_id": ObjectId(), "name": "A different project"}
+        assigned_project_id = ObjectId()
+        assigned_project = {
+            "_id": assigned_project_id,
+            "name": "Franklin's project",
+            "teamMembers": [{"userId": "franklin"}],
+        }
+        user = MongoUser(
+            id=ObjectId(),
+            username="franklin",
+            email="franklin@example.com",
+            first_name="Franklin",
+            last_name="",
+            role="team_lead",
+        )
+        database = Mock()
+        database.projects.find.return_value = [unrelated_project, assigned_project]
+        database.sprints.find_one.return_value = {
+            "id": "active-sprint",
+            "name": "Franklin's active sprint",
+            "projectId": str(assigned_project_id),
+            "isActive": True,
+        }
+        filter_backlog_sprints.return_value.order_by.return_value.first.return_value = None
+        filter_active_sprints.return_value.order_by.return_value.first.return_value = None
+
+        project, sprint = _default_report_assignment(user, database)
+
+        self.assertEqual(
+            project,
+            {"id": str(assigned_project_id), "name": "Franklin's project"},
+        )
+        self.assertEqual(sprint["id"], "active-sprint")
+        self.assertEqual(sprint["name"], "Franklin's active sprint")
+
+    @patch("AppCore.Reporting.views.reports.ActiveBoardSprint.objects.filter")
+    @patch("AppCore.Reporting.views.reports.Sprint.objects.filter")
+    def test_report_sprint_lookup_accepts_active_sprint_board_ids(
+        self, filter_backlog_sprints, filter_active_sprints
+    ):
+        project_id = ObjectId()
+        active_sprint = type(
+            "SprintData",
+            (),
+            {"project_id": str(project_id)},
+        )()
+        filter_backlog_sprints.return_value.first.return_value = None
+        filter_active_sprints.return_value.first.return_value = active_sprint
+
+        self.assertEqual(
+            _report_sprint_project_id(str(ObjectId())),
+            str(project_id),
+        )
+
+    @patch("AppCore.Reporting.views.reports.Sprint.objects.filter")
+    @patch("AppCore.Reporting.views.reports.get_accessible_projects")
+    def test_project_eod_assignment_uses_the_requested_project(
+        self, get_accessible_projects, filter_sprints
+    ):
+        other_project_id = ObjectId()
+        selected_project_id = ObjectId()
+        sprint_id = ObjectId()
+        get_accessible_projects.return_value = [
+            {"_id": other_project_id, "name": "Other project"},
+            {"_id": selected_project_id, "name": "Selected project"},
+        ]
+        sprint = type(
+            "SprintData",
+            (),
+            {
+                "pk": sprint_id,
+                "name": "Selected active sprint",
+                "project_id": str(selected_project_id),
+            },
+        )()
+        filter_sprints.return_value.order_by.return_value.first.return_value = sprint
+        user = MongoUser(
+            id=ObjectId(),
+            username="report_user",
+            email="report_user@example.com",
+            first_name="Report",
+            last_name="User",
+            role="user",
+        )
+
+        project, active_sprint = _default_report_assignment(
+            user,
+            Mock(),
+            str(selected_project_id),
+        )
+
+        self.assertEqual(project["id"], str(selected_project_id))
+        self.assertEqual(project["name"], "Selected project")
+        self.assertEqual(active_sprint["id"], str(sprint_id))
+        filter_sprints.assert_called_once_with(
+            status__iexact="active",
+            project_id__in={str(selected_project_id)},
+        )
+
+    @patch("AppCore.Reporting.views.reports.ActiveBoardSprint.objects.filter")
+    @patch("AppCore.Reporting.views.reports.Sprint.objects.filter")
+    def test_team_lead_can_assign_an_eod_page_to_any_project(
+        self, filter_sprints, filter_active_sprints
+    ):
+        project_id = ObjectId()
+        database = Mock()
+        database.projects.find.return_value = [
+            {"_id": project_id, "name": "Team project"}
+        ]
+        database.sprints.find_one.return_value = None
+        filter_sprints.return_value.order_by.return_value.first.return_value = None
+        filter_active_sprints.return_value.order_by.return_value.first.return_value = None
+        team_lead = MongoUser(
+            id=ObjectId(),
+            username="team_lead",
+            email="lead@example.com",
+            first_name="Team",
+            last_name="Lead",
+            role="team_lead",
+        )
+
+        project, active_sprint = _default_report_assignment(
+            team_lead,
+            database,
+            str(project_id),
+        )
+
+        self.assertEqual(project, {"id": str(project_id), "name": "Team project"})
+        self.assertEqual(active_sprint, {})
+
+    def test_pyMongo_database_is_never_used_as_a_boolean_for_report_options(self):
+        class DatabaseStub:
+            def __bool__(self):
+                raise AssertionError("PyMongo Database must not be evaluated as a boolean")
+
+        database = DatabaseStub()
+        database.projects = Mock()
+        database.projects.find.return_value = []
+        database.sprints = Mock()
+        database.sprints.find_one.return_value = {"project_id": "project-1"}
+        admin = MongoUser(
+            id=ObjectId(),
+            username="report_admin",
+            email="reports@example.com",
+            first_name="Report",
+            last_name="Admin",
+            role="admin",
+        )
+
+        project, sprint = _default_report_assignment(admin, database)
+        sprint_project_id = _report_sprint_project_id("mongo-sprint", database)
+
+        self.assertEqual(project, {})
+        self.assertEqual(sprint, {})
+        self.assertEqual(sprint_project_id, "project-1")
+
+    def test_monthly_report_aggregates_real_entries_without_inventing_progress(self):
         entries = [
             {
                 "id": "report-1",
-                "sprint_id": "sprint-1",
-                "sprint": "Sprint 1",
-                "work_completed": "Implemented API",
-                "next_steps": "Add tests",
+                "report_date": "2026-10-27",
+                "employee_id": "employee-1",
+                "employee": "Report User",
+                "activity": "Implemented API",
                 "status": "In Progress",
                 "progress": None,
             },
             {
                 "id": "report-2",
-                "sprint_id": "sprint-1",
-                "sprint": "Sprint 1",
-                "work_completed": "Reviewed UI",
-                "next_steps": "",
+                "report_date": "2026-10-28",
+                "employee_id": "employee-1",
+                "employee": "Report User",
+                "activity": "Reviewed UI",
                 "status": "Done",
                 "progress": None,
             },
         ]
 
-        result = _aggregate_reports(entries, "sprint")
+        result = _aggregate_monthly_reports(entries)
 
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["entry_count"], 2)
-        self.assertIn("Implemented API", result[0]["work_completed"])
+        self.assertIn("Implemented API", result[0]["activity"])
         self.assertEqual(result[0]["progress"], None)
 
     def test_report_endpoint_requires_authentication_and_lists_persisted_records(self):
@@ -2303,33 +2953,119 @@ class EODReportTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 200)
 
-    def test_report_creation_validates_and_persists_a_record(self):
+    def test_created_report_is_owned_by_the_signed_in_user_and_appears_in_daily_list(self):
         client = APIClient()
-        client.force_authenticate(user=MongoUser(
+        user = MongoUser(
             id=ObjectId(),
             username="report_user",
             email="reports@example.com",
             first_name="Report",
             last_name="User",
-            role="admin",
-        ))
+            role="user",
+        )
+        client.force_authenticate(user=user)
         report_id = ObjectId()
-        with patch("AppCore.Reporting.views.reports.get_eod_reports_collection") as get_reports:
-            get_reports.return_value.insert_one.return_value.inserted_id = report_id
+        with patch("AppCore.Reporting.views.reports.get_eod_reports_collection") as get_reports, patch(
+            "AppCore.Reporting.views.reports.get_database"
+        ) as get_database, patch(
+            "AppCore.project_access.get_database"
+        ) as get_access_database:
+            database = get_database.return_value
+            get_access_database.return_value = database
+            database.users.find.return_value = []
+            database.projects.find.return_value = []
+            database.backlog_task_comments.find.return_value.sort.return_value.limit.return_value = []
+            collection = get_reports.return_value
+            collection.insert_one.return_value.inserted_id = report_id
             response = client.post(
                 "/api/reporting/eod-reports/",
                 {
                     "title": "End of day",
                     "report_type": "daily",
                     "report_date": "2026-10-27",
-                    "work_completed": "Saved an actual report",
+                    "employee": "somebody else",
+                    "employee_id": str(ObjectId()),
+                    "project": "forged project",
+                    "sprint": "forged sprint",
+                    "activity": "Saved an actual EOD comment",
+                },
+                format="json",
+            )
+            saved = dict(collection.insert_one.call_args.args[0])
+            saved["_id"] = report_id
+            collection.find.return_value.sort.return_value.limit.return_value = [saved]
+            listed = client.get("/api/reporting/eod-reports/?type=daily")
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["id"], str(report_id))
+        self.assertEqual(response.json()["employee"], "Report User")
+        self.assertEqual(response.json()["employee_id"], str(user.id))
+        self.assertEqual(response.json()["activity"], "Saved an actual EOD comment")
+        self.assertEqual(saved["project"], "")
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual([row["id"] for row in listed.json()["results"]], [str(report_id)])
+        self.assertTrue(listed.json()["results"][0]["editable"])
+
+    def test_project_eod_page_saves_reports_to_its_selected_project(self):
+        project_id = ObjectId()
+        report_id = ObjectId()
+        user = MongoUser(
+            id=ObjectId(),
+            username="project_member",
+            email="project_member@example.com",
+            first_name="Project",
+            last_name="Member",
+            role="user",
+        )
+        project = {
+            "_id": project_id,
+            "name": "Selected project",
+            "members": [str(user.id)],
+        }
+        client = APIClient()
+        client.force_authenticate(user=user)
+
+        with patch(
+            "AppCore.Reporting.views.reports.get_eod_reports_collection"
+        ) as get_reports, patch(
+            "AppCore.Reporting.views.reports.get_database"
+        ) as get_database, patch(
+            "AppCore.Reporting.views.reports.Sprint.objects.filter"
+        ) as filter_sprints, patch(
+            "AppCore.Reporting.views.reports.ActiveBoardSprint.objects.filter"
+        ) as filter_active_sprints, patch(
+            "AppCore.Reporting.views.reports.get_accessible_projects",
+            return_value=[project],
+        ), patch(
+            "AppCore.project_access.get_database"
+        ) as get_access_database:
+            database = get_database.return_value
+            database.sprints.find_one.return_value = None
+            get_access_database.return_value.projects.find.return_value = [project]
+            filter_sprints.return_value.order_by.return_value.first.return_value = None
+            filter_active_sprints.return_value.order_by.return_value.first.return_value = None
+            collection = get_reports.return_value
+            collection.insert_one.return_value.inserted_id = report_id
+
+            response = client.post(
+                "/api/reporting/eod-reports/",
+                {
+                    "title": "Project end of day",
+                    "report_date": "2026-10-27",
+                    "project_id": str(project_id),
+                    "project": "Forged project name",
+                    "activity": "Completed project work",
                 },
                 format="json",
             )
 
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.json()["id"], str(report_id))
-        self.assertEqual(response.json()["work_completed"], "Saved an actual report")
+        self.assertEqual(response.json()["project_id"], str(project_id))
+        self.assertEqual(response.json()["project"], "Selected project")
+        self.assertEqual(
+            collection.insert_one.call_args.args[0]["project_id"],
+            str(project_id),
+        )
 
     def test_report_creation_rejects_an_invalid_date(self):
         client = APIClient()
@@ -2398,7 +3134,7 @@ class EODReportTests(SimpleTestCase):
         self.assertEqual(reports[0]["employee"], "worker")
         self.assertFalse(reports[0]["editable"])
 
-    def test_report_update_delete_and_import_use_persistent_collection(self):
+    def test_report_update_and_delete_use_persistent_collection(self):
         client = APIClient()
         user = MongoUser(
             id=ObjectId(),
@@ -2406,7 +3142,7 @@ class EODReportTests(SimpleTestCase):
             email="reports@example.com",
             first_name="Report",
             last_name="User",
-            role="admin",
+            role="user",
         )
         client.force_authenticate(user=user)
         report_id = ObjectId()
@@ -2416,7 +3152,9 @@ class EODReportTests(SimpleTestCase):
             "title": "Daily report",
             "report_type": "daily",
             "report_date": "2026-10-27",
-            "work_completed": "Before edit",
+            "employee_id": str(user.id),
+            "employee": "Report User",
+            "activity": "Before edit",
             "source": "manual",
         }
         with patch("AppCore.Reporting.views.reports.get_eod_reports_collection") as get_reports:
@@ -2425,112 +3163,46 @@ class EODReportTests(SimpleTestCase):
 
             updated = client.patch(
                 f"/api/reporting/eod-reports/{report_id}/",
-                {"work_completed": "After edit"},
+                {"activity": "After edit"},
                 format="json",
             )
             deleted = client.delete(f"/api/reporting/eod-reports/{report_id}/")
 
         self.assertEqual(updated.status_code, 200)
-        self.assertEqual(updated.json()["work_completed"], "After edit")
+        self.assertEqual(updated.json()["activity"], "After edit")
         collection.update_one.assert_called_once()
         self.assertEqual(deleted.status_code, 204)
         collection.delete_one.assert_called_once()
 
+
+    def test_team_lead_can_edit_another_users_report_but_member_cannot(self):
+        target_id = str(ObjectId())
+        report_id = ObjectId()
+        report = {
+            "_id": report_id,
+            "created_by": target_id,
+            "title": "Teammate EOD",
+            "report_type": "daily",
+            "report_date": "2026-10-27",
+            "activity": "Initial comment",
+            "source": "manual",
+        }
         with patch("AppCore.Reporting.views.reports.get_eod_reports_collection") as get_reports:
-            collection = get_reports.return_value
-            collection.insert_one.side_effect = [
-                type("InsertResult", (), {"inserted_id": ObjectId()})(),
-                DuplicateKeyError("duplicate"),
-            ]
-            imported = client.post(
-                "/api/reporting/eod-reports/import/",
-                {
-                    "rows": [
-                        {"title": "Imported update", "report_date": "2026-10-27", "work_completed": "Done"},
-                        {"title": "Imported update", "report_date": "2026-10-27", "work_completed": "Done"},
-                    ]
-                },
-                format="json",
-            )
-
-        self.assertEqual(imported.status_code, 200)
-        self.assertEqual(imported.json()["imported"], 1)
-        self.assertEqual(imported.json()["duplicates"], 1)
-
-    def test_csv_spreadsheet_preview_parses_headers_and_rows(self):
-        client = APIClient()
-        client.force_authenticate(user=MongoUser(
-            id=ObjectId(),
-            username="report_user",
-            email="reports@example.com",
-            first_name="Report",
-            last_name="User",
-            role="admin",
-        ))
-
-        response = client.post(
-            "/api/reporting/eod-reports/preview-import/",
-            {"file": SimpleUploadedFile(
-                "daily.csv",
-                b"Date,Task,Work completed\n2026-10-27,Build API,Added report endpoint\n",
-                content_type="text/csv",
-            )},
-            format="multipart",
-        )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["headers"], ["Date", "Task", "Work completed"])
-        self.assertEqual(response.json()["rows"][0]["Task"], "Build API")
-
-    def test_invalid_spreadsheet_type_is_rejected(self):
-        client = APIClient()
-        client.force_authenticate(user=MongoUser(
-            id=ObjectId(),
-            username="report_user",
-            email="reports@example.com",
-            first_name="Report",
-            last_name="User",
-            role="admin",
-        ))
-
-        response = client.post(
-            "/api/reporting/eod-reports/preview-import/",
-            {"file": SimpleUploadedFile("notes.txt", b"not a spreadsheet")},
-            format="multipart",
-        )
-
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Only .xlsx", response.json()["error"])
-
-    def test_xlsx_spreadsheet_preview_reads_formatted_cells(self):
-        from io import BytesIO
-        from openpyxl import Workbook
-
-        workbook = Workbook()
-        worksheet = workbook.active
-        worksheet.append(["Date", "Task"])
-        worksheet.append([datetime(2026, 10, 27), "Build API"])
-        contents = BytesIO()
-        workbook.save(contents)
-
-        client = APIClient()
-        client.force_authenticate(user=MongoUser(
-            id=ObjectId(),
-            username="report_user",
-            email="reports@example.com",
-            first_name="Report",
-            last_name="User",
-            role="admin",
-        ))
-        response = client.post(
-            "/api/reporting/eod-reports/preview-import/",
-            {"file": SimpleUploadedFile(
-                "daily.xlsx",
-                contents.getvalue(),
-                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )},
-            format="multipart",
-        )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["rows"][0]["Date"], "2026-10-27")
+            get_reports.return_value.find_one.return_value = report
+            for role, expected_status in (("user", 403), ("team_lead", 200)):
+                with self.subTest(role=role):
+                    client = APIClient()
+                    client.force_authenticate(user=MongoUser(
+                        id=ObjectId(),
+                        username=f"{role}_user",
+                        email=f"{role}@example.com",
+                        first_name=role.title(),
+                        last_name="User",
+                        role=role,
+                    ))
+                    response = client.patch(
+                        f"/api/reporting/eod-reports/{report_id}/",
+                        {"activity": "Updated by reviewer"},
+                        format="json",
+                    )
+                    self.assertEqual(response.status_code, expected_status)

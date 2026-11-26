@@ -1,8 +1,7 @@
-import { useEffect, useState } from "react";
 import {
   Triangle,
   BarChart3,
-  Gauge,
+  ChartNoAxesCombined,
 } from "lucide-react";
 
 import SubSidebarAurora from "../../Common/SubSidebarAurora";
@@ -48,16 +47,9 @@ TrackerSidebar.NavItem = ({
 
 
 export default function TrackerSidebarExample({ onSelectionChange, selectedItem, reportsOnly = false }) {
-  const [selected, setSelected] = useState(selectedItem || "Goals");
-
-  useEffect(() => {
-    if (selectedItem) {
-      setSelected(selectedItem);
-    }
-  }, [selectedItem]);
+  const selected = selectedItem || "Goals";
 
   const handleSelect = (item) => {
-    setSelected(item);
     onSelectionChange?.(item);
   };
 
@@ -86,14 +78,12 @@ export default function TrackerSidebarExample({ onSelectionChange, selectedItem,
           onClick={() => handleSelect("Reports")}
         />
 
-        {!reportsOnly && (
-          <TrackerSidebar.NavItem
-            icon={Gauge}
-            label="Resourcing"
-            active={selected === "Resourcing"}
-            onClick={() => handleSelect("Resourcing")}
-          />
-        )}
+        <TrackerSidebar.NavItem
+          icon={ChartNoAxesCombined}
+          label="Resourcing"
+          active={selected === "Resourcing"}
+          onClick={() => handleSelect("Resourcing")}
+        />
 
       </TrackerSidebar.Navigation>
 

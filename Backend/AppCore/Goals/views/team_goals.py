@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ..db import db
+from ..goal_sync import sync_goals_from_projects
 
 
 class TeamGoalsView(APIView):
@@ -25,6 +26,10 @@ class TeamGoalsView(APIView):
         return [AllowAny()]
 
     def get(self, request):
+        try:
+            sync_goals_from_projects(db)
+        except Exception:
+            pass
         cursor = list(self.goals_collection.find({}))
 
         # Group goals by team

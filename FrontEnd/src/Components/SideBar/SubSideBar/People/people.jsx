@@ -21,9 +21,33 @@ import {
   ExternalLink,
   Loader2,
   RefreshCw,
+  Code2,
+  Palette,
+  Bug,
+  Database,
+  BriefcaseBusiness,
+  ChartNoAxesCombined,
+  Layers3,
+  Rocket,
+  ShieldCheck,
+  Sparkles,
 } from "lucide-react";
 import peopleApi from "./peopleApi";
 import "./people.css";
+
+const PROJECT_ICONS = [
+  Layers,
+  Code2,
+  Palette,
+  Bug,
+  Database,
+  BriefcaseBusiness,
+  ChartNoAxesCombined,
+  Rocket,
+  ShieldCheck,
+  Sparkles,
+  Layers3,
+];
 
 const getAvatarImageSource = (avatar) => {
   if (typeof avatar !== "string") return "";
@@ -175,6 +199,8 @@ export const PeoplePage = ({
   theme = "dark",
   activeTab = "members",
   onTabChange,
+  currentUser,
+  rolePermissions,
 }) => {
   const sanitizeTab = (tab) => (tab === "workspace" ? "members" : tab || "members");
   const [internalTab, setInternalTab] = useState(sanitizeTab(activeTab));
@@ -240,6 +266,10 @@ export const PeoplePage = ({
     tags: "",
   });
   const [isCreatingTeam, setIsCreatingTeam] = useState(false);
+
+  const effectiveRole =
+    rolePermissions?.current_role || currentUser?.role || "user";
+  const isAdmin = effectiveRole === "admin";
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -510,7 +540,7 @@ export const PeoplePage = ({
             <RefreshCw size={14} className={isRefreshing ? "spinning" : ""} />
           </button>
 
-          {currentTab === "teams" ? (
+          {currentTab === "teams" && isAdmin ? (
             <button
               type="button"
               className="people-btn people-btn-primary"
@@ -519,7 +549,7 @@ export const PeoplePage = ({
               <Plus size={16} />
               <span>Create Team</span>
             </button>
-          ) : (
+          ) : isAdmin ? (
             <button
               type="button"
               className="people-btn people-btn-primary"
@@ -528,7 +558,7 @@ export const PeoplePage = ({
               <UserPlus size={16} />
               <span>Invite Person</span>
             </button>
-          )}
+          ) : null}
         </div>
       </header>
 
@@ -718,10 +748,11 @@ export const PeoplePage = ({
             </div>
           ) : viewMode === "grid" ? (
             <div className="members-grid">
-              {filteredMembers.map((member) => (
+              {filteredMembers.map((member, index) => (
                 <div
                   key={member.id}
                   className="member-card"
+                  style={{ "--member-card-index": Math.min(index, 10) }}
                   role="button"
                   tabIndex={0}
                   onClick={() => setSelectedMember(member)}
@@ -847,25 +878,72 @@ export const PeoplePage = ({
          TAB 2: TEAMS & SQUADS
       ========================================================= */}
       {currentTab === "teams" && (
-        <div className="tab-pane-content">
+        <div className="tab-pane-content teams-page-panel">
           <div className="teams-grid">
-            {teams.map((team) => (
-              <div key={team.id} className="team-card">
+            {teams.map((team, index) => {
+              const ProjectIcon = PROJECT_ICONS[index % PROJECT_ICONS.length];
+              return (
+              <article
+                key={team.id}
+                className="team-card"
+                style={{
+                  "--project-card-index": Math.min(index, 8),
+                  "--project-icon-hue": `${index * 37}deg`,
+                }}
+              >
+                <div className="project-card-accent" />
+                <div className="project-team-card-top">
+                  <div className="project-team-icon"><ProjectIcon size={19} /></div>
+                  <div className="project-team-heading">
+                    <span className="project-team-key" title="Project key: a short identifier used to recognize and reference this project">
+                      {team.key || "PROJECT"}
+                    </span>
+                    <span className="project-team-status">{team.status || "Active"}</span>
+                  </div>
+                </div>
+
                 <div className="team-card-header">
                   <h3 className="team-name">{team.name}</h3>
                   <span className="footer-dept-tag">{team.department}</span>
                 </div>
-                <p className="team-desc">{team.description}</p>
-                <div className="team-details-row">
+                <p className="team-desc">{team.description || "A shared project space for this team."}</p>
+
+                <div className="project-team-stats">
                   <div>
-                    <strong>Lead:</strong> {team.lead}
+                    <span>Project lead</span>
+                    <strong>{team.lead || "Not assigned"}</strong>
                   </div>
                   <div>
-                    <strong>{team.memberCount} Members</strong>
+                    <span>Team members</span>
+                    <strong>{team.memberCount || 0}</strong>
                   </div>
                 </div>
-              </div>
-            ))}
+
+                <div className="project-team-roster-heading">
+                  <span>People on this project</span>
+                  <span>{(team.members || []).length}</span>
+                </div>
+                <div className="project-team-members" aria-label={`${team.name} project members`}>
+                  {(team.members || []).map((member, memberIndex) => (
+                    <div
+                      className="project-team-member"
+                      key={member.id}
+                      style={{ "--member-index": Math.min(memberIndex, 8) }}
+                    >
+                      <span className="project-team-avatar">{member.avatar}</span>
+                      <span className="project-team-member-info">
+                        <strong>{member.name}</strong>
+                        <small>{member.role === "team_lead" ? "Team Lead" : member.role === "admin" ? "Admin" : "Member"}</small>
+                      </span>
+                    </div>
+                  ))}
+                  {(team.members || []).length === 0 && (
+                    <span className="project-team-empty">No members assigned yet</span>
+                  )}
+                </div>
+              </article>
+              );
+            })}
           </div>
         </div>
       )}
@@ -1065,31 +1143,35 @@ export const PeoplePage = ({
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 14 }}>
-                <div className="form-group">
-                  <label>Workspace Role (Permissions)</label>
-                  <select
-                    className="form-control"
-                    value={selectedMember.role}
-                    onChange={(e) => handleRoleChange(selectedMember.id, e.target.value)}
-                  >
-                    <option value="admin">Admin (Full Workspace Permissions)</option>
-                    <option value="team_lead">Team Lead (Full Workspace Permissions)</option>
-                    <option value="user">Member (Full Workspace Permissions)</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Reassign Squad / Team</label>
-                  <select
-                    className="form-control"
-                    value={selectedMember.team || ""}
-                    onChange={(e) => handleTeamChange(selectedMember.id, e.target.value)}
-                  >
-                    <option value="">Unassigned</option>
-                    {teams.map((t) => (
-                      <option key={t.id || t.name} value={t.name}>{t.name}</option>
-                    ))}
-                  </select>
-                </div>
+                {isAdmin && (
+                  <>
+                    <div className="form-group">
+                      <label>Workspace Role (Permissions)</label>
+                      <select
+                        className="form-control"
+                        value={selectedMember.role}
+                        onChange={(e) => handleRoleChange(selectedMember.id, e.target.value)}
+                      >
+                        <option value="admin">Admin (Full Workspace Permissions)</option>
+                        <option value="team_lead">Team Lead (Full Workspace Permissions)</option>
+                        <option value="user">Member</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label>Reassign Squad / Team</label>
+                      <select
+                        className="form-control"
+                        value={selectedMember.team || ""}
+                        onChange={(e) => handleTeamChange(selectedMember.id, e.target.value)}
+                      >
+                        <option value="">Unassigned</option>
+                        {teams.map((t) => (
+                          <option key={t.id || t.name} value={t.name}>{t.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -1222,7 +1304,7 @@ export const PeoplePage = ({
       {/* =========================================================
          CREATE TEAM MODAL
       ========================================================= */}
-      {showTeamModal && (
+      {showTeamModal && isAdmin && (
         <div
           className="people-modal-backdrop"
           onClick={() => setShowTeamModal(false)}

@@ -132,6 +132,11 @@ class PeopleListView(APIView):
         return Response(people_list, status=status.HTTP_200_OK)
 
     def post(self, request):
+        if not is_configured_admin(request.user):
+            return Response(
+                {"error": "Only admins can add or update people."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         db = get_database()
         data = request.data or {}
 
@@ -232,6 +237,11 @@ class PeopleDetailView(APIView):
     def patch(self, request, user_id):
         db = get_database()
         data = request.data or {}
+        if ("role" in data or "team" in data) and not is_configured_admin(request.user):
+            return Response(
+                {"error": "Only admins can change workspace roles or project assignments."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         try:
             target = {"_id": ObjectId(user_id)}
@@ -323,6 +333,11 @@ class PeopleDetailView(APIView):
         return Response(person, status=status.HTTP_200_OK)
 
     def delete(self, request, user_id):
+        if not is_configured_admin(request.user):
+            return Response(
+                {"error": "Only admins can remove people."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         db = get_database()
         try:
             target = {"_id": ObjectId(user_id)}
@@ -349,23 +364,116 @@ class TeamListView(APIView):
 
     def get(self, request):
         db = get_database()
-        teams_cursor = db.teams.find({}).sort("name", 1)
+        projects = list(db.projects.find({}).sort("created_at", -1))
+        users = db.users.find(
+            {},
+            {
+                "_id": 1,
+                "first_name": 1,
+                "last_name": 1,
+                "username": 1,
+                "email": 1,
+                "role": 1,
+            },
+        )
+        users_by_identity = {}
+        for user in users:
+            first = str(user.get("first_name", "")).strip()
+            last = str(user.get("last_name", "")).strip()
+            full_name = f"{first} {last}".strip()
+            for identity in (
+                user.get("_id"),
+                user.get("email"),
+                user.get("username"),
+                full_name,
+                first,
+            ):
+                if identity:
+                    users_by_identity.setdefault(str(identity).strip().lower(), user)
+
         teams_list = []
-        for doc in teams_cursor:
+
+        for doc in projects:
+            member_values = []
+            for field in ("members", "member_ids", "assigned_users", "assigned_user_ids", "team_members", "user_ids"):
+                value = doc.get(field)
+                if isinstance(value, list):
+                    member_values.extend(value)
+                elif value:
+                    member_values.append(value)
+
+            lead_value = doc.get("lead") or doc.get("project_lead") or ""
+            if lead_value:
+                member_values.append(lead_value)
+
+            project_members = []
+            seen = set()
+            for value in member_values:
+                if isinstance(value, dict):
+                    identity = value.get("id") or value.get("_id") or value.get("email") or value.get("username") or value.get("name")
+                    name = value.get("name") or value.get("username") or value.get("email") or ""
+                else:
+                    identity = str(value)
+                    name = identity
+
+                if not identity:
+                    continue
+                key = str(identity).strip().lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                candidates = [identity]
+                if isinstance(value, dict):
+                    candidates.extend(
+                        value.get(field)
+                        for field in ("email", "username", "name", "id", "_id")
+                    )
+                user = next(
+                    (
+                        users_by_identity.get(str(candidate).strip().lower())
+                        for candidate in candidates
+                        if candidate and str(candidate).strip().lower() in users_by_identity
+                    ),
+                    None,
+                )
+
+                if user:
+                    first = str(user.get("first_name", "")).strip()
+                    last = str(user.get("last_name", "")).strip()
+                    name = f"{first} {last}".strip() or str(user.get("username") or user.get("email") or name)
+                    role = str(user.get("role", "user"))
+                    avatar = (str(name).strip()[:2].upper())
+                else:
+                    role = "user"
+                    avatar = str(name).strip()[:2].upper()
+
+                project_members.append({
+                    "id": str(user.get("_id", "")) if user else str(identity),
+                    "name": str(name),
+                    "role": role,
+                    "avatar": avatar,
+                })
+
             teams_list.append(
                 {
-                    "id": str(doc.get("_id", "")),
-                    "name": doc.get("name"),
+                    "id": str(doc.get("_id", doc.get("id", ""))),
+                    "name": doc.get("name") or "Untitled Project",
                     "description": doc.get("description", ""),
-                    "department": doc.get("department", "Engineering"),
-                    "lead": doc.get("lead", ""),
-                    "memberCount": doc.get("member_count", 0),
-                    "tags": doc.get("tags", []),
+                    "department": doc.get("category") or "General",
+                    "lead": lead_value,
+                    "memberCount": len(project_members),
+                    "members": project_members,
+                    "tags": [doc.get("category") or "Project"],
+                    "status": doc.get("status") or "Active",
+                    "key": doc.get("key") or "",
                 }
             )
         return Response(teams_list, status=status.HTTP_200_OK)
 
     def post(self, request):
+        if not is_configured_admin(request.user):
+            return Response({"error": "Only admins can create teams or squads."}, status=status.HTTP_403_FORBIDDEN)
         db = get_database()
         data = request.data or {}
         name = data.get("name", "").strip()
@@ -398,6 +506,8 @@ class TeamDetailView(APIView):
     """
 
     def delete(self, request, team_id):
+        if not is_configured_admin(request.user):
+            return Response({"error": "Only admins can delete teams or squads."}, status=status.HTTP_403_FORBIDDEN)
         db = get_database()
         try:
             target = {"_id": ObjectId(team_id)}
@@ -451,6 +561,11 @@ class PeopleInvitationsView(APIView):
         return Response(invites, status=status.HTTP_200_OK)
 
     def post(self, request):
+        if not is_configured_admin(request.user):
+            return Response(
+                {"error": "Only admins can send invitations."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         db = get_database()
         data = request.data or {}
         email = data.get("email", "").strip().lower()
@@ -504,6 +619,11 @@ class PeopleInvitationsView(APIView):
         )
 
     def delete(self, request, email=None):
+        if not is_configured_admin(request.user):
+            return Response(
+                {"error": "Only admins can revoke invitations."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         db = get_database()
         target_email = email or request.GET.get("email", "")
         if not target_email:

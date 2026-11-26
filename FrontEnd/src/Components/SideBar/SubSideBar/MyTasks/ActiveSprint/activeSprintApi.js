@@ -94,7 +94,6 @@ export const normalizeTask = (rawTask) => {
     sprintId: String(sprintId),
     commentsCount: Number(rawTask.comments_count ?? (Array.isArray(rawTask.comments) ? rawTask.comments.length : 0)),
     comments: Array.isArray(rawTask.comments) ? rawTask.comments : [],
-    checklist: Array.isArray(rawTask.checklist) ? rawTask.checklist : [],
     dueDate,
     updatedAt: rawTask.updated_at || rawTask.updatedAt || '',
   };

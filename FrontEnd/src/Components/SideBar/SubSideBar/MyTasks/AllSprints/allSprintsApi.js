@@ -55,6 +55,7 @@ export const normalizeSprint = (rawSprint) => {
   return {
     id: String(id),
     name: rawSprint.name || '',
+    projectId: String(rawSprint.project_id || rawSprint.project?.id || rawSprint.board_id || rawSprint.board?.id || ''),
     status: rawSprint.status || (isCompleted ? 'completed' : isStarted ? 'active' : ''),
     isStarted,
     isCompleted,
@@ -95,6 +96,7 @@ export const normalizeTask = (rawTask) => {
 
   return {
     id: String(id),
+    projectId: String(rawTask.project_id || rawTask.project?.id || ''),
     taskId: String(taskId),
     title: rawTask.title || '',
     description: rawTask.description || '',
@@ -109,7 +111,6 @@ export const normalizeTask = (rawTask) => {
       rawTask.comments_count ?? (Array.isArray(rawTask.comments) ? rawTask.comments.length : 0)
     ),
     comments: Array.isArray(rawTask.comments) ? rawTask.comments : [],
-    checklist: Array.isArray(rawTask.checklist) ? rawTask.checklist : [],
     dueDate,
     updatedAt: rawTask.updated_at || rawTask.updatedAt || '',
   };

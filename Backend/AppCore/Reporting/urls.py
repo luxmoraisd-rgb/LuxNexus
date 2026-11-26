@@ -6,16 +6,14 @@ from .views import (
     DashboardSummaryView,
     EODCommentsView,
     EODReportDetailView,
-    EODReportImportView,
+    EODReportExportView,
     EODReportListCreateView,
-    EODSpreadsheetPreviewView,
     ReportOptionsView,
 )
 
 urlpatterns = [
     path("reporting/eod-reports/", EODReportListCreateView.as_view(), name="eod-report-list-create"),
-    path("reporting/eod-reports/preview-import/", EODSpreadsheetPreviewView.as_view(), name="eod-report-preview-import"),
-    path("reporting/eod-reports/import/", EODReportImportView.as_view(), name="eod-report-import"),
+    path("reporting/eod-reports/export/", EODReportExportView.as_view(), name="eod-report-export"),
     path("reporting/eod-reports/<str:report_id>/", EODReportDetailView.as_view(), name="eod-report-detail"),
     path("reporting/eod-comments/", EODCommentsView.as_view(), name="eod-comments"),
     path("reporting/eod-options/", ReportOptionsView.as_view(), name="eod-report-options"),

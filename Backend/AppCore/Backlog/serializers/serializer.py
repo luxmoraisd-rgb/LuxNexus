@@ -112,6 +112,7 @@ class TaskSerializer(MongoModelSerializer):
             'estimated_sp',
             'sp',
             'epic',
+            'reporter',
             'sprintId',
             'due_date',
             'dueDate',

@@ -14,7 +14,7 @@ stored in MongoDB. Django connects through the official Django MongoDB Backend.
 5. Start the API with `npm run backend`.
 
 MongoDB indexes are created on first database access. Users, bearer tokens, projects,
-resource allocations, password-reset OTPs, and Django ORM records are stored in
+password-reset OTPs, and Django ORM records are stored in
 MongoDB. Passwords and OTPs are stored as hashes; expiring token and OTP documents
 use MongoDB TTL indexes.
 
@@ -24,14 +24,12 @@ into a ZIP archive; each file may be up to 25 MB and the combined upload may be 
 100 MB. New task IDs use the `LUX` project key by default.
 
 The authenticated `view_reports` capability protects the EOD reports API, which
-stores editable report rows in the MongoDB
-`eod_reports` collection and reads EOD-tagged task comments from
-`backlog_task_comments`. Report spreadsheets can be previewed as CSV, XLS, or XLSX
-before importing; XLSX and XLS parsing uses `openpyxl` and `xlrd`, respectively.
-Report rows are available at `/api/reporting/eod-reports/`; filter options,
-spreadsheet preview, confirmed imports, and EOD comments use `/api/reporting/eod-options/`,
-`/api/reporting/eod-reports/preview-import/`, `/api/reporting/eod-reports/import/`,
-and `/api/reporting/eod-comments/`.
+stores editable report rows in the MongoDB `eod_reports` collection and reads
+EOD-tagged task comments from `backlog_task_comments`. Members can edit their own
+reports; admins and team leads can edit reports across the team. Report rows are
+available at `/api/reporting/eod-reports/`; filter and assignment options are
+available at `/api/reporting/eod-options/`, and EOD task comments at
+`/api/reporting/eod-comments/`.
 
 Team invitations are stored in MongoDB with hashed, single-use tokens that expire
 after seven days. Configure `FRONTEND_URL`, `DEFAULT_FROM_EMAIL`, and SMTP settings

@@ -104,7 +104,9 @@ class AgileBoardAPITests(TestCase):
         self.assertEqual(len(response.data), 2)
         self.assertEqual(response.data[0]['name'], "Sprint 1")
 
-    def test_project_sprint_task_relationship_ids(self):
+    @patch("AppCore.Backlog.views.views.notify_project_activity")
+    @patch("AppCore.Backlog.views.views.get_database")
+    def test_project_sprint_task_relationship_ids(self, get_database, notify_activity):
         project_id = "507f1f77bcf86cd799439011"
 
         sprint_response = self.client.post(
@@ -157,6 +159,42 @@ class AgileBoardAPITests(TestCase):
         self.assertTrue(
             any(str(task['id']) == str(task_response.data['id']) for task in filtered_tasks.data)
         )
+        self.assertEqual(notify_activity.call_count, 2)
+        self.assertEqual(
+            [call.args[0] for call in notify_activity.call_args_list],
+            [project_id, project_id],
+        )
+
+    @patch("AppCore.Backlog.views.views.notify_project_comment")
+    @patch("AppCore.Backlog.views.views.get_database")
+    def test_task_comment_creates_project_comment_notification(
+        self, get_database, notify_comment
+    ):
+        project_id = "507f1f77bcf86cd799439011"
+        task = Task.objects.create(
+            board=self.board,
+            project_id=project_id,
+            title="Project task",
+            task_key="LUX-PROJECT-2",
+        )
+        database = get_database.return_value
+        database.backlog_task_comments.insert_one.return_value.inserted_id = ObjectId()
+        database.backlog_task_comments.count_documents.return_value = 1
+
+        response = self.client.post(
+            f"/api/backlog/tasks/{task.id}/comments/",
+            {"text": "Please review this change."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        notify_comment.assert_called_once()
+        self.assertEqual(notify_comment.call_args.args[:4], (
+            project_id,
+            self.user_s,
+            task.task_key,
+            "Please review this change.",
+        ))
 
     def test_project_task_filter_does_not_change_other_projects_tasks(self):
         project_id = "507f1f77bcf86cd799439011"

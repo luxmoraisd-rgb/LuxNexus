@@ -37,7 +37,8 @@ const COLOR_OPTIONS = [
   "#3b82f6",
 ];
 
-const CATEGORIES = ["All", "Engineering", "Design", "Marketing", "Operations"];
+const PROJECT_CATEGORIES = ["Developer", "QA", "UI/UX Designer", "Data Analyst", "Bug/Features"];
+const CATEGORIES = ["All", ...PROJECT_CATEGORIES];
 
 export default function Projects({ rolePermissions, currentUser }) {
   const navigate = useNavigate();
@@ -48,6 +49,12 @@ export default function Projects({ rolePermissions, currentUser }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [toastMessage, setToastMessage] = useState("");
+  const [projectPendingDelete, setProjectPendingDelete] = useState(null);
+  const [isDeletingProject, setIsDeletingProject] = useState(false);
+  const canManageProjects =
+    (effectiveRole === "admin" || effectiveRole === "team_lead") &&
+    rolePermissions?.manage_portfolios !== false;
+  const canAdministerProjects = isAdmin && rolePermissions?.manage_portfolios !== false;
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -56,7 +63,7 @@ export default function Projects({ rolePermissions, currentUser }) {
   // Form State
   const [formName, setFormName] = useState("");
   const [formKey, setFormKey] = useState("");
-  const [formCategory, setFormCategory] = useState("Engineering");
+  const [formCategory, setFormCategory] = useState("Developer");
   const [formDescription, setFormDescription] = useState("");
   const [formColor, setFormColor] = useState(COLOR_OPTIONS[0]);
   const [formLead, setFormLead] = useState("");
@@ -147,11 +154,12 @@ export default function Projects({ rolePermissions, currentUser }) {
   }, [projects, searchQuery, selectedCategory]);
 
   const handleOpenCreateModal = () => {
+    if (!canManageProjects) return;
     setEditingProject(null);
     setFormError("");
     setFormName("");
     setFormKey("");
-    setFormCategory("Engineering");
+    setFormCategory("Developer");
     setFormDescription("");
     setFormColor(COLOR_OPTIONS[0]);
     setFormLead("");
@@ -163,11 +171,12 @@ export default function Projects({ rolePermissions, currentUser }) {
   };
 
   const handleOpenEditModal = (proj) => {
+    if (!canManageProjects) return;
     setEditingProject(proj);
     setFormError("");
     setFormName(proj.name || "");
     setFormKey(proj.key || "");
-    setFormCategory(proj.category || "Engineering");
+    setFormCategory(PROJECT_CATEGORIES.includes(proj.category) ? proj.category : "Developer");
     setFormDescription(proj.description || "");
     setFormColor(proj.color || COLOR_OPTIONS[0]);
     setFormLead(proj.lead || proj.project_lead || "");
@@ -189,7 +198,6 @@ export default function Projects({ rolePermissions, currentUser }) {
           name: formName.trim(),
           key: formKey.trim() || editingProject.key,
           category: formCategory,
-          description: formDescription.trim(),
           color: formColor,
           lead: formLead.trim(),
           project_lead: formLead.trim(),
@@ -199,6 +207,7 @@ export default function Projects({ rolePermissions, currentUser }) {
           endDate: formEndDate,
           status: formStatus,
         };
+        if (isAdmin) updates.description = formDescription.trim();
 
         await updateProject(editingProject.id, updates);
         setProjects((prev) =>
@@ -247,16 +256,18 @@ export default function Projects({ rolePermissions, currentUser }) {
     }
   };
 
-  const handleDeleteProject = async (projId, projName) => {
-    if (!isAdmin || !window.confirm(
-      `Permanently delete "${projName}" and all of its sprints, tasks, comments, and attachments?`
-    )) return;
+  const handleDeleteProject = async () => {
+    if (!isAdmin || !projectPendingDelete || isDeletingProject) return;
+    setIsDeletingProject(true);
     try {
-      await deleteProject(projId);
-      setProjects((prev) => prev.filter((p) => p.id !== projId));
-      showToast(`Project "${projName}" deleted.`);
+      await deleteProject(projectPendingDelete.id);
+      setProjects((prev) => prev.filter((p) => p.id !== projectPendingDelete.id));
+      showToast(`Project "${projectPendingDelete.name}" deleted.`);
+      setProjectPendingDelete(null);
     } catch (deleteError) {
       showToast(deleteError.response?.data?.detail || "Error deleting project.");
+    } finally {
+      setIsDeletingProject(false);
     }
   };
 
@@ -287,7 +298,7 @@ export default function Projects({ rolePermissions, currentUser }) {
           <div>
             <h1 className="projects-title">Projects</h1>
             <p className="projects-subtitle">
-              Manage workspace initiatives and assign team resources in MongoDB
+              Manage  workspace  initiatives  and  assign  team  resources
             </p>
           </div>
         </div>
@@ -301,14 +312,16 @@ export default function Projects({ rolePermissions, currentUser }) {
           >
             <RefreshCw size={18} className={loading ? "spin" : ""} />
           </button>
-          <button
-            className="create-project-btn"
-            onClick={handleOpenCreateModal}
-            title="Create a new initiative"
-          >
-            <Plus size={18} />
-            <span>New Project</span>
-          </button>
+          {canManageProjects && (
+            <button
+              className="create-project-btn"
+              onClick={handleOpenCreateModal}
+              title="Create a new initiative"
+            >
+              <Plus size={18} />
+              <span>New Project</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -427,6 +440,7 @@ export default function Projects({ rolePermissions, currentUser }) {
               const isDefault = Boolean(
                 project.is_default_workspace || project.isDefaultWorkspace
               );
+              const isActiveProject = String(project.status || "").trim().toLowerCase() === "active";
 
               return (
                 <div
@@ -449,7 +463,16 @@ export default function Projects({ rolePermissions, currentUser }) {
                         <FolderKanban size={22} />
                       </div>
                       <div>
-                        <h3 className="project-card-name">{project.name}</h3>
+                        <div className="project-card-title-line">
+                          <h3 className="project-card-name">{project.name}</h3>
+                          {isActiveProject && (
+                            <span
+                              className="project-active-pulse"
+                              title="Active project"
+                              aria-label="Active project"
+                            />
+                          )}
+                        </div>
                         <div className="project-meta-pills">
                           <span className="project-key-pill">{project.key}</span>
                           <span className="project-category-pill">{project.category}</span>
@@ -465,6 +488,7 @@ export default function Projects({ rolePermissions, currentUser }) {
                         </span>
                       ) : (
                         <button
+                          type="button"
                           className="set-active-btn"
                           onClick={() => handleSetActiveWorkspace(project.id, project.name)}
                           title="Set as active workspace"
@@ -472,28 +496,32 @@ export default function Projects({ rolePermissions, currentUser }) {
                           Set Active
                         </button>
                       )}
-
-                      <button
-                        className="project-icon-action-btn"
-                        onClick={() => handleOpenEditModal(project)}
-                        title="Edit project"
-                      >
-                        <Edit2 size={14} />
-                      </button>
-
-                      {isAdmin && (
-                        <button
-                          className="project-icon-action-btn delete"
-                          onClick={() => handleDeleteProject(project.id, project.name)}
-                          title="Delete project"
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                      {canAdministerProjects && (
+                        <div className="project-card-admin-actions">
+                          <button
+                            type="button"
+                            className="project-icon-action-btn"
+                            onClick={() => handleOpenEditModal(project)}
+                            title="Edit project"
+                            aria-label={`Edit ${project.name}`}
+                          >
+                            <Edit2 size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className="project-icon-action-btn delete"
+                            onClick={() => setProjectPendingDelete(project)}
+                            title="Delete project"
+                            aria-label={`Delete project ${project.name}`}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
 
-                  <p className="project-description">{project.description}</p>
+                  <p className="project-description">{project.description || "No project description."}</p>
 
                   <div className="project-sprint-info-row">
                     <div className="sprint-status-col">
@@ -577,6 +605,29 @@ export default function Projects({ rolePermissions, currentUser }) {
                 />
               </div>
 
+              <div className="form-group">
+                <label htmlFor="project-key">Project Key</label>
+                <input
+                  id="project-key"
+                  type="text"
+                  maxLength={50}
+                  placeholder={editingProject ? "e.g. NEX-APP-172" : "Auto-generated if left blank"}
+                  value={formKey}
+                  onChange={(event) => setFormKey(event.target.value.toUpperCase())}
+                  aria-describedby="project-key-help"
+                />
+                <small id="project-key-help" className="project-key-help">
+                  A short unique code used to identify this project. Leave blank when creating to generate one automatically.
+                </small>
+              </div>
+
+              <div className="form-group">
+                <label>Project Category</label>
+                <select value={formCategory} onChange={(event) => setFormCategory(event.target.value)}>
+                  {PROJECT_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
+                </select>
+              </div>
+
               <div className="form-row">
                 <div className="form-group">
                   <label>Project Lead</label>
@@ -652,7 +703,13 @@ export default function Projects({ rolePermissions, currentUser }) {
                   placeholder="Summarize the core objectives and deliverables..."
                   value={formDescription}
                   onChange={(e) => setFormDescription(e.target.value)}
+                  disabled={Boolean(editingProject) && !isAdmin}
                 />
+                {editingProject && !isAdmin && (
+                  <small className="project-description-permission-hint">
+                    Only admins can edit the project description.
+                  </small>
+                )}
               </div>
 
               <div className="form-group">
@@ -690,6 +747,49 @@ export default function Projects({ rolePermissions, currentUser }) {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {projectPendingDelete && (
+        <div
+          className="modal-backdrop project-delete-backdrop"
+          onClick={() => !isDeletingProject && setProjectPendingDelete(null)}
+        >
+          <section
+            className="project-delete-confirmation"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-project-title"
+            aria-describedby="delete-project-description"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="project-delete-confirmation-icon">
+              <Trash2 size={20} />
+            </div>
+            <h2 id="delete-project-title">Delete {projectPendingDelete.name}?</h2>
+            <p id="delete-project-description">
+              This permanently deletes the project and its sprints, tasks, comments, and attachments.
+              This action cannot be undone.
+            </p>
+            <div className="project-delete-confirmation-actions">
+              <button
+                type="button"
+                className="modal-cancel-btn"
+                onClick={() => setProjectPendingDelete(null)}
+                disabled={isDeletingProject}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="project-delete-confirm-button"
+                onClick={handleDeleteProject}
+                disabled={isDeletingProject}
+              >
+                {isDeletingProject ? "Deleting..." : "Delete Project"}
+              </button>
+            </div>
+          </section>
         </div>
       )}
 

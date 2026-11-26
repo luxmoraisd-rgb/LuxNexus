@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import authApi from '../../../../Auth/authApi';
 import { boardAssetApi } from './backlogApi';
+import { copyTaskPermalink } from './taskPermalink';
 import { addCustomColumn } from './customColumns';
 import TaskOwnerAvatar from './TaskOwnerAvatar';
 import {
@@ -23,7 +24,6 @@ import {
   RefreshIcon,
   ThumbsUpIcon,
   SendIcon,
-  CheckSquareIcon,
   TrashIcon,
 } from './BacklogIcons';
 import {
@@ -31,10 +31,59 @@ import {
   TYPE_CONFIG,
   generateUniqueTaskId,
   getNextJiraTaskId,
-  isPastDate,
-  isTaskIncomplete,
   isTaskPastDueAndIncomplete,
 } from './TaskRowUtils';
+
+const EPIC_CATEGORIES = [
+  'Developer',
+  'QA',
+  'Testing',
+  'Data Analyst',
+  'Bug',
+  'Feature',
+  'Infrastructure',
+  'Database Maintenance',
+  'Automation - Website Services',
+  'Operations',
+  'Product',
+  'UI/UX Design',
+  'Frontend Development',
+  'Backend Development',
+  'API Integration',
+  'Security',
+  'Performance',
+  'Accessibility',
+  'DevOps',
+  'Documentation',
+];
+
+const formatDateValue = (value) => {
+  if (!value) return '—';
+  const datePart = String(value).slice(0, 10);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(datePart);
+  if (match) {
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+      .toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? String(value)
+    : date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+};
+
+const formatTimestamp = (value) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? String(value)
+    : date.toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+};
 
 const getAnchorStyle = (anchorRect, {
   align = 'left',
@@ -123,11 +172,12 @@ const CalendarIcon = () => (
 const BacklogModals = memo(({
   activeModal,
   currentUser,
+  canManageTaskDetails = false,
+  canEditTaskStatus = false,
   onClose,
   anchorRect,
   activeTaskTarget,
   canUploadTaskAssets = false,
-  canDeleteSprint = false,
   sprint1Tasks,
   backlogTasks,
   allTasks = [],
@@ -139,7 +189,6 @@ const BacklogModals = memo(({
   sprint1Dates,
   setSprint1Dates,
   onUpdateSprintDates,
-  onDeleteSprint,
   automations,
   setAutomations,
   statusConfig,
@@ -179,7 +228,6 @@ const BacklogModals = memo(({
   onCreateSprint,
   onStartSprint,
   onCompleteSprint,
-  onMoveAllToBacklog,
   onSelectAllTasks,
   onClearSelection,
   onSelectBoardView,
@@ -194,6 +242,15 @@ const BacklogModals = memo(({
     currentUser?.username ||
     currentUser?.email?.split('@')[0] ||
     'You';
+  const handleCopyTaskLink = async (task) => {
+    try {
+      await copyTaskPermalink(task.taskId);
+      showToast(`Copied a direct link for ${task.taskId}.`, 'success');
+    } catch (error) {
+      console.error('[Backlog] Unable to copy task link.', error);
+      showToast('Unable to copy the task link. Check clipboard permissions and try again.', 'error');
+    }
+  };
   const [selectedCommentAuthor, setSelectedCommentAuthor] = useState(currentUserName);
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const [mentionFilter, setMentionFilter] = useState('');
@@ -213,14 +270,11 @@ const BacklogModals = memo(({
   const [descriptionDraft, setDescriptionDraft] = useState('');
   const [isEditingCardTitle, setIsEditingCardTitle] = useState(false);
   const [cardTitleDraft, setCardTitleDraft] = useState('');
-  const [newChecklistItem, setNewChecklistItem] = useState('');
   const [activeCardTab, setActiveCardTab] = useState('updates');
   const [taskTitle, setTaskTitle] = useState('');
   const [taskSprint, setTaskSprint] = useState(sprints?.[0]?.id || 'backlog');
   const [taskType, setTaskType] = useState('Frontend');
   const [taskStatus, setTaskStatus] = useState('Ready to start');
-  const [taskStartDate, setTaskStartDate] = useState('');
-  const [taskDueDate, setTaskDueDate] = useState('');
   const [taskSP, setTaskSP] = useState(3);
   const [taskAssignee, setTaskAssignee] = useState('');
   const [assigneeMenuOpen, setAssigneeMenuOpen] = useState(false);
@@ -277,9 +331,10 @@ const BacklogModals = memo(({
     if (activeModal === 'createTask') {
       setShowCustomKeyEditor(false);
       setCustomTaskId(getNextJiraTaskId(allTasks, projectKey).taskId);
-      setTaskSprint(sprints?.[0]?.id || 'backlog');
-      setTaskStartDate('');
-      setTaskDueDate('');
+      const activeSprint = sprints?.find(
+        (sprint) => (sprint.isStarted || sprint.status === 'active') && !sprint.isCompleted
+      );
+      setTaskSprint(activeSprint?.id || '');
       setTaskAssignee('');
       setAssigneeMenuOpen(false);
     }
@@ -309,7 +364,6 @@ const BacklogModals = memo(({
       setIsEditingDescription(false);
       setIsEditingCardTitle(false);
       setCommentInput('');
-      setNewChecklistItem('');
       setActiveCardTab('updates');
       setTaskAssets([]);
       setIsTaskAssetMenuOpen(false);
@@ -987,6 +1041,12 @@ const BacklogModals = memo(({
 
       {/* 10. CREATE TASK MODAL (JIRA-STYLE AUTO-CONTINUOUS NUMBERING) */}
       {activeModal === 'createTask' && (() => {
+        const activeSprints = sprints.filter(
+          (sprint) => (sprint.isStarted || sprint.status === 'active') && !sprint.isCompleted
+        );
+        const selectedSprint = activeSprints.find(
+          (sprint) => String(sprint.id) === String(taskSprint)
+        );
         const autoSeq = getNextJiraTaskId(allTasks, projectKey);
         const resolvedTaskId = (showCustomKeyEditor && customTaskId.trim())
           ? customTaskId.trim().toUpperCase()
@@ -1018,28 +1078,31 @@ const BacklogModals = memo(({
                 onSubmit={(e) => {
                   e.preventDefault();
                   if (!taskTitle.trim()) return;
+                  if (!activeSprints.length) {
+                    showToast('Start a sprint before creating a task.', 'error');
+                    return;
+                  }
+                  if (!selectedSprint) {
+                    showToast('Select an active sprint for this task.', 'error');
+                    return;
+                  }
                   if (isCurrentDuplicate) {
                     showToast(`Task ID "${resolvedTaskId}" already exists! Admin must provide a unique ID.`, 'error');
                     return;
                   }
-                  const isPastIncomplete = isPastDate(taskDueDate) && isTaskIncomplete(taskStatus);
                   onCreateTask({
                     title: taskTitle.trim(),
-                    sprint: isPastIncomplete ? 'backlog' : taskSprint,
+                    sprint: taskSprint,
                     type: taskType,
                     status: taskStatus,
                     sp: Number(taskSP) || null,
                     owner: taskAssignee || null,
                     customTaskId: resolvedTaskId,
-                    startDate: taskStartDate,
-                    dueDate: taskDueDate,
                   });
                   setTaskTitle('');
                   setCustomTaskId('');
                   setShowCustomKeyEditor(false);
                   setTaskStatus('Ready to start');
-                  setTaskStartDate('');
-                  setTaskDueDate('');
                   setTaskAssignee('');
                   setAssigneeMenuOpen(false);
                   onClose();
@@ -1143,39 +1206,23 @@ const BacklogModals = memo(({
                       <label htmlFor="create-task-start-date">Start date</label>
                       <input
                         id="create-task-start-date"
-                        type="date"
+                        type="text"
                         className="dialog-input"
-                        value={taskStartDate}
-                        max={taskDueDate || undefined}
-                        onChange={(e) => setTaskStartDate(e.target.value)}
+                        value={formatDateValue(selectedSprint?.start_date || selectedSprint?.startDate)}
+                        readOnly
                       />
                     </div>
                     <div className="dialog-field-group">
                       <label htmlFor="create-task-due-date">Due date</label>
                       <input
                         id="create-task-due-date"
-                        type="date"
+                        type="text"
                         className="dialog-input"
-                        value={taskDueDate}
-                        min={taskStartDate || undefined}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setTaskDueDate(val);
-                          if (isPastDate(val) && isTaskIncomplete(taskStatus)) {
-                            setTaskSprint('backlog');
-                          }
-                        }}
+                        value={formatDateValue(selectedSprint?.end_date || selectedSprint?.endDate)}
+                        readOnly
                       />
                     </div>
                   </div>
-                  {isPastDate(taskDueDate) && isTaskIncomplete(taskStatus) && (
-                    <div className="backlog-past-date-notice">
-                      <span className="notice-icon">⏳</span>
-                      <span>
-                        Past date detected: Incomplete tasks created for past dates automatically route to the <strong>Backlog</strong> page.
-                      </span>
-                    </div>
-                  )}
                   <div className="dialog-field-group">
                     <label htmlFor="create-task-assignee">Assignee</label>
                     <div className="task-assignee-dropdown">
@@ -1248,22 +1295,23 @@ const BacklogModals = memo(({
                     <select
                       id="create-task-sprint"
                       className="dialog-select"
-                      value={isPastDate(taskDueDate) && isTaskIncomplete(taskStatus) ? 'backlog' : taskSprint}
+                      value={taskSprint}
                       onChange={(e) => setTaskSprint(e.target.value)}
-                      disabled={isPastDate(taskDueDate) && isTaskIncomplete(taskStatus)}
+                      disabled={!activeSprints.length}
                     >
-                      {sprints && sprints.length > 0 &&
-                        sprints.map((s) => (
+                      {activeSprints.length ? (
+                        activeSprints.map((s) => (
                           <option key={s.id} value={s.id}>
-                            {s.name} {s.isStarted ? '(Active)' : ''}
+                            {s.name} (Active)
                           </option>
                         ))
-                      }
-                      <option value="backlog">Backlog {isPastDate(taskDueDate) && isTaskIncomplete(taskStatus) ? '(Auto - Past Date)' : ''}</option>
+                      ) : (
+                        <option value="">No active sprint</option>
+                      )}
                     </select>
-                    {isPastDate(taskDueDate) && isTaskIncomplete(taskStatus) && (
+                    {!activeSprints.length && (
                       <span className="dialog-field-hint" style={{ color: '#f59e0b', marginTop: '4px', display: 'block' }}>
-                        Past-due incomplete tasks are automatically assigned to Backlog.
+                        Start a sprint to create tasks.
                       </span>
                     )}
                   </div>
@@ -1292,9 +1340,6 @@ const BacklogModals = memo(({
                         onChange={(e) => {
                           const val = e.target.value;
                           setTaskStatus(val);
-                          if (isPastDate(taskDueDate) && isTaskIncomplete(val)) {
-                            setTaskSprint('backlog');
-                          }
                         }}
                       >
                         {Object.keys(statusConfig || STATUS_CONFIG).map((st) => (
@@ -1354,6 +1399,8 @@ const BacklogModals = memo(({
                   name: sprintName,
                   goal: sprintGoal,
                   dates: sprintDatesInput,
+                  startDate: sprintStartDateDraft,
+                  endDate: sprintEndDateDraft,
                 });
                 setSprintDatesInput('');
                 onClose();
@@ -1609,46 +1656,6 @@ const BacklogModals = memo(({
                 {sortBy === id && <CheckIcon size={14} />}
               </button>
             ))}
-          </div>
-        </div>
-      )}
-
-      {/* 15. SPRINT MORE OPTIONS POPOVER */}
-      {activeModal === 'sprintMore' && (
-        <div className="backlog-popover-backdrop" onClick={onClose}>
-          <div
-            className="backlog-popover-dialog anchored-picker"
-            style={getAnchorStyle(anchorRect, { align: 'right', width: 220 })}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="backlog-popover-title">{activeTaskTarget?.name || 'Sprint'} Options</div>
-            <button
-              type="button"
-              className="backlog-popover-list-item"
-              onClick={() => {
-                onClose();
-                showToast(`Sprint Goal: "${activeTaskTarget?.goal || 'No goal set yet'}"`, 'info');
-              }}
-            >
-              🎯 View Sprint Goal
-            </button>
-            <button
-              type="button"
-              className="backlog-popover-list-item"
-              onClick={() => onMoveAllToBacklog(activeTaskTarget?.id)}
-            >
-              📦 Move all tasks to Backlog
-            </button>
-            {canDeleteSprint && sprints && sprints.length > 1 && (
-              <button
-                type="button"
-                className="backlog-popover-list-item"
-                style={{ color: '#e2445c' }}
-                onClick={() => onDeleteSprint(activeTaskTarget?.id)}
-              >
-                🗑️ Delete Sprint
-              </button>
-            )}
           </div>
         </div>
       )}
@@ -2153,10 +2160,22 @@ const BacklogModals = memo(({
         const liveTask = allTasks.find((t) => t.id === activeTaskTarget.id) || activeTaskTarget;
         const currentSprint = sprints.find((s) => s.id === liveTask.sprintId);
         const comments = liveTask.comments || [];
-        const checklist = liveTask.checklist || [];
-        const completedChecklistCount = checklist.filter((item) => item.done).length;
-        const checklistPercent = checklist.length > 0 ? Math.round((completedChecklistCount / checklist.length) * 100) : 0;
         const priority = liveTask.priority || 'Medium';
+        const adminMembers = personFilterMembers.filter(
+          (member) => String(member.role || '').toLowerCase() === 'admin'
+        );
+        const selectedReporter = adminMembers.find((member) =>
+          [member.email, member.name, member.username, member.id]
+            .filter(Boolean)
+            .some((value) => String(value) === String(liveTask.reporter))
+        );
+        const reporterValue = selectedReporter
+          ? selectedReporter.email || selectedReporter.name || selectedReporter.id
+          : liveTask.reporter || '';
+        const epicOptions = Array.from(new Set([
+          ...EPIC_CATEGORIES,
+          ...(allTasks || []).map((task) => task.epic).filter(Boolean),
+        ]));
 
         return (
           <div className="backlog-modal-overlay backlog-task-card-overlay" onClick={onClose}>
@@ -2177,19 +2196,16 @@ const BacklogModals = memo(({
                     {currentSprint ? currentSprint.name : 'Backlog'}
                   </span>
                   <span className="breadcrumb-divider">/</span>
-                  {!isEditingDrawerTaskId ? (
+                  {!isEditingDrawerTaskId || !canManageTaskDetails ? (
                     <div className="task-card-id-wrapper">
                       <span
                         className="task-card-id-pill"
-                        title="Click to copy ID"
-                        onClick={() => {
-                          navigator.clipboard.writeText(liveTask.taskId);
-                          showToast(`Copied ${liveTask.taskId} to clipboard!`, 'info');
-                        }}
+                        title="Click to copy a direct task link"
+                        onClick={() => handleCopyTaskLink(liveTask)}
                       >
                         {liveTask.taskId}
                       </span>
-                      <button
+                      {canManageTaskDetails && <button
                         type="button"
                         className="task-card-edit-id-btn"
                         onClick={() => {
@@ -2199,7 +2215,7 @@ const BacklogModals = memo(({
                         title="Edit Task ID"
                       >
                         <EditIcon size={12} />
-                      </button>
+                      </button>}
                     </div>
                   ) : (
                     <div className="task-card-id-inline-editor">
@@ -2240,10 +2256,7 @@ const BacklogModals = memo(({
                     type="button"
                     className="task-card-action-btn"
                     title="Copy direct card link"
-                    onClick={() => {
-                      navigator.clipboard.writeText(window.location.href);
-                      showToast('Task link copied to clipboard!', 'info');
-                    }}
+                    onClick={() => handleCopyTaskLink(liveTask)}
                   >
                     Share
                   </button>
@@ -2272,17 +2285,17 @@ const BacklogModals = memo(({
                         </span>
                       </div>
                     )}
-                    {!isEditingCardTitle ? (
+                    {!isEditingCardTitle || !canManageTaskDetails ? (
                       <h1
                         className="task-card-title-heading"
-                        onClick={() => {
+                        onClick={canManageTaskDetails ? () => {
                           setCardTitleDraft(liveTask.title);
                           setIsEditingCardTitle(true);
-                        }}
-                        title="Click to edit task title"
+                        } : undefined}
+                        title={canManageTaskDetails ? "Click to edit task title" : undefined}
                       >
                         {liveTask.title}
-                        <span className="title-edit-hint"><EditIcon size={14} /></span>
+                        {canManageTaskDetails && <span className="title-edit-hint"><EditIcon size={14} /></span>}
                       </h1>
                     ) : (
                       <div className="task-card-title-editor">
@@ -2321,36 +2334,19 @@ const BacklogModals = memo(({
 
                   {/* QUICK TOOLBAR (JIRA STYLE) */}
                   <div className="task-card-quick-toolbar">
-                    <button
+                    {canManageTaskDetails && <button
                       type="button"
                       className="task-card-tool-chip"
                       onClick={() => setIsEditingDescription(true)}
                     >
                       <EditIcon size={12} /> Description
-                    </button>
-                    <button
-                      type="button"
-                      className="task-card-tool-chip"
-                      onClick={() => {
-                        const defaultItems = [
-                          { id: 1, text: 'Review PR requirements', done: false },
-                          { id: 2, text: 'Run automated checks & unit tests', done: false },
-                        ];
-                        if (onUpdateTaskDetails) {
-                          onUpdateTaskDetails(liveTask.id, {
-                            checklist: liveTask.checklist?.length ? liveTask.checklist : defaultItems,
-                          });
-                        }
-                      }}
-                    >
-                      <CheckSquareIcon size={12} /> Checklist
-                    </button>
+                    </button>}
                     {liveTask.githubLink ? (
                       <div className="task-card-github-chip">
                         <GithubIcon />
                         <span>{liveTask.githubLink}</span>
                       </div>
-                    ) : (
+                    ) : canManageTaskDetails ? (
                       <button
                         type="button"
                         className="task-card-tool-chip"
@@ -2361,7 +2357,7 @@ const BacklogModals = memo(({
                       >
                         <GithubIcon /> Link Branch
                       </button>
-                    )}
+                    ) : null}
                   </div>
 
                   {/* DESCRIPTION SECTION */}
@@ -2369,7 +2365,7 @@ const BacklogModals = memo(({
                     <div className="task-card-section-header">
                       <h3>Description</h3>
                       <div className="task-card-section-actions">
-                        {!isEditingDescription && (
+                        {canManageTaskDetails && !isEditingDescription && (
                           <button
                             type="button"
                             className="task-card-section-edit-btn"
@@ -2589,14 +2585,14 @@ const BacklogModals = memo(({
                       </div>
                     )}
 
-                    {!isEditingDescription ? (
+                    {!isEditingDescription || !canManageTaskDetails ? (
                       <div
                         className="task-card-description-preview"
-                        onClick={() => {
+                        onClick={canManageTaskDetails ? () => {
                           setDescriptionDraft(liveTask.description || '');
                           setIsEditingDescription(true);
-                        }}
-                        title="Click to edit description"
+                        } : undefined}
+                        title={canManageTaskDetails ? "Click to edit description" : undefined}
                       >
                         {liveTask.description ? (
                           <p className="description-text">{liveTask.description}</p>
@@ -2641,80 +2637,6 @@ const BacklogModals = memo(({
                       </div>
                     )}
                   </div>
-
-                  {/* CHECKLIST / SUBTASKS (MONDAY.COM STYLE) */}
-                  {checklist.length > 0 && (
-                    <div className="task-card-section task-card-checklist-section">
-                      <div className="task-card-section-header">
-                        <div className="checklist-title-with-progress">
-                          <h3>Subtasks & Checklist</h3>
-                          <span className="checklist-progress-text">
-                            {completedChecklistCount} of {checklist.length} completed ({checklistPercent}%)
-                          </span>
-                        </div>
-                      </div>
-                      <div className="checklist-progress-bar-bg">
-                        <div
-                          className="checklist-progress-bar-fill"
-                          style={{ width: `${checklistPercent}%` }}
-                        />
-                      </div>
-                      <div className="checklist-items-list">
-                        {checklist.map((item) => (
-                          <div key={item.id} className={`checklist-item-row ${item.done ? 'item-done' : ''}`}>
-                            <input
-                              type="checkbox"
-                              className="backlog-custom-checkbox"
-                              checked={item.done}
-                              onChange={() => {
-                                const updated = checklist.map((i) =>
-                                  i.id === item.id ? { ...i, done: !i.done } : i
-                                );
-                                if (onUpdateTaskDetails) {
-                                  onUpdateTaskDetails(liveTask.id, { checklist: updated });
-                                }
-                              }}
-                            />
-                            <span className="checklist-item-text">{item.text}</span>
-                            <button
-                              type="button"
-                              className="checklist-item-delete"
-                              onClick={() => {
-                                const updated = checklist.filter((i) => i.id !== item.id);
-                                if (onUpdateTaskDetails) {
-                                  onUpdateTaskDetails(liveTask.id, { checklist: updated });
-                                }
-                              }}
-                              title="Delete subtask"
-                            >
-                              <CloseIcon size={12} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                      <form
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          if (!newChecklistItem.trim()) return;
-                          const newItem = { id: Date.now(), text: newChecklistItem.trim(), done: false };
-                          const updated = [...checklist, newItem];
-                          if (onUpdateTaskDetails) {
-                            onUpdateTaskDetails(liveTask.id, { checklist: updated });
-                          }
-                          setNewChecklistItem('');
-                        }}
-                        className="checklist-add-form"
-                      >
-                        <input
-                          type="text"
-                          className="checklist-add-input"
-                          placeholder="+ Add another subtask item..."
-                          value={newChecklistItem}
-                          onChange={(e) => setNewChecklistItem(e.target.value)}
-                        />
-                      </form>
-                    </div>
-                  )}
 
                   {/* COMMENTS & UPDATES STREAM (JIRA + MONDAY.COM SIGNATURE SECTION) */}
                   <div className="task-card-section task-card-comments-section">
@@ -2985,6 +2907,7 @@ const BacklogModals = memo(({
                         <select
                           className="sidebar-select-standard"
                           value={liveTask.status}
+                          disabled={!canEditTaskStatus}
                           onChange={(e) => onStatusChange && onStatusChange(liveTask.id, e.target.value)}
                         >
                           {Object.keys(statusConfig || STATUS_CONFIG).map((st) => (
@@ -3003,6 +2926,7 @@ const BacklogModals = memo(({
                         <select
                           className="sidebar-select-standard"
                           value={liveTask.owner || ''}
+                          disabled={!canManageTaskDetails}
                           onChange={(e) => onOwnerChange && onOwnerChange(liveTask.id, e.target.value)}
                         >
                           <option value="">Unassigned</option>
@@ -3019,9 +2943,22 @@ const BacklogModals = memo(({
                     <div className="sidebar-attr-row">
                       <span className="sidebar-attr-label">Reporter</span>
                       <div className="sidebar-attr-value">
-                        <span className="sidebar-text-readonly">
-                          {liveTask.reporter || liveTask.createdBy || '—'}
-                        </span>
+                        <select
+                          className="sidebar-select-standard"
+                          value={reporterValue}
+                          disabled={!canManageTaskDetails || adminMembers.length === 0}
+                          onChange={(e) => onUpdateTaskDetails?.(liveTask.id, { reporter: e.target.value })}
+                        >
+                          <option value="">Select an Admin</option>
+                          {adminMembers.map((member) => {
+                            const value = member.email || member.name || member.id;
+                            return (
+                              <option key={member.id} value={value}>
+                                {member.name || member.username || member.email}
+                              </option>
+                            );
+                          })}
+                        </select>
                       </div>
                     </div>
 
@@ -3033,7 +2970,7 @@ const BacklogModals = memo(({
                           className="sidebar-select-standard"
                           value={isTaskPastDueAndIncomplete(liveTask) ? 'backlog' : (liveTask.sprintId || 'backlog')}
                           onChange={(e) => onMoveTask && onMoveTask(liveTask.id, e.target.value)}
-                          disabled={isTaskPastDueAndIncomplete(liveTask)}
+                          disabled={!canManageTaskDetails || isTaskPastDueAndIncomplete(liveTask)}
                         >
                           {sprints.map((s) => (
                             <option key={s.id} value={s.id}>
@@ -3046,50 +2983,30 @@ const BacklogModals = memo(({
                     </div>
 
                     <div className="sidebar-attr-row">
-                      <label className="sidebar-attr-label" htmlFor="task-start-date">
-                        Start date
-                      </label>
+                      <span className="sidebar-attr-label">Start date</span>
                       <div className="sidebar-attr-value">
-                        <input
-                          id="task-start-date"
-                          className="sidebar-select-standard"
-                          type="date"
-                          value={liveTask.startDate || liveTask.start_date || ''}
-                          max={liveTask.dueDate || liveTask.due_date || undefined}
-                          onChange={(e) => {
-                            const newDate = e.target.value;
-                            onUpdateTaskDetails?.(liveTask.id, {
-                              startDate: newDate,
-                              start_date: newDate,
-                            });
-                          }}
-                        />
+                        <span className="sidebar-text-readonly">
+                          {formatDateValue(
+                            currentSprint?.start_date
+                            || currentSprint?.startDate
+                            || liveTask.startDate
+                            || liveTask.start_date
+                          )}
+                        </span>
                       </div>
                     </div>
 
                     <div className="sidebar-attr-row">
-                      <label className="sidebar-attr-label" htmlFor="task-due-date">
-                        Due date
-                      </label>
+                      <span className="sidebar-attr-label">Due date</span>
                       <div className="sidebar-attr-value">
-                        <input
-                          id="task-due-date"
-                          className="sidebar-select-standard"
-                          type="date"
-                          value={liveTask.dueDate || liveTask.due_date || ''}
-                          onChange={(e) => {
-                            const newDate = e.target.value;
-                            const isPastIncomplete = isPastDate(newDate) && isTaskIncomplete(liveTask.status);
-                            onUpdateTaskDetails?.(liveTask.id, {
-                              dueDate: newDate,
-                              due_date: newDate,
-                              ...(isPastIncomplete ? { sprintId: 'backlog', sprint_id: null } : {}),
-                            });
-                            if (isPastIncomplete) {
-                              showToast('Due date is in the past! Incomplete task moved to Backlog', 'warning');
-                            }
-                          }}
-                        />
+                        <span className="sidebar-text-readonly">
+                          {formatDateValue(
+                            currentSprint?.end_date
+                            || currentSprint?.endDate
+                            || liveTask.dueDate
+                            || liveTask.due_date
+                          )}
+                        </span>
                       </div>
                     </div>
 
@@ -3100,6 +3017,7 @@ const BacklogModals = memo(({
                         <select
                           className="sidebar-select-standard"
                           value={liveTask.sp ?? ''}
+                          disabled={!canManageTaskDetails}
                           onChange={(e) => {
                             const val = e.target.value === '' ? null : Number(e.target.value);
                             if (onSPChange) onSPChange(liveTask.id, val);
@@ -3123,6 +3041,7 @@ const BacklogModals = memo(({
                         <select
                           className="sidebar-select-standard"
                           value={priority}
+                          disabled={!canManageTaskDetails}
                           onChange={(e) => {
                             if (onUpdateTaskDetails) {
                               onUpdateTaskDetails(liveTask.id, { priority: e.target.value });
@@ -3144,6 +3063,7 @@ const BacklogModals = memo(({
                         <select
                           className="sidebar-select-standard"
                           value={liveTask.type}
+                          disabled={!canManageTaskDetails}
                           onChange={(e) => onTypeChange && onTypeChange(liveTask.id, e.target.value)}
                         >
                           {Object.keys(typeConfig || TYPE_CONFIG).map((tp) => (
@@ -3162,6 +3082,7 @@ const BacklogModals = memo(({
                         <select
                           className="sidebar-select-standard"
                           value={liveTask.epic || ''}
+                          disabled={!canManageTaskDetails}
                           onChange={(e) => {
                             const val = e.target.value;
                             if (onUpdateTaskDetails) {
@@ -3175,13 +3096,11 @@ const BacklogModals = memo(({
                           }}
                         >
                           <option value="">None</option>
-                          {[...(allTasks || []).map((t) => t.epic).filter(Boolean)]
-                            .filter((val, idx, arr) => arr.indexOf(val) === idx)
-                            .map((name) => (
+                          {epicOptions.map((name) => (
                               <option key={name} value={name}>
                                 {name}
                               </option>
-                            ))}
+                          ))}
                         </select>
                       </div>
                     </div>
@@ -3192,11 +3111,11 @@ const BacklogModals = memo(({
                     <div className="sidebar-dates-box">
                       <div className="date-meta-item">
                         <span>Created:</span>
-                        <strong>{liveTask.createdAt || liveTask.created_at || '—'}</strong>
+                        <strong>{formatTimestamp(liveTask.createdAt || liveTask.created_at)}</strong>
                       </div>
                       <div className="date-meta-item">
                         <span>Updated:</span>
-                        <strong>{liveTask.updatedAt || liveTask.updated_at || '—'}</strong>
+                        <strong>{formatTimestamp(liveTask.updatedAt || liveTask.updated_at)}</strong>
                       </div>
                     </div>
 
@@ -3335,15 +3254,8 @@ const BacklogModals = memo(({
 
       {/* 28. EPIC PICKER POPOVER (DROPDOWN MENU) */}
       {activeModal === 'epicPicker' && activeTaskTarget && (() => {
-        const DEFAULT_EPIC_LIST = [
-          'Infrastructure',
-          'Database Maintenance',
-          'Automation - Website Services',
-          'Operations',
-        ];
-
         // Also check if any existing tasks in allTasks have extra custom epics
-        const existingEpics = new Set(DEFAULT_EPIC_LIST.map((e) => e.toLowerCase()));
+        const existingEpics = new Set(EPIC_CATEGORIES.map((e) => e.toLowerCase()));
         const extraEpics = [];
         (allTasks || []).forEach((t) => {
           if (t.epic && t.epic.trim() && !existingEpics.has(t.epic.trim().toLowerCase())) {
@@ -3352,7 +3264,7 @@ const BacklogModals = memo(({
           }
         });
 
-        const allEpics = [...DEFAULT_EPIC_LIST, ...extraEpics];
+        const allEpics = [...EPIC_CATEGORIES, ...extraEpics];
 
         return (
           <div className="backlog-popover-backdrop" onClick={onClose}>
@@ -3459,7 +3371,7 @@ const BacklogModals = memo(({
             >
               <div className="backlog-popover-title">
                 <KeyIcon size={14} />
-                <span>Admin: Edit Task ID</span>
+                <span>Edit Task ID</span>
               </div>
               <div className="task-id-popover-body">
                 <div className="dialog-field-label-row">

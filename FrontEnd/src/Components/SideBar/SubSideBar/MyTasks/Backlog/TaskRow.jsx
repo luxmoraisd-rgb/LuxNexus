@@ -7,6 +7,7 @@ import {
 } from './BacklogIcons';
 import { getProfileAvatarUrl, STATUS_CONFIG, TEAM_MEMBERS, TYPE_CONFIG, isTaskPastDueAndIncomplete } from './TaskRowUtils';
 import TaskOwnerAvatar from './TaskOwnerAvatar';
+import { copyTaskPermalink } from './taskPermalink';
 
 const TaskRow = memo(({
   task,
@@ -64,9 +65,14 @@ const TaskRow = memo(({
   const isDone = task.status === 'Done';
 
 
-  const handleCopyId = () => {
-    navigator.clipboard.writeText(task.taskId);
-    showToast(`Copied ${task.taskId} to clipboard!`, 'info');
+  const handleCopyId = async () => {
+    try {
+      await copyTaskPermalink(task.taskId);
+      showToast(`Copied a direct link for ${task.taskId}.`, 'success');
+    } catch (error) {
+      console.error('[Backlog] Unable to copy task link.', error);
+      showToast('Unable to copy the task link. Check clipboard permissions and try again.', 'error');
+    }
   };
 
   return (
@@ -131,8 +137,8 @@ const TaskRow = memo(({
       {/* Owner Avatar */}
       <td className="td-owner" onClick={(e) => e.stopPropagation()}>
         <div
-          className="backlog-owner-avatar-wrapper cursor-pointer"
-          onClick={(e) => onOpenOwnerPicker(task, e)}
+          className={`backlog-owner-avatar-wrapper ${onOpenOwnerPicker ? 'cursor-pointer' : ''}`}
+          onClick={onOpenOwnerPicker ? (e) => onOpenOwnerPicker(task, e) : undefined}
           title={`Assigned to ${ownerObj ? ownerObj.name : 'Unassigned'}. Click to reassign`}
         >
           {ownerObj ? (
@@ -155,7 +161,8 @@ const TaskRow = memo(({
               backgroundColor: (statusConfig && statusConfig[task.status]?.bg) || STATUS_CONFIG[task.status]?.bg || '#ffab40',
               color: (statusConfig && statusConfig[task.status]?.text) || STATUS_CONFIG[task.status]?.text || '#202124',
             }}
-            onClick={(e) => onOpenStatusPicker(task, e)}
+            onClick={onOpenStatusPicker ? (e) => onOpenStatusPicker(task, e) : undefined}
+            disabled={!onOpenStatusPicker}
             title="Click to change status"
           >
             {task.status}
@@ -173,7 +180,8 @@ const TaskRow = memo(({
               backgroundColor: (typeConfig && typeConfig[task.type]?.bg) || TYPE_CONFIG[task.type]?.bg || '#f783ac',
               color: (typeConfig && typeConfig[task.type]?.text) || TYPE_CONFIG[task.type]?.text || '#202124',
             }}
-            onClick={(e) => onOpenTypePicker(task, e)}
+            onClick={onOpenTypePicker ? (e) => onOpenTypePicker(task, e) : undefined}
+            disabled={!onOpenTypePicker}
             title="Click to change task type"
           >
             {task.type}
@@ -191,7 +199,7 @@ const TaskRow = memo(({
             onDoubleClick={(e) => {
               if (onOpenEditTaskId) onOpenEditTaskId(task, e);
             }}
-            title="Click to copy task ID (double click to edit)"
+            title="Click to copy a direct task link (double click to edit)"
           >
             {task.taskId}
           </button>
@@ -200,7 +208,7 @@ const TaskRow = memo(({
               type="button"
               className="backlog-task-id-edit-icon"
               onClick={(e) => onOpenEditTaskId(task, e)}
-              title="Admin: Edit Task ID to unique ID"
+              title="Edit task ID to a unique ID"
             >
               <EditIcon size={11} />
             </button>
@@ -213,7 +221,8 @@ const TaskRow = memo(({
         <button
           type="button"
           className="backlog-sp-btn"
-          onClick={(e) => onOpenSPPicker(task, e)}
+          onClick={onOpenSPPicker ? (e) => onOpenSPPicker(task, e) : undefined}
+          disabled={!onOpenSPPicker}
           title="Click to set story points"
         >
           {task.sp !== null && task.sp !== undefined ? `${task.sp} SP` : '-'}
@@ -226,7 +235,8 @@ const TaskRow = memo(({
           <button
             type="button"
             className={`backlog-badge-epic ${task.epic ? 'has-epic' : 'empty-epic'}`}
-            onClick={(e) => onOpenEpicPicker(task, e)}
+            onClick={onOpenEpicPicker ? (e) => onOpenEpicPicker(task, e) : undefined}
+            disabled={!onOpenEpicPicker}
             title="Click to select epic"
           >
             <span className="epic-badge-text">{task.epic ? `⚡ ${task.epic}` : '+ Select Epic'}</span>
@@ -240,14 +250,14 @@ const TaskRow = memo(({
       <td className="td-actions">
         <div className="backlog-row-actions">
           {/* Delete Task */}
-          <button
+          {onDeleteTask && <button
             type="button"
             className="backlog-row-action-btn delete"
             onClick={() => onDeleteTask(task.id)}
             title="Delete task"
           >
             <TrashIcon size={13} />
-          </button>
+          </button>}
         </div>
       </td>
       {customColumns.map((column) => (

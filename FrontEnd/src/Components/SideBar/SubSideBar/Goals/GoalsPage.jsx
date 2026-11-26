@@ -340,74 +340,13 @@ function GoalsPage({ currentUser, rolePermissions, initialTab = "My goals" }) {
 
   return (
     <div className="goals-page-wrapper">
-      <Header title="My Goals" />
-
-      <Tabs
-        activeTab={activeTab}
-        onSelectTab={handleSelectTab}
-      />
-
-      <GoalsToolbar
-        onCreateGoal={() => setIsCreateModalOpen(true)}
-        onToggleSelectAll={handleToggleAllVisibleGoals}
-        allVisibleGoalsSelected={allVisibleGoalsSelected}
-        hasVisibleGoals={visibleGoals.length > 0}
-        filterCount={filterCount}
-        onClearFilter={() => setFilterCount(0)}
-        onSortChange={setCurrentSort}
-        currentSort={currentSort}
-        onGroupChange={setCurrentGroup}
-        currentGroup={currentGroup}
-        showCompletedGoals={showCompletedGoals}
-        onToggleCompletedGoals={() => setShowCompletedGoals((show) => !show)}
-        onExportGoals={handleExportGoals}
-        selectedGoalCount={selectedGoalIds.length}
-        onDeleteSelectedGoals={handleDeleteSelectedGoals}
-        onClearSelectedGoals={() => setSelectedGoalIds([])}
-        isDetailsOpen={Boolean(selectedGoal)}
-      />
-
       <div className="goals-content-layout">
-        <div className="goals-table-area">
-          {loading ? (
-            <div className="goals-loading-state">
-              <div className="goals-spinner" />
-              <span>Loading goals...</span>
-            </div>
-          ) : error ? (
-            <div className="goals-error-state">
-              <p>{error}</p>
-              <button
-                type="button"
-                className="goals-retry-btn"
-                onClick={loadGoals}
-              >
-                Retry
-              </button>
-            </div>
-          ) : visibleGoals.length === 0 ? (
-            <div className="goals-empty-state">
-              <p>No goals found for this view.</p>
-              <button
-                type="button"
-                className="goals-retry-btn"
-                onClick={() => setIsCreateModalOpen(true)}
-              >
-                Create your first goal
-              </button>
-            </div>
-          ) : (
-            <GoalsTable
-              goals={visibleGoals}
-              groupBy={currentGroup}
-              selectedGoalId={selectedGoal?.id}
-              selectedGoalIds={selectedGoalIds}
-              onSelectGoal={handleSelectGoal}
-              onToggleGoalSelection={handleToggleGoalSelection}
-              onUpdateGoal={handleUpdateGoal}
-            />
-          )}
-        </div>
+        <TeamGoals
+          viewMode="my"
+          onSelectTab={handleSelectTab}
+          onNavigateGoal={handleSelectGoal}
+          currentUser={currentUser}
+        />
 
         {selectedGoal && (
           <aside className="goals-details-sidebar" aria-label="Goal Details Panel">

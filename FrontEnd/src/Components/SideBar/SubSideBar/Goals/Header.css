@@ -77,24 +77,6 @@
   color: var(--text-primary, #ffffff);
 }
 
-.help-button {
-  padding: 6px 12px;
-  border: 1px solid var(--border-color, #383a42);
-  border-radius: 6px;
-  color: #818cf8;
-  background: transparent;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.help-button:hover {
-  background: rgba(99, 102, 241, 0.1);
-  color: var(--brand-primary, #6366f1);
-  border-color: rgba(99, 102, 241, 0.3);
-}
-
 [data-theme="light"] .header-title h1 {
   color: #0f172a;
 }
@@ -121,15 +103,5 @@
 [data-theme="light"] .dropdown-menu button:hover {
   background-color: #f8fafc;
   color: #0f172a;
-}
-
-[data-theme="light"] .help-button {
-  border-color: #e2e8f0;
-  color: #6366f1;
-}
-
-[data-theme="light"] .help-button:hover {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
 }
 

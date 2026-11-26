@@ -19,13 +19,6 @@ from ..Auth.views import (
 )
 from ..Auth.views.permissions import RolePermissionsView
 from ..Chat.views import AdminChatReadView, AdminChatUnreadView, AdminChatView
-from ..views.views import (
-    ResourcingProjectListCreateView,
-    ResourcingProjectDetailView,
-    ResourceAllocationListCreateView,
-    ResourceAllocationDetailView,
-    CapacityPlanningView,
-)
 
 
 urlpatterns = [
@@ -127,36 +120,6 @@ urlpatterns = [
         name="auth-change-password",
     ),
 
-
-    path(
-        "resourcing/projects/",
-        ResourcingProjectListCreateView.as_view(),
-        name="resourcing-project-list-create",
-    ),
-
-    path(
-        "resourcing/projects/<str:project_id>/",
-        ResourcingProjectDetailView.as_view(),
-        name="resourcing-project-detail",
-    ),
-
-    path(
-        "resourcing/allocations/",
-        ResourceAllocationListCreateView.as_view(),
-        name="allocation-list-create",
-    ),
-
-    path(
-        "resourcing/allocations/<str:allocation_id>/",
-        ResourceAllocationDetailView.as_view(),
-        name="allocation-detail",
-    ),
-
-    path(
-        "resourcing/capacity/",
-        CapacityPlanningView.as_view(),
-        name="capacity-planning",
-    ),
 
     path("send-otp/", SendOTPView.as_view(), name="send-otp"),
     path("verify-otp/", VerifyOTPView.as_view(), name="verify-otp"),

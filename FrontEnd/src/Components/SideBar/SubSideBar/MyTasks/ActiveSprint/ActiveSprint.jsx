@@ -2,7 +2,6 @@ import { memo, useMemo, useState, useEffect, useCallback } from 'react';
 import {
   ChevronDownIcon,
   ChevronRightIcon,
-  MoreIcon,
   SparklePlusIcon,
   InfoCircleIcon,
   PlayIcon,
@@ -386,14 +385,6 @@ const ActiveSprint = memo(({
               <span>Complete Sprint</span>
             </button>}
 
-            <button
-              type="button"
-              className="backlog-header-icon-btn"
-              title="Sprint options & settings"
-              onClick={(e) => onOpenModal && onOpenModal('sprintMore', activeSprint, e)}
-            >
-              <MoreIcon />
-            </button>
           </div>
         </div>
 
@@ -549,16 +540,16 @@ const ActiveSprint = memo(({
                     typeConfig={typeConfig}
                     onToggleTask={onToggleTask}
                     onOpenComments={onOpenComments}
-                    onOpenOwnerPicker={onOpenOwnerPicker}
+                    onOpenOwnerPicker={canManageTasks ? onOpenOwnerPicker : undefined}
                     onOpenStatusPicker={onOpenStatusPicker}
-                    onOpenTypePicker={onOpenTypePicker}
-                    onOpenSPPicker={onOpenSPPicker}
-                    onOpenEpicPicker={onOpenEpicPicker}
-                    onOpenEditTaskId={(targetTask, e) =>
+                    onOpenTypePicker={canManageTasks ? onOpenTypePicker : undefined}
+                    onOpenSPPicker={canManageTasks ? onOpenSPPicker : undefined}
+                    onOpenEpicPicker={canManageTasks ? onOpenEpicPicker : undefined}
+                    onOpenEditTaskId={canManageTasks ? (targetTask, e) =>
                       onOpenModal && onOpenModal('editTaskId', targetTask, e)
-                    }
-                    onDeleteTask={onDeleteTask}
-                    onRemoveEpic={onRemoveEpic}
+                    : undefined}
+                    onDeleteTask={canManageTasks ? onDeleteTask : undefined}
+                    onRemoveEpic={canManageTasks ? onRemoveEpic : undefined}
                     showToast={showToast}
                     customColumns={customColumns}
                     teamMembers={teamMembers}

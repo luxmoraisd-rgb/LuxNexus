@@ -65,6 +65,7 @@ PERMISSION_DEFINITIONS = (
 
 PERMISSION_KEYS = tuple(item["key"] for item in PERMISSION_DEFINITIONS)
 ROLE_POLICY_ID = "role_permissions"
+MEMBER_TASK_EDIT_FIELDS = frozenset({"status"})
 DEFAULT_ROLE_POLICIES = {
     role: {
         key: (
@@ -107,6 +108,17 @@ def has_role_permission(user, permission):
     if role == "user" and permission in {"manage_tasks", "manage_sprints"}:
         return False
     return True
+
+
+def _member_task_update_allowed(request, action=None):
+    if has_role_permission(request.user, "manage_tasks"):
+        return True
+    if action == "toggle_complete":
+        return True
+    changes = getattr(request, "data", {})
+    if isinstance(changes, dict) and isinstance(changes.get("updates"), dict):
+        changes = changes["updates"]
+    return isinstance(changes, dict) and set(changes).issubset(MEMBER_TASK_EDIT_FIELDS)
 
 
 class RoleModulePermission(BasePermission):
@@ -160,12 +172,17 @@ class TaskDetailRolePermission(BasePermission):
             return has_role_permission(request.user, "view_tasks")
         if has_role_permission(request.user, "manage_tasks"):
             return True
+        if not _member_task_update_allowed(request):
+            return False
         assignee = getattr(task, "owner", None) or getattr(task, "assignee", None)
+        assignee_email = str(getattr(assignee, "email", "") or "").casefold()
+        user_email = str(getattr(request.user, "email", "") or "").casefold()
         return (
             request.method in {"PUT", "PATCH", "POST"}
             and has_role_permission(request.user, "update_assigned_tasks")
             and assignee is not None
-            and assignee.email.lower() == request.user.email.lower()
+            and assignee_email
+            and assignee_email == user_email
         )
 
 
@@ -186,10 +203,16 @@ class TaskViewSetRolePermission(BasePermission):
     def has_object_permission(self, request, view, task):
         if has_role_permission(request.user, "manage_tasks"):
             return True
-        assignee = task.assignee
+        action = getattr(view, "action", None)
+        if not _member_task_update_allowed(request, action):
+            return False
+        assignee = getattr(task, "assignee", None) or getattr(task, "owner", None)
+        assignee_email = str(getattr(assignee, "email", "") or "").casefold()
+        user_email = str(getattr(request.user, "email", "") or "").casefold()
         return (
-            getattr(view, "action", None) in {"update", "partial_update", "toggle_complete"}
+            action in {"update", "partial_update", "toggle_complete"}
             and has_role_permission(request.user, "update_assigned_tasks")
             and assignee is not None
-            and assignee.email.lower() == request.user.email.lower()
+            and assignee_email
+            and assignee_email == user_email
         )

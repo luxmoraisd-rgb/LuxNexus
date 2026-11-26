@@ -44,7 +44,7 @@ const formatGoalDate = (value) => {
   });
 };
 
-function TeamGoals({ onSelectTab, onNavigateGoal, currentUser }) {
+function TeamGoals({ onSelectTab, onNavigateGoal, currentUser, viewMode = "team" }) {
   const [teamData, setTeamData] = useState({ teams: [], metrics: {} });
   const [loading, setLoading] = useState(true);
   const [selectedTeam, setSelectedTeam] = useState("all");
@@ -79,8 +79,72 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser }) {
     loadData();
   }, []);
 
-  const teams = teamData.teams || [];
-  const metrics = teamData.metrics || {};
+  const isMyGoals = viewMode === "my";
+  const allTeams = teamData.teams || [];
+  const currentUserName = currentUser?.name || currentUser?.username || "";
+  const currentUserEmail = String(currentUser?.email || "").trim().toLowerCase();
+  const currentUserIds = new Set([
+    currentUserName.trim().toLowerCase(),
+    currentUserEmail,
+    String(currentUser?.id || "").trim().toLowerCase(),
+  ].filter(Boolean));
+
+  const ownerMatchesCurrentUser = (owner) => {
+    if (!isMyGoals) return true;
+    const ownerValues = typeof owner === "object" && owner
+      ? [owner.name, owner.email, owner.id, owner.username, owner.userId, owner.user_id]
+      : [owner];
+    return ownerValues.some((value) =>
+      currentUserIds.has(String(value || "").trim().toLowerCase())
+    );
+  };
+
+  const teams = isMyGoals
+    ? allTeams
+        .map((team) => ({
+          ...team,
+          goals: (team.goals || []).filter((goal) => ownerMatchesCurrentUser(goal.owner)),
+        }))
+        .filter((team) => (team.goals || []).length > 0)
+        .map((team) => {
+          const goals = team.goals || [];
+          const completedGoals = goals.filter((goal) =>
+            String(goal.status).toLowerCase().includes("achieved") ||
+            Number(goal.progress) >= 100
+          ).length;
+          const progressValues = goals.map((goal) => Number(goal.progress) || 0);
+          return {
+            ...team,
+            totalGoals: goals.length,
+            completedGoals,
+            averageProgress: progressValues.length
+              ? Math.round(progressValues.reduce((sum, value) => sum + value, 0) / progressValues.length)
+              : 0,
+          };
+        })
+    : allTeams;
+  const rawMetrics = teamData.metrics || {};
+  const metrics = isMyGoals
+    ? {
+        totalGoals: teams.reduce((sum, team) => sum + (team.totalGoals || 0), 0),
+        completedGoals: teams.reduce((sum, team) => sum + (team.completedGoals || 0), 0),
+        overallCompletionPercent: teams.length
+          ? Math.round(
+              teams.reduce((sum, team) => {
+                const completed = team.completedGoals || 0;
+                const total = team.totalGoals || 0;
+                return sum + (total ? (completed / total) * 100 : 0);
+              }, 0) / teams.length
+            )
+          : 0,
+        overallAverageProgress: teams.length
+          ? Math.round(
+              teams.reduce((sum, team) => sum + (team.averageProgress || 0), 0) /
+                teams.length
+            )
+          : 0,
+      }
+    : rawMetrics;
   const userEmail = String(currentUser?.email || currentUser?.id || "")
     .trim()
     .toLowerCase();
@@ -212,10 +276,10 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser }) {
 
   return (
     <div className="team-goals-page">
-      <Header title="Team Goals" />
+      <Header title={isMyGoals ? "My Goals" : "Team Goals"} />
 
       <Tabs
-        activeTab="Team goals"
+        activeTab={isMyGoals ? "My goals" : "Team goals"}
         onSelectTab={(tab) => onSelectTab && onSelectTab(tab)}
       />
 
@@ -226,7 +290,7 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser }) {
             <Building2 size={20} />
           </div>
           <div className="team-kpi-info">
-            <span className="team-kpi-label">Active Departments</span>
+            <span className="team-kpi-label">{isMyGoals ? "Active Projects" : "Active Departments"}</span>
             <strong className="team-kpi-val">{teams.length || 5}</strong>
             <span className="team-kpi-sub">Collaborating teams</span>
           </div>
@@ -237,7 +301,7 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser }) {
             <CheckCircle2 size={20} />
           </div>
           <div className="team-kpi-info">
-            <span className="team-kpi-label">Completed Team Goals</span>
+            <span className="team-kpi-label">{isMyGoals ? "Completed My Goals" : "Completed Team Goals"}</span>
             <strong className="team-kpi-val">
               {metrics.completedGoals || 2}/{metrics.totalGoals || 12}
             </strong>
@@ -265,7 +329,7 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser }) {
             onClick={() => setIsModalOpen(true)}
           >
             <Plus size={16} />
-            <span>Create Team Goal</span>
+            <span>{isMyGoals ? "Create Goal" : "Create Team Goal"}</span>
           </button>
         </div>
       </div>
@@ -280,7 +344,7 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser }) {
               className={`team-chip-btn ${selectedTeam === opt ? "active" : ""}`}
               onClick={() => setSelectedTeam(opt)}
             >
-              {opt === "all" ? "All Departments" : opt}
+              {opt === "all" ? (isMyGoals ? "All Projects" : "All Departments") : opt}
             </button>
           ))}
         </div>
@@ -289,7 +353,7 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser }) {
           <input
             type="text"
             className="team-search-input"
-            placeholder="Search team goals, owners..."
+            placeholder={isMyGoals ? "Search my goals, projects..." : "Search team goals, owners..."}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
@@ -305,14 +369,14 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser }) {
       ) : filteredTeams.length === 0 ? (
         <div className="team-empty-state">
           <Users size={32} />
-          <h3>No team goals found</h3>
-          <p>Create a goal for this department to start tracking team-level OKRs.</p>
+          <h3>{isMyGoals ? "No goals found" : "No team goals found"}</h3>
+          <p>{isMyGoals ? "Create a personal goal or assign tasks to yourself to generate one automatically." : "Create a goal for this department to start tracking team-level OKRs."}</p>
           <button
             type="button"
             className="add-team-goal-hero-btn"
             onClick={() => setIsModalOpen(true)}
           >
-            Create Team Goal
+            {isMyGoals ? "Create Goal" : "Create Team Goal"}
           </button>
         </div>
       ) : (
@@ -469,7 +533,7 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser }) {
         <div className="team-modal-backdrop" onClick={() => setIsModalOpen(false)}>
           <div className="team-modal-window" onClick={(e) => e.stopPropagation()}>
             <div className="team-modal-header">
-              <h3>Create Team Goal</h3>
+              <h3>{isMyGoals ? "Create Goal" : "Create Team Goal"}</h3>
               <button
                 type="button"
                 className="modal-close-btn"

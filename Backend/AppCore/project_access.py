@@ -1,3 +1,5 @@
+import re
+
 from bson import ObjectId
 from rest_framework.exceptions import PermissionDenied
 
@@ -8,10 +10,19 @@ from .db import get_database
 _MEMBERSHIP_FIELDS = (
     "members",
     "member_ids",
+    "memberIds",
+    "project_members",
+    "projectMembers",
     "assigned_users",
+    "assignedUsers",
     "assigned_user_ids",
+    "assignedUserIds",
+    "assigned_members",
+    "assignedMembers",
     "team_members",
+    "teamMembers",
     "user_ids",
+    "userIds",
 )
 
 
@@ -22,6 +33,7 @@ def is_project_admin(user):
 def _identity_values(user):
     values = {
         str(getattr(user, "id", "") or "").strip().casefold(),
+        str(getattr(user, "employee_id", "") or "").strip().casefold(),
         str(getattr(user, "email", "") or "").strip().casefold(),
         str(getattr(user, "username", "") or "").strip().casefold(),
     }
@@ -42,13 +54,34 @@ def _assignment_matches(value, identities):
     if isinstance(value, dict):
         return any(
             _assignment_matches(value.get(field), identities)
-            for field in ("id", "_id", "user_id", "email", "username", "name")
+            for field in (
+                "id",
+                "_id",
+                "user_id",
+                "userId",
+                "member_id",
+                "memberId",
+                "employee_id",
+                "employeeId",
+                "employeeID",
+                "email",
+                "username",
+                "name",
+                "full_name",
+                "fullName",
+                "user",
+                "member",
+                "employee",
+            )
         )
     if isinstance(value, (list, tuple, set)):
         return any(_assignment_matches(item, identities) for item in value)
     if isinstance(value, ObjectId):
         value = str(value)
-    return str(value or "").strip().casefold() in identities
+    text = str(value or "").strip().casefold()
+    if text in identities:
+        return True
+    return any(part.strip() in identities for part in re.split(r"[,;]", text))
 
 
 def project_is_assigned_to(user, project):

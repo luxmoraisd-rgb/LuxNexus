@@ -13,9 +13,11 @@ from gridfs import GridFSBucket
 from gridfs.errors import NoFile
 
 from AppCore.Auth.role_permissions import (
+    get_effective_role,
     RoleCapabilityPermission,
     RoleModulePermission,
 )
+from AppCore.Inbox.notifications import notify_project_created
 from ..db import get_database, get_projects_collection
 from ..models import serialize_project
 from ..serializers.serializer import ProjectSerializer
@@ -252,14 +254,16 @@ class ProjectViewSet(viewsets.ViewSet):
 
         res = self.collection.insert_one(doc)
         doc["_id"] = res.inserted_id
+        notify_project_created(doc, request.user, database=get_database())
         return Response(serialize_project(doc), status=status.HTTP_201_CREATED)
 
     def partial_update(self, request, pk=None):
         """Update fields on a project."""
-        if any(field in request.data for field in ("lead", "project_lead", "members")) and not is_project_admin(
-            request.user
+        if (
+            any(field in request.data for field in ("lead", "project_lead", "members"))
+            and get_effective_role(request.user) not in {"admin", "team_lead"}
         ):
-            raise PermissionDenied("Only Admin users can change project assignments.")
+            raise PermissionDenied("Only Admin and Team Lead users can change project assignments.")
         target_id = get_query_id(pk)
         query = {"_id": target_id} if isinstance(target_id, ObjectId) else {"$or": [{"_id": pk}, {"id": pk}]}
 
@@ -269,6 +273,12 @@ class ProjectViewSet(viewsets.ViewSet):
         require_project_access(
             request.user, str(existing.get("_id", existing.get("id", pk)))
         )
+        if (
+            "description" in request.data
+            and str(request.data.get("description") or "").strip()
+            != str(existing.get("description") or "").strip()
+        ):
+            require_admin(request.user)
 
         updates = {}
         if "members" in request.data:

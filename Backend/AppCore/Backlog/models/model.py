@@ -158,6 +158,7 @@ class Task(models.Model):
     task_type = models.CharField(max_length=50, choices=TYPE_CHOICES, default='Task')
     estimated_sp = models.IntegerField(default=3, help_text="Estimated Story Points")
     epic = models.CharField(max_length=255, blank=True, default="")
+    reporter = models.CharField(max_length=255, blank=True, default="")
     comments_count = models.IntegerField(default=0)
     due_date = models.CharField(max_length=100, blank=True, null=True, default="")
     order = models.IntegerField(default=0)

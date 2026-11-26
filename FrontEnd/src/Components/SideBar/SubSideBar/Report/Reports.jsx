@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, BarChart3, CalendarDays, Check, FileSpreadsheet, LoaderCircle, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
+import { AlertCircle, ArrowLeft, BarChart3, CalendarDays, Check, FileDown, LoaderCircle, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { getApiError, reportApi } from "./reportApi";
-import ImportSpreadsheet from "./ImportSpreadsheet";
 import "./Reports.css";
 
 const REPORT_TABS = [
   { id: "daily", label: "Daily Report", icon: CalendarDays },
   { id: "monthly", label: "Monthly Report", icon: BarChart3 },
-  { id: "sprint", label: "Sprint Report", icon: BarChart3 },
-  { id: "project", label: "Project Report", icon: BarChart3 },
 ];
 const EDITABLE_FIELDS = [
   ["report_date", "Date"],
@@ -16,37 +14,39 @@ const EDITABLE_FIELDS = [
   ["employee", "Employee"],
   ["project", "Project"],
   ["sprint", "Sprint"],
-  ["task", "Task"],
-  ["activity", "Activity / EOD comment"],
-  ["work_completed", "Work completed"],
+  ["activity", "EOD comments"],
   ["status", "Status"],
   ["progress", "Progress %"],
-  ["blockers", "Blockers"],
-  ["next_steps", "Next steps"],
 ];
-const TODAY = new Date().toISOString().slice(0, 10);
+const READ_ONLY_FIELDS = new Set(["employee", "project", "sprint"]);
+const STATUS_OPTIONS = ["Ready to start", "In Progress", "In Review", "Done"];
+
+function getTodayDate() {
+  const today = new Date();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${today.getFullYear()}-${month}-${day}`;
+}
 
 function emptyDraft() {
   return {
     title: "",
     report_type: "daily",
-    report_date: TODAY,
+    report_date: getTodayDate(),
     project_id: "",
     project: "",
     sprint_id: "",
     sprint: "",
     employee_id: "",
     employee: "",
-    task: "",
     activity: "",
-    work_completed: "",
     status: "",
-    blockers: "",
-    next_steps: "",
   };
 }
 
-export default function Reports() {
+export default function Reports({ currentUser }) {
+  const { projectId } = useParams();
+  const navigate = useNavigate();
   const currentDate = new Date();
   const [activeTab, setActiveTab] = useState("daily");
   const [filters, setFilters] = useState({
@@ -59,25 +59,40 @@ export default function Reports() {
     employee: "",
     search: "",
   });
-  const [options, setOptions] = useState({ projects: [], sprints: [], employees: [] });
+  const [options, setOptions] = useState({
+    projects: [],
+    sprints: [],
+    employees: [],
+    current_user: {},
+    assigned_project: {},
+    active_sprint: {},
+  });
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [drafts, setDrafts] = useState({});
-  const [showImport, setShowImport] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
-  const [newReport, setNewReport] = useState(emptyDraft);
+  const [isExporting, setIsExporting] = useState(false);
+  const [newReport, setNewReport] = useState(() => ({
+    ...emptyDraft(),
+    employee_id: currentUser?.id || "",
+    employee: currentUser?.name || currentUser?.username || currentUser?.email || "",
+  }));
   const [savingNew, setSavingNew] = useState(false);
+  const currentUserRole = String(currentUser?.role || "").toLowerCase().replace(/[\s-]+/g, "_");
+  const canFilterDateRange = currentUserRole === "admin" || currentUserRole === "team_lead";
+  const canExportReports = canFilterDateRange;
 
   const query = useMemo(() => ({
     type: activeTab,
     ...filters,
-    start_date: activeTab === "monthly" ? "" : filters.start_date,
-    end_date: activeTab === "monthly" ? "" : filters.end_date,
+    project: projectId || filters.project,
+    start_date: activeTab === "monthly" || !canFilterDateRange ? "" : filters.start_date,
+    end_date: activeTab === "monthly" || !canFilterDateRange ? "" : filters.end_date,
     month: activeTab === "monthly" ? filters.month : "",
     year: activeTab === "monthly" ? filters.year : "",
-  }), [activeTab, filters]);
+  }), [activeTab, canFilterDateRange, filters, projectId]);
 
   const loadReports = async (signal) => {
     setLoading(true);
@@ -120,19 +135,33 @@ export default function Reports() {
 
   useEffect(() => {
     let active = true;
-    reportApi.getOptions()
+    reportApi.getOptions(projectId)
       .then((data) => {
         if (active) setOptions({
           projects: data.projects || [],
           sprints: data.sprints || [],
           employees: data.employees || [],
+          current_user: data.current_user || {},
+          assigned_project: data.assigned_project || {},
+          active_sprint: data.active_sprint || {},
         });
+        if (active) {
+          setNewReport((previous) => ({
+            ...previous,
+            employee_id: data.current_user?.id || currentUser?.id || previous.employee_id,
+            employee: data.current_user?.name || currentUser?.name || currentUser?.username || previous.employee,
+            project_id: data.assigned_project?.id || "",
+            project: data.assigned_project?.name || "",
+            sprint_id: data.active_sprint?.id || "",
+            sprint: data.active_sprint?.name || "",
+          }));
+        }
       })
       .catch((optionsError) => {
         if (active) setError(getApiError(optionsError));
       });
     return () => { active = false; };
-  }, []);
+  }, [currentUser, projectId]);
 
   const updateFilter = (name, value) => setFilters((previous) => ({ ...previous, [name]: value }));
   const setDraftField = (id, field, value) => {
@@ -181,14 +210,49 @@ export default function Reports() {
     }
   };
 
+  const exportCurrentReport = async () => {
+    setIsExporting(true);
+    setError("");
+    setNotice("");
+    try {
+      const { blob, filename } = await reportApi.exportReport(query);
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(downloadUrl), 1000);
+      setNotice(`${activeTab === "monthly" ? "Monthly" : "Daily"} report exported as DOCX.`);
+    } catch (exportError) {
+      setError(getApiError(exportError));
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const createRow = async (event) => {
     event.preventDefault();
     setSavingNew(true);
     setError("");
     try {
-      await reportApi.createReport(newReport);
+      await reportApi.createReport({
+        ...newReport,
+        project_id: projectId || newReport.project_id,
+        report_date: getTodayDate(),
+        report_type: "daily",
+      });
       setShowCreate(false);
-      setNewReport(emptyDraft());
+      setNewReport({
+        ...emptyDraft(),
+        employee_id: options.current_user.id || currentUser?.id || "",
+        employee: options.current_user.name || currentUser?.name || currentUser?.username || "",
+        project_id: options.assigned_project.id || "",
+        project: options.assigned_project.name || "",
+        sprint_id: options.active_sprint.id || "",
+        sprint: options.active_sprint.name || "",
+      });
       setNotice("Report added successfully.");
       await loadReports();
     } catch (createError) {
@@ -198,20 +262,23 @@ export default function Reports() {
     }
   };
 
-  const importRows = async (importedRows) => {
-    const result = await reportApi.importReports(importedRows);
-    const messages = [`Imported ${result.imported} row(s).`];
-    if (result.duplicates) messages.push(`${result.duplicates} duplicate(s) skipped.`);
-    setNotice(messages.join(" "));
-    await loadReports();
-    return result;
+  const openCreateReport = () => {
+    const reportDate = getTodayDate();
+    if (activeTab === "monthly") {
+      setFilters((previous) => ({
+        ...previous,
+        month: reportDate.slice(5, 7),
+        year: reportDate.slice(0, 4),
+      }));
+    }
+    setNewReport((previous) => ({ ...previous, report_date: reportDate }));
+    setShowCreate(true);
   };
 
   const reportOptions = (key) => options[key] || [];
   const yearOptions = Array.from({ length: 8 }, (_, index) => String(currentDate.getFullYear() - index));
   const hasDraft = (row) => Boolean(drafts[row.id] && Object.keys(drafts[row.id]).length);
   const cellValue = (row, field) => drafts[row.id]?.[field] ?? row[field] ?? "";
-  const isAggregate = activeTab !== "daily";
   const visibleRows = rows;
 
   return (
@@ -219,18 +286,22 @@ export default function Reports() {
       <header className="reports-heading">
         <div>
           <div className="reports-eyebrow">TRACKER / REPORTS</div>
-          <h1>Reports</h1>
-          <p>Review daily work updates and reports generated from your team’s saved activity.</p>
+          <h1>{projectId ? `${options.assigned_project.name || "Project"} EOD reports` : "Reports"}</h1>
+          <p>{projectId ? "Review EOD reports shared by members of this project." : "Review daily work updates and reports generated from your team’s saved activity."}</p>
         </div>
         <div className="reports-heading-actions">
-          <button type="button" className="reports-button secondary" onClick={() => loadReports()}>
-            <RefreshCw size={16} /> Refresh
+          {projectId && <button type="button" className="reports-button secondary" onClick={() => navigate(`/work/projects/${projectId}`)}><ArrowLeft size={16} /> Back to project</button>}
+          <button type="button" className="reports-button secondary" onClick={() => loadReports()} disabled={loading} aria-busy={loading}>
+            <RefreshCw className={loading ? "reports-spin" : undefined} size={16} /> {loading ? "Refreshing…" : "Refresh"}
           </button>
-          <button type="button" className="reports-button secondary" onClick={() => setShowImport(true)}>
-            <FileSpreadsheet size={16} /> Import spreadsheet
-          </button>
-          <button type="button" className="reports-button primary" onClick={() => setShowCreate(true)}>
-            <Plus size={16} /> Add report
+          {canExportReports && (
+            <button type="button" className="reports-button secondary" onClick={exportCurrentReport} disabled={isExporting} aria-busy={isExporting}>
+              {isExporting ? <LoaderCircle className="reports-spin" size={16} /> : <FileDown size={16} />}
+              {isExporting ? "Exporting…" : "Export DOCX"}
+            </button>
+          )}
+          <button type="button" className="reports-button primary" onClick={openCreateReport}>
+            <Plus size={16} /> {activeTab === "monthly" ? "Add monthly report" : "Add daily report"}
           </button>
         </div>
       </header>
@@ -257,12 +328,12 @@ export default function Reports() {
             </select></label>
           </>
         ) : (
-          <>
+          canFilterDateRange && <>
             <label>From<input type="date" value={filters.start_date} onChange={(event) => updateFilter("start_date", event.target.value)} /></label>
             <label>To<input type="date" value={filters.end_date} onChange={(event) => updateFilter("end_date", event.target.value)} /></label>
           </>
         )}
-        <label>Project<select value={filters.project} onChange={(event) => updateFilter("project", event.target.value)}>
+        <label>Project<select value={projectId || filters.project} onChange={(event) => updateFilter("project", event.target.value)} disabled={Boolean(projectId)}>
           <option value="">All projects</option>
           {reportOptions("projects").map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
         </select></label>
@@ -283,7 +354,6 @@ export default function Reports() {
       <section className="reports-sheet-card">
         <div className="reports-sheet-heading">
           <div><h2>{REPORT_TABS.find((tab) => tab.id === activeTab)?.label}</h2><span>{rows.length} {rows.length === 1 ? "entry" : "entries"}</span></div>
-          {isAggregate && <span className="reports-readonly-hint">Generated from saved report data</span>}
         </div>
         <div className="reports-table-scroll">
           <table className="reports-table reports-data-table">
@@ -297,7 +367,7 @@ export default function Reports() {
                 <tr key={row.id} className={row.source === "eod_comment" ? "reports-eod-row" : ""}>
                   {EDITABLE_FIELDS.map(([field]) => (
                     <td key={field}>
-                      {row.editable ? (
+                      {row.editable && !READ_ONLY_FIELDS.has(field) ? (
                         <input
                           aria-label={`${row.title || "Report"} ${field}`}
                           type={field === "report_date" ? "date" : field === "progress" ? "number" : "text"}
@@ -332,36 +402,23 @@ export default function Reports() {
       {showCreate && (
         <div className="reports-modal-backdrop">
           <form className="reports-create-dialog" onSubmit={createRow}>
-            <div className="reports-modal-header"><div><h2>Add daily report</h2><p>New reports are saved to the shared reports database.</p></div><button type="button" className="reports-icon-button" aria-label="Close" onClick={() => setShowCreate(false)}><X size={18} /></button></div>
+            <div className="reports-modal-header"><div><h2>{activeTab === "monthly" ? "Add monthly report" : "Add daily report"}</h2><p>{activeTab === "monthly" ? "This creates a daily entry for today." : "New reports are saved to the shared reports database."}</p></div><button type="button" className="reports-icon-button" aria-label="Close" onClick={() => setShowCreate(false)}><X size={18} /></button></div>
             <label>Title<input required maxLength={200} value={newReport.title} onChange={(event) => setNewReport((previous) => ({ ...previous, title: event.target.value }))} /></label>
-            <label>Date<input required type="date" value={newReport.report_date} onChange={(event) => setNewReport((previous) => ({ ...previous, report_date: event.target.value }))} /></label>
-            <div className="reports-form-grid">
-              <label>Employee<select value={newReport.employee_id} onChange={(event) => {
-                const employee = options.employees.find((item) => item.id === event.target.value);
-                setNewReport((previous) => ({ ...previous, employee_id: event.target.value, employee: employee?.name || "" }));
-              }}><option value="">Unassigned</option>{options.employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select></label>
-              <label>Project<select value={newReport.project_id} onChange={(event) => {
-                const project = options.projects.find((item) => item.id === event.target.value);
-                setNewReport((previous) => ({ ...previous, project_id: event.target.value, project: project?.name || "" }));
-              }}><option value="">Unassigned</option>{options.projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
-              <label>Sprint<select value={newReport.sprint_id} onChange={(event) => {
-                const sprint = options.sprints.find((item) => item.id === event.target.value);
-                setNewReport((previous) => ({ ...previous, sprint_id: event.target.value, sprint: sprint?.name || "" }));
-              }}><option value="">Unassigned</option>{options.sprints.map((sprint) => <option key={sprint.id} value={sprint.id}>{sprint.name}</option>)}</select></label>
-              <label>Status<input value={newReport.status} onChange={(event) => setNewReport((previous) => ({ ...previous, status: event.target.value }))} /></label>
+            <label>Date<input required type="date" value={getTodayDate()} readOnly aria-readonly="true" /></label>
+            <div className="reports-form-grid reports-assignment-summary">
+              <div><span>Employee</span><strong>{newReport.employee || "Loading employee…"}</strong></div>
+              <div><span>Project</span><strong>{newReport.project || "No assigned project"}</strong></div>
+              <div><span>Active sprint</span><strong>{newReport.sprint || "No active sprint"}</strong></div>
+              <label>Status<select value={newReport.status} onChange={(event) => setNewReport((previous) => ({ ...previous, status: event.target.value }))}>
+                <option value="">Select status</option>
+                {STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status}</option>)}
+              </select></label>
             </div>
-            {[
-              ["task", "Task"],
-              ["activity", "Activity / EOD comments"],
-              ["work_completed", "Work completed"],
-              ["blockers", "Blockers"],
-              ["next_steps", "Next steps"],
-            ].map(([field, label]) => <label key={field}>{label}<textarea rows={2} value={newReport[field]} onChange={(event) => setNewReport((previous) => ({ ...previous, [field]: event.target.value }))} /></label>)}
+            <label>EOD comments<textarea required rows={5} value={newReport.activity} onChange={(event) => setNewReport((previous) => ({ ...previous, activity: event.target.value }))} /></label>
             <div className="reports-modal-actions"><button type="button" className="reports-button secondary" onClick={() => setShowCreate(false)}>Cancel</button><button type="submit" className="reports-button primary" disabled={savingNew}>{savingNew ? <LoaderCircle className="reports-spin" size={16} /> : <Plus size={16} />}Save report</button></div>
           </form>
         </div>
       )}
-      {showImport && <ImportSpreadsheet onClose={() => setShowImport(false)} onImported={importRows} options={options} />}
     </main>
   );
 }

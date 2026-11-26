@@ -149,6 +149,14 @@ export const taskApi = {
     return response.data?.task || response.data;
   },
 
+  getComments: async (taskId) => {
+    const response = await backlogClient.get(`/backlog/tasks/${taskId}/comments/`);
+    if (!Array.isArray(response.data)) {
+      throw new Error('The task comments response did not contain a list.');
+    }
+    return response.data;
+  },
+
   /**
    * Create task in database
    * POST /backlog/tasks/

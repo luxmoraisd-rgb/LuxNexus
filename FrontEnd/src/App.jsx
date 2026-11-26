@@ -10,6 +10,7 @@ import {
 } from "react-router-dom";
 
 import { authClient } from "./Components/Auth/authApi";
+import LoadingScreen from "./Components/LoadingScreen";
 import "./App.css";
 const Navbar = lazy(() => import("./Components/NavBar/Navbar/navbar"));
 const MainSidebar = lazy(() => import("./Components/SideBar/MainSideBar/Mainsidebar/mainsidebar"));
@@ -25,14 +26,15 @@ const SprintOverviewPage = lazy(() =>
   )
 );
 const PeoplePage = lazy(() => import("./Components/SideBar/SubSideBar/People/people"));
-const Resourcing = lazy(() => import("./Components/SideBar/SubSideBar/Resourcing/resourcing"));
 const Backlog = lazy(() => import("./Components/SideBar/SubSideBar/MyTasks/Backlog/Backlog"));
+const TaskPermalink = lazy(() => import("./Components/SideBar/SubSideBar/MyTasks/Backlog/TaskPermalink"));
 const MyTasksScreen = lazy(() => import("./Components/SideBar/SubSideBar/MyTasks/MyTasksScreen"));
 const Projects = lazy(() => import("./Components/SideBar/SubSideBar/Projects/projects"));
 const ProjectDetails = lazy(() => import("./Components/SideBar/SubSideBar/Projects/ProjectDetails"));
 const Portfolios = lazy(() => import("./Components/SideBar/SubSideBar/Portfolios/Portfolios"));
 const MeetingsPage = lazy(() => import("./Components/SideBar/SubSideBar/Meetings/MeetingsPage"));
 const Reports = lazy(() => import("./Components/SideBar/SubSideBar/Report/Reports"));
+const Resourcing = lazy(() => import("./Components/SideBar/SubSideBar/Resourcing/resourcing"));
 const ProfilePage = lazy(() => import("./Components/NavBar/Profile/profilepage"));
 const Signin = lazy(() => import("./Components/Auth/SignIn/signin"));
 const Signup = lazy(() => import("./Components/Auth/SignUp/signup"));
@@ -83,6 +85,8 @@ const PeopleRouteWrapper = ({ theme, onTabChange }) => {
       theme={theme}
       activeTab={validTab}
       onTabChange={onTabChange}
+      currentUser={null}
+      rolePermissions={null}
     />
   );
 };
@@ -271,7 +275,7 @@ const AppContent = () => {
   
   useEffect(() => {
     if (!isAuthenticated && !isAuthRoute) {
-      navigate("/signin", { replace: true });
+      navigate("/signin", { replace: true, state: { from: location.pathname } });
     } else if (isAuthenticated && (location.pathname === "/signin" || location.pathname === "/login")) {
       navigate("/home", { replace: true });
     }
@@ -302,7 +306,11 @@ const AppContent = () => {
 
 
 
-  const isTasksRoute = location.pathname === "/work/tasks" || location.pathname === "/tasks";
+  const isTasksRoute =
+    location.pathname === "/work/tasks" ||
+    location.pathname === "/tasks" ||
+    location.pathname.startsWith("/work/tasks/") ||
+    location.pathname.startsWith("/tasks/");
   const isBacklogRoute = location.pathname === "/work/backlog" || location.pathname === "/backlog";
   const isActiveSprintRoute = location.pathname === "/work/active-sprint" || location.pathname === "/active-sprint";
   const isAllSprintsRoute = location.pathname === "/work/all-sprints" || location.pathname === "/all-sprints";
@@ -368,10 +376,10 @@ const AppContent = () => {
       }
     } else if (item === "strategy") {
       // Determine target strategy route based on current state or trackerView
-      if (trackerView === "Reports" || isReportsRoute) {
-        navigate("/strategy/reports");
-      } else if (trackerView === "Resourcing" || isResourcingRoute) {
+      if (trackerView === "Resourcing" || isResourcingRoute) {
         navigate("/strategy/resourcing");
+      } else if (trackerView === "Reports" || isReportsRoute) {
+        navigate("/strategy/reports");
       } else {
         setTrackerView("Goals");
         navigate("/strategy/goals");
@@ -476,10 +484,6 @@ const AppContent = () => {
       setActiveItem("strategy");
       setTrackerView("Reports");
       navigate("/strategy/reports");
-    } else if (s.includes("resourcing")) {
-      setActiveItem("strategy");
-      setTrackerView("Resourcing");
-      navigate("/strategy/resourcing");
     } else if (s.includes("goal")) {
       setActiveItem("strategy");
       setTrackerView("Goals");
@@ -544,7 +548,12 @@ const AppContent = () => {
     if (invitationToken) {
       navigate(`/accept-invite?token=${encodeURIComponent(invitationToken)}`);
     } else {
-      navigate("/home");
+      const requestedPath = location.state?.from;
+      navigate(
+        typeof requestedPath === "string" && requestedPath.startsWith("/")
+          ? requestedPath
+          : "/home"
+      );
     }
   };
 
@@ -593,7 +602,7 @@ const AppContent = () => {
           <Route
             path="/signin"
             element={
-              <Suspense fallback={null}>
+              <Suspense fallback={<LoadingScreen />}>
                 <Signin
                   onNavigateToSignup={() => {
                     const invitationToken = new URLSearchParams(location.search).get("invite");
@@ -609,7 +618,7 @@ const AppContent = () => {
           <Route
             path="/login"
             element={
-              <Suspense fallback={null}>
+              <Suspense fallback={<LoadingScreen />}>
                 <Signin
                   onNavigateToSignup={() => {
                     const invitationToken = new URLSearchParams(location.search).get("invite");
@@ -625,7 +634,7 @@ const AppContent = () => {
           <Route
             path="/signup"
             element={
-              <Suspense fallback={null}>
+              <Suspense fallback={<LoadingScreen />}>
                 <Signup
                   onNavigateToSignin={() => {
                     const invitationToken = new URLSearchParams(location.search).get("invite");
@@ -640,7 +649,7 @@ const AppContent = () => {
           <Route
             path="/accept-invite"
             element={
-              <Suspense fallback={null}>
+              <Suspense fallback={<LoadingScreen />}>
                 <AcceptInvite
                   isAuthenticated={isAuthenticated}
                   onInvitationAccepted={handleInvitationAccepted}
@@ -652,7 +661,7 @@ const AppContent = () => {
           <Route
             path="/forgot-password"
             element={
-              <Suspense fallback={null}>
+              <Suspense fallback={<LoadingScreen />}>
                 <ForgotPassword
                   onNavigateToSignin={(authData) =>
                     navigate("/signin", authData ? { state: authData } : undefined)
@@ -673,7 +682,7 @@ const AppContent = () => {
   }
 
   if (rolePermissions === null) {
-    return <div role="status" aria-live="polite">Loading workspace access…</div>;
+    return <LoadingScreen message="Loading workspace access..." />;
   }
 
   const effectiveRole = rolePermissions.current_role || currentUser?.role || "user";
@@ -685,7 +694,7 @@ const AppContent = () => {
     <div className="app" data-theme={theme}>
 
       {/* TOP NAVBAR */}
-      <Suspense fallback={null}>
+      <Suspense fallback={<LoadingScreen />}>
         <Navbar
           profileName={profileName}
           profilePhoto={profilePhoto}
@@ -716,7 +725,7 @@ const AppContent = () => {
       </Suspense>
 
       {currentView === "profile" || currentView === "settings" ? (
-        <Suspense fallback={null}>
+        <Suspense fallback={<LoadingScreen />}>
           <ProfilePage
             onBack={() => {
               sessionStorage.removeItem("current_view");
@@ -750,7 +759,7 @@ const AppContent = () => {
               sidebarOpen ? "open" : "closed"
             }`}
           >
-            <Suspense fallback={null}>
+            <Suspense fallback={<LoadingScreen />}>
               <MainSidebar
                 activeItem={selectedActiveItem}
                 setActiveItem={handleMainItemSelect}
@@ -765,7 +774,7 @@ const AppContent = () => {
                 sidebarOpen ? "open" : "closed"
               }`}
             >
-              <Suspense fallback={null}>
+              <Suspense fallback={<LoadingScreen />}>
                 <SubSidebar
                   activeMenu={selectedActiveSubItem}
                   onMenuSelect={handleSubItemSelect}
@@ -780,14 +789,14 @@ const AppContent = () => {
                 sidebarOpen ? "open" : "closed"
               }`}
             >
-              <Suspense fallback={null}>
+              <Suspense fallback={<LoadingScreen />}>
                 <TrackerSidebar
                   selectedItem={
-                    isReportsRoute
+                    isResourcingRoute
+                      ? "Resourcing"
+                      : isReportsRoute
                       ? "Reports"
-                      : isResourcingRoute
-                        ? "Resourcing"
-                        : isGoalsRoute || isStrategyMapRoute || isTeamGoalsRoute
+                      : isGoalsRoute || isStrategyMapRoute || isTeamGoalsRoute
                           ? "Goals"
                           : trackerView
                   }
@@ -823,7 +832,7 @@ const AppContent = () => {
                 sidebarOpen ? "open" : "closed"
               }`}
             >
-              <Suspense fallback={null}>
+              <Suspense fallback={<LoadingScreen />}>
                 <KnowledgeSidebar />
               </Suspense>
             </div>
@@ -835,7 +844,7 @@ const AppContent = () => {
                 sidebarOpen ? "open" : "closed"
               }`}
             >
-              <Suspense fallback={null}>
+              <Suspense fallback={<LoadingScreen />}>
                 <PeopleSidebar
                   activeItem={
                     location.pathname === "/people/teams"
@@ -867,38 +876,42 @@ const AppContent = () => {
 
           {/* MAIN CONTENT */}
           <div className="main-content">
-            <Suspense fallback={<main className="route-loading" role="status">Loading page…</main>}>
+            <Suspense fallback={<LoadingScreen message="Loading page..." />}>
               <Routes>
               <Route path="/" element={<Dashboard profileName={profileName} currentUser={currentUser} />} />
               <Route path="/home" element={<Dashboard profileName={profileName} currentUser={currentUser} />} />
               <Route path="/work/tasks" element={<Suspense fallback={<div className="backlog-skeleton-wrapper" style={{ padding: 24 }}><div className="backlog-skeleton-card"><div className="backlog-skeleton-header" /><div className="backlog-skeleton-row" /><div className="backlog-skeleton-row" /></div></div>}><MyTasksScreen rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
+              <Route path="/work/tasks/:taskKey" element={<Suspense fallback={<LoadingScreen message="Loading task..." />}><TaskPermalink /></Suspense>} />
+              <Route path="/tasks/:taskKey" element={<Suspense fallback={<LoadingScreen message="Loading task..." />}><TaskPermalink /></Suspense>} />
               <Route path="/tasks" element={<Suspense fallback={<div className="backlog-skeleton-wrapper" style={{ padding: 24 }}><div className="backlog-skeleton-card"><div className="backlog-skeleton-header" /><div className="backlog-skeleton-row" /><div className="backlog-skeleton-row" /></div></div>}><MyTasksScreen rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
-              <Route path="/work/backlog" element={<Suspense fallback={null}><Backlog defaultTab="Backlog" rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
-              <Route path="/backlog" element={<Suspense fallback={null}><Backlog defaultTab="Backlog" rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
-              <Route path="/work/active-sprint" element={<Suspense fallback={null}><Backlog defaultTab="Active Sprint" rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
-              <Route path="/active-sprint" element={<Suspense fallback={null}><Backlog defaultTab="Active Sprint" rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
-              <Route path="/work/all-sprints" element={<Suspense fallback={null}><Backlog defaultTab="All Sprints" rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
-              <Route path="/all-sprints" element={<Suspense fallback={null}><Backlog defaultTab="All Sprints" rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
+              <Route path="/work/backlog" element={<Suspense fallback={<LoadingScreen />}><Backlog defaultTab="Backlog" rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
+              <Route path="/backlog" element={<Suspense fallback={<LoadingScreen />}><Backlog defaultTab="Backlog" rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
+              <Route path="/work/active-sprint" element={<Suspense fallback={<LoadingScreen />}><Backlog defaultTab="Active Sprint" rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
+              <Route path="/active-sprint" element={<Suspense fallback={<LoadingScreen />}><Backlog defaultTab="Active Sprint" rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
+              <Route path="/work/all-sprints" element={<Suspense fallback={<LoadingScreen />}><Backlog defaultTab="All Sprints" rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
+              <Route path="/all-sprints" element={<Suspense fallback={<LoadingScreen />}><Backlog defaultTab="All Sprints" rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
               <Route path="/sprint-overview" element={<SprintOverviewPage />} />
               <Route path="/work/inbox" element={<Inbox theme={theme} />} />
               <Route path="/inbox" element={<Inbox theme={theme} />} />
-              <Route path="/work/projects" element={<Suspense fallback={<main role="status">Loading Projects...</main>}><Projects rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
-              <Route path="/work/projects/:projectId" element={<Suspense fallback={<main role="status">Loading Project...</main>}><ProjectDetails rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
-              <Route path="/projects" element={<Suspense fallback={<main role="status">Loading Projects...</main>}><Projects rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
-              <Route path="/projects/:projectId" element={<Suspense fallback={<main role="status">Loading Project...</main>}><ProjectDetails rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
-              <Route path="/work/portfolios" element={<Suspense fallback={<main role="status">Loading Portfolios...</main>}><Portfolios currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>} />
-              <Route path="/portfolios" element={<Suspense fallback={<main role="status">Loading Portfolios...</main>}><Portfolios currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>} />
-              <Route path="/strategy/goals" element={<Suspense fallback={<main role="status">Loading Goals...</main>}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="My goals" /></Suspense>} />
-              <Route path="/goals" element={<Suspense fallback={<main role="status">Loading Goals...</main>}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="My goals" /></Suspense>} />
-              <Route path="/strategy/strategy-map" element={<Suspense fallback={<main role="status">Loading Strategy Map...</main>}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="Strategy map" /></Suspense>} />
-              <Route path="/strategy-map" element={<Suspense fallback={<main role="status">Loading Strategy Map...</main>}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="Strategy map" /></Suspense>} />
-              <Route path="/strategy/team-goals" element={<Suspense fallback={<main role="status">Loading Team Goals...</main>}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="Team goals" /></Suspense>} />
-              <Route path="/team-goals" element={<Suspense fallback={<main role="status">Loading Team Goals...</main>}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="Team goals" /></Suspense>} />
-              <Route path="/strategy/reports" element={<Suspense fallback={<main role="status">Loading Reports...</main>}><Reports currentUser={currentUser} /></Suspense>} />
+              <Route path="/work/projects" element={<Suspense fallback={<LoadingScreen message="Loading projects..." />}><Projects rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
+              <Route path="/work/projects/:projectId/eod" element={<Suspense fallback={<LoadingScreen message="Loading project reports..." />}><Reports currentUser={currentUser} /></Suspense>} />
+              <Route path="/work/projects/:projectId" element={<Suspense fallback={<LoadingScreen message="Loading project..." />}><ProjectDetails rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
+              <Route path="/projects" element={<Suspense fallback={<LoadingScreen message="Loading projects..." />}><Projects rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
+              <Route path="/projects/:projectId/eod" element={<Suspense fallback={<LoadingScreen message="Loading project reports..." />}><Reports currentUser={currentUser} /></Suspense>} />
+              <Route path="/projects/:projectId" element={<Suspense fallback={<LoadingScreen message="Loading project..." />}><ProjectDetails rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>} />
+              <Route path="/work/portfolios" element={<Suspense fallback={<LoadingScreen message="Loading portfolios..." />}><Portfolios currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>} />
+              <Route path="/portfolios" element={<Suspense fallback={<LoadingScreen message="Loading portfolios..." />}><Portfolios currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>} />
+              <Route path="/strategy/goals" element={<Suspense fallback={<LoadingScreen message="Loading goals..." />}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="My goals" /></Suspense>} />
+              <Route path="/goals" element={<Suspense fallback={<LoadingScreen message="Loading goals..." />}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="My goals" /></Suspense>} />
+              <Route path="/strategy/strategy-map" element={<Suspense fallback={<LoadingScreen message="Loading strategy map..." />}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="Strategy map" /></Suspense>} />
+              <Route path="/strategy-map" element={<Suspense fallback={<LoadingScreen message="Loading strategy map..." />}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="Strategy map" /></Suspense>} />
+              <Route path="/strategy/team-goals" element={<Suspense fallback={<LoadingScreen message="Loading team goals..." />}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="Team goals" /></Suspense>} />
+              <Route path="/team-goals" element={<Suspense fallback={<LoadingScreen message="Loading team goals..." />}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="Team goals" /></Suspense>} />
+              <Route path="/strategy/reports" element={<Suspense fallback={<LoadingScreen message="Loading reports..." />}><Reports currentUser={currentUser} /></Suspense>} />
+              <Route path="/strategy/resourcing" element={<Suspense fallback={<LoadingScreen message="Loading resourcing..." />}><Resourcing currentUser={currentUser} /></Suspense>} />
+              <Route path="/resourcing" element={<Navigate to="/strategy/resourcing" replace />} />
               <Route path="/strategy/reporting" element={<Navigate to="/strategy/reports" replace />} />
               <Route path="/reporting" element={<Navigate to="/strategy/reports" replace />} />
-              <Route path="/strategy/resourcing" element={<Suspense fallback={<main role="status">Loading Resourcing...</main>}><Resourcing currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>} />
-              <Route path="/resourcing" element={<Suspense fallback={<main role="status">Loading Resourcing...</main>}><Resourcing currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>} />
               <Route
                 path="/people/:subTab?"
                 element={
@@ -911,39 +924,39 @@ const AppContent = () => {
                   />
                 }
               />
-              <Route path="/knowledge" element={<Suspense fallback={<main role="status">Loading Knowledge...</main>}><MeetingsPage currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>} />
-              <Route path="/meetings" element={<Suspense fallback={<main role="status">Loading Meetings...</main>}><MeetingsPage currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>} />
+              <Route path="/knowledge" element={<Suspense fallback={<LoadingScreen message="Loading knowledge..." />}><MeetingsPage currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>} />
+              <Route path="/meetings" element={<Suspense fallback={<LoadingScreen message="Loading meetings..." />}><MeetingsPage currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>} />
               <Route path="/knowledge/reports" element={<Navigate to="/strategy/reports" replace />} />
-              <Route path="/reports" element={<Suspense fallback={<main role="status">Loading Reports...</main>}><Reports currentUser={currentUser} /></Suspense>} />
+              <Route path="/reports" element={<Suspense fallback={<LoadingScreen message="Loading reports..." />}><Reports currentUser={currentUser} /></Suspense>} />
               <Route
                 path="*"
                 element={activeItem === "work" && activeSubItem === "inbox" ? (
                   <Inbox theme={theme} />
                 ) : activeItem === "work" && activeSubItem === "projects" ? (
-                  <Suspense fallback={null}><Projects rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>
+                  <Suspense fallback={<LoadingScreen />}><Projects rolePermissions={rolePermissions} currentUser={currentUser} /></Suspense>
                 ) : activeItem === "work" && activeSubItem === "portfolios" ? (
-                  <Suspense fallback={null}><Portfolios currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>
+                  <Suspense fallback={<LoadingScreen />}><Portfolios currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>
                 ) : activeItem === "strategy" && (trackerView === "Strategy map" || isStrategyMapRoute) ? (
-                  <Suspense fallback={<main role="status">Loading Strategy Map...</main>}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="Strategy map" /></Suspense>
+                  <Suspense fallback={<LoadingScreen message="Loading strategy map..." />}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="Strategy map" /></Suspense>
                 ) : activeItem === "strategy" && (trackerView === "Team goals" || isTeamGoalsRoute) ? (
-                  <Suspense fallback={<main role="status">Loading Team Goals...</main>}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="Team goals" /></Suspense>
+                  <Suspense fallback={<LoadingScreen message="Loading team goals..." />}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="Team goals" /></Suspense>
                 ) : activeItem === "strategy" && trackerView === "Goals" ? (
-                  <Suspense fallback={<main role="status">Loading Goals...</main>}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="My goals" /></Suspense>
+                  <Suspense fallback={<LoadingScreen message="Loading goals..." />}><GoalsPage currentUser={currentUser} rolePermissions={rolePermissions} initialTab="My goals" /></Suspense>
                 ) : activeItem === "strategy" && trackerView === "Reports" ? (
-                  <Suspense fallback={<main role="status">Loading Reports...</main>}><Reports currentUser={currentUser} /></Suspense>
-                ) : activeItem === "strategy" && trackerView === "Resourcing" ? (
-                  <Suspense fallback={<main role="status">Loading Resourcing...</main>}><Resourcing currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>
+                  <Suspense fallback={<LoadingScreen message="Loading reports..." />}><Reports currentUser={currentUser} /></Suspense>
                 ) : selectedActiveItem === "people" ? (
                   <PeoplePage
                     theme={theme}
                     activeTab={peopleTab}
+                    currentUser={currentUser}
+                    rolePermissions={rolePermissions}
                     onTabChange={(tab) => {
                       setPeopleTab(tab);
                       navigate(tab === "members" ? "/people" : `/people/${tab}`);
                     }}
                   />
                 ) : selectedActiveItem === "knowledge" ? (
-                  <Suspense fallback={<main role="status">Loading Knowledge...</main>}><MeetingsPage currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>
+                  <Suspense fallback={<LoadingScreen message="Loading knowledge..." />}><MeetingsPage currentUser={currentUser} rolePermissions={rolePermissions} /></Suspense>
                 ) : (
                   <Dashboard profileName={profileName} currentUser={currentUser} />
                 )}

@@ -292,6 +292,42 @@
   filter: brightness(1.08);
 }
 
+.backlog-inline-create-task {
+  display: flex;
+  gap: 8px;
+  max-width: 620px;
+  margin: 10px 0 14px 38px;
+}
+
+.backlog-inline-create-task input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--app-border, rgba(255, 255, 255, 0.12));
+  border-radius: var(--radius-md, 8px);
+  background: var(--app-surface, #18191e);
+  color: var(--app-text, #f8fafc);
+}
+
+.backlog-inline-create-task input::placeholder {
+  color: var(--app-muted, #94a3b8);
+}
+
+.backlog-inline-create-task button {
+  padding: 8px 14px;
+  border: 0;
+  border-radius: var(--radius-md, 8px);
+  background: var(--brand-gradient, linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%));
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.backlog-inline-create-task button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .backlog-btn-create-sprint {
   background-color: var(--app-surface-raised, #1d1e24);
   color: var(--app-text-secondary, #cbd5e1);

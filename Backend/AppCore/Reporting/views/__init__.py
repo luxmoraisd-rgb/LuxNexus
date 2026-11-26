@@ -6,9 +6,8 @@ from .dashboards import DashboardListCreateView
 from .reports import (
     EODCommentsView,
     EODReportDetailView,
-    EODReportImportView,
+    EODReportExportView,
     EODReportListCreateView,
-    EODSpreadsheetPreviewView,
     ReportOptionsView,
 )
 
@@ -18,8 +17,7 @@ __all__ = [
     "DashboardSummaryView",
     "EODCommentsView",
     "EODReportDetailView",
-    "EODReportImportView",
+    "EODReportExportView",
     "EODReportListCreateView",
-    "EODSpreadsheetPreviewView",
     "ReportOptionsView",
 ]

@@ -216,13 +216,6 @@ export const SendIcon = ({ size = 14, className = '' }) => (
   </svg>
 );
 
-export const CheckSquareIcon = ({ size = 14, className = '' }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-    <polyline points="9 11 12 14 22 4" />
-    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-  </svg>
-);
-
 export const FlagIcon = ({ size = 14, color = 'currentColor', className = '' }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
     <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />

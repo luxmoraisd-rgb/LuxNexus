@@ -20,8 +20,19 @@ export const reportApi = {
     const response = await client.get("/reporting/eod-reports/", { params, signal });
     return response.data;
   },
-  async getOptions() {
-    const response = await client.get("/reporting/eod-options/");
+  async exportReport(params) {
+    const response = await client.get("/reporting/eod-reports/export/", {
+      params,
+      responseType: "blob",
+    });
+    const disposition = response.headers["content-disposition"] || "";
+    const filename = disposition.match(/filename="([^"]+)"/i)?.[1] || "report.docx";
+    return { blob: response.data, filename };
+  },
+  async getOptions(projectId) {
+    const response = await client.get("/reporting/eod-options/", {
+      params: projectId ? { project_id: projectId } : undefined,
+    });
     return response.data;
   },
   async createReport(report) {
@@ -34,18 +45,6 @@ export const reportApi = {
   },
   async deleteReport(id) {
     await client.delete(`/reporting/eod-reports/${encodeURIComponent(id)}/`);
-  },
-  async importReports(rows) {
-    const response = await client.post("/reporting/eod-reports/import/", { rows });
-    return response.data;
-  },
-  async previewSpreadsheet(file) {
-    const form = new FormData();
-    form.append("file", file);
-    const response = await client.post("/reporting/eod-reports/preview-import/", form, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
-    return response.data;
   },
 };
 

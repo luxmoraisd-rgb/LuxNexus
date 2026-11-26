@@ -335,6 +335,9 @@
   transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s ease, border-color 0.15s ease;
   position: relative;
   cursor: pointer;
+  overflow: hidden;
+  animation: member-card-enter 440ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+  animation-delay: calc(var(--member-card-index, 0) * 45ms);
 }
 
 [data-theme="light"] .member-card {
@@ -344,9 +347,50 @@
 }
 
 .member-card:hover {
-  transform: translateY(-3px);
+  transform: translateY(-5px) scale(1.012);
   border-color: var(--brand-primary, #6366f1);
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+}
+
+.member-card::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 25%, rgba(129, 140, 248, 0.08) 48%, transparent 70%);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-110%);
+}
+
+.member-card:hover::after,
+.member-card:focus-visible::after {
+  opacity: 1;
+  animation: member-card-sweep 760ms ease-out;
+}
+
+.member-card:focus-visible {
+  outline: 2px solid #818cf8;
+  outline-offset: 3px;
+}
+
+.member-card .card-avatar {
+  transition: transform 240ms ease, box-shadow 240ms ease;
+}
+
+.member-card:hover .card-avatar,
+.member-card:focus-visible .card-avatar {
+  transform: scale(1.07) rotate(-4deg);
+  box-shadow: 0 0 0 4px rgba(129, 140, 248, 0.16), 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+.member-card .role-badge {
+  transition: transform 200ms ease, filter 200ms ease;
+}
+
+.member-card:hover .role-badge,
+.member-card:focus-visible .role-badge {
+  transform: translateY(-2px);
+  filter: brightness(1.12);
 }
 
 [data-theme="light"] .member-card:hover {
@@ -599,42 +643,194 @@
 ========================================================= */
 .teams-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  gap: 22px;
+}
+
+.teams-page-panel {
+  animation: teams-panel-enter 420ms ease-out both;
 }
 
 .team-card {
-  background: var(--app-surface-card, #161722);
-  border: 1px solid var(--app-border, rgba(255, 255, 255, 0.08));
-  border-radius: 14px;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    radial-gradient(ellipse at 100% 0%, rgba(99, 102, 241, 0.15), transparent 45%),
+    linear-gradient(145deg, var(--app-surface-card, #171925), rgba(20, 22, 33, 0.96));
+  border: 1px solid var(--app-border, rgba(148, 163, 184, 0.15));
+  border-radius: 18px;
   padding: 22px;
   display: flex;
   flex-direction: column;
-  transition: transform 0.15s ease, border-color 0.15s ease;
+  min-height: 340px;
+  box-shadow: 0 12px 30px rgba(2, 6, 23, 0.14);
+  animation: project-card-enter 560ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+  animation-delay: calc(var(--project-card-index, 0) * 65ms);
+  transition: transform 260ms cubic-bezier(0.2, 0.75, 0.25, 1), border-color 220ms ease, box-shadow 220ms ease;
+}
+
+.team-card::after {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: linear-gradient(115deg, transparent 20%, rgba(255, 255, 255, 0.055) 45%, transparent 68%);
+  content: "";
+  opacity: 0;
+  transform: translateX(-110%);
+  transition: opacity 180ms ease;
+}
+
+.team-card::before {
+  position: absolute;
+  top: 0;
+  left: -70%;
+  width: 52%;
+  height: 2px;
+  border-radius: 0 0 3px 3px;
+  background: linear-gradient(90deg, transparent, #a5b4fc, #38bdf8, transparent);
+  content: "";
+  opacity: 0;
+}
+
+.team-card:hover::before {
+  opacity: 1;
+  animation: project-topline-sweep 900ms ease-out;
 }
 
 [data-theme="light"] .team-card {
-  background: #ffffff;
+  background:
+    radial-gradient(ellipse at 100% 0%, rgba(99, 102, 241, 0.11), transparent 45%),
+    linear-gradient(145deg, #ffffff, #f8faff);
   border-color: #e2e8f0;
+  box-shadow: 0 12px 28px rgba(30, 41, 59, 0.07);
 }
 
 .team-card:hover {
-  transform: translateY(-2px);
-  border-color: var(--brand-primary, #6366f1);
+  transform: translateY(-6px) scale(1.012);
+  border-color: rgba(129, 140, 248, 0.55);
+  box-shadow: 0 20px 38px rgba(2, 6, 23, 0.24);
+}
+
+.team-card:hover::after {
+  opacity: 1;
+  animation: project-card-shimmer 780ms ease-out;
+}
+
+.project-card-accent {
+  position: absolute;
+  z-index: -1;
+  top: -55px;
+  right: -40px;
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  background: rgba(99, 102, 241, 0.12);
+  filter: blur(2px);
+  transition: transform 500ms cubic-bezier(0.2, 0.75, 0.25, 1), opacity 350ms ease;
+  animation: project-accent-float 7s ease-in-out infinite;
+}
+
+.team-card:hover .project-card-accent {
+  transform: scale(1.35);
+  opacity: 0.85;
+  animation: project-accent-float 1.8s ease-in-out infinite;
+}
+
+.project-team-card-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 17px;
+}
+
+.project-team-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  color: #c7d2fe;
+  background: linear-gradient(145deg, rgba(99, 102, 241, 0.3), rgba(59, 130, 246, 0.12));
+  border: 1px solid rgba(129, 140, 248, 0.24);
+  border-radius: 13px;
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.12);
+  transition: transform 260ms cubic-bezier(0.2, 0.75, 0.25, 1), box-shadow 260ms ease;
+  filter: hue-rotate(var(--project-icon-hue, 0deg));
+}
+
+.team-card:hover .project-team-icon {
+  transform: rotate(-8deg) scale(1.1);
+  box-shadow: 0 7px 20px rgba(99, 102, 241, 0.24), inset 0 1px rgba(255, 255, 255, 0.12);
+  animation: project-icon-pop 520ms cubic-bezier(0.2, 0.75, 0.25, 1);
+}
+
+.project-team-heading {
+  display: flex;
+  flex: 1;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.project-team-key {
+  color: var(--app-muted, #94a3b8);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+}
+
+.project-team-status {
+  position: relative;
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(52, 211, 153, 0.24);
+  background: rgba(16, 185, 129, 0.1);
+  color: #6ee7b7;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.team-card:hover .project-team-status {
+  animation: project-status-glow 900ms ease-in-out;
+}
+
+.project-team-status::before {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 5px 1px 0;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+}
+
+.team-card:hover .project-team-status::before {
+  animation: project-status-ping 900ms ease-out;
 }
 
 .team-card-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 10px;
+  gap: 10px;
+  margin-bottom: 8px;
 }
 
 .team-name {
-  font-size: 17px;
-  font-weight: 700;
+  font-size: 19px;
+  font-weight: 750;
+  line-height: 1.3;
   margin: 0;
   color: var(--app-text, #ffffff);
+  transition: color 200ms ease, letter-spacing 200ms ease;
+}
+
+.team-card:hover .team-name {
+  color: #c7d2fe;
+  letter-spacing: 0.01em;
 }
 
 [data-theme="light"] .team-name {
@@ -645,22 +841,306 @@
   font-size: 13px;
   color: var(--app-muted, #94a3b8);
   line-height: 1.5;
-  margin: 0 0 18px 0;
+  margin: 0 0 18px;
+  min-height: 38px;
 }
 
-.team-details-row {
+.project-team-stats {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--app-border, rgba(255, 255, 255, 0.07));
+  border-radius: 12px;
+  background: rgba(148, 163, 184, 0.045);
+  transition: transform 220ms ease, border-color 220ms ease, background 220ms ease;
+}
+
+.team-card:hover .project-team-stats {
+  transform: translateY(-2px);
+  border-color: rgba(129, 140, 248, 0.22);
+  background: rgba(129, 140, 248, 0.065);
+}
+
+.project-team-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  animation: project-stat-enter 420ms ease-out both;
+}
+
+.project-team-stats > div:nth-child(2) {
+  animation-delay: 80ms;
+}
+
+.project-team-stats span,
+.project-team-roster-heading {
+  color: var(--app-muted, #94a3b8);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.project-team-stats strong {
+  color: var(--app-text, #e8eaf2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.project-team-roster-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 17px 0 10px;
+  transition: color 180ms ease, letter-spacing 180ms ease;
+}
+
+.team-card:hover .project-team-roster-heading {
+  color: #c7d2fe;
+  letter-spacing: 0.08em;
+}
+
+.project-team-members {
+  display: grid;
+  gap: 3px;
+  max-height: 170px;
+  overflow-y: auto;
+  padding-right: 3px;
+}
+
+.project-team-member {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  font-size: 12.5px;
-  color: var(--app-muted, #94a3b8);
-  margin-top: auto;
-  padding-top: 14px;
-  border-top: 1px solid var(--app-border, rgba(255, 255, 255, 0.06));
+  gap: 10px;
+  min-width: 0;
+  padding: 7px;
+  border-radius: 10px;
+  opacity: 0;
+  animation: project-member-enter 380ms ease-out both;
+  animation-delay: calc(120ms + var(--member-index, 0) * 45ms);
+  transition: background 180ms ease, transform 180ms ease, box-shadow 180ms ease;
 }
 
-[data-theme="light"] .team-details-row {
-  border-color: #f1f5f9;
+.project-team-member:hover {
+  transform: translateX(3px);
+  background: rgba(129, 140, 248, 0.08);
+  box-shadow: inset 2px 0 rgba(129, 140, 248, 0.65);
+}
+
+.project-team-member > span:last-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.project-team-member strong {
+  color: var(--app-text, #e8eaf2);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-team-member small {
+  color: var(--app-muted, #94a3b8);
+  font-size: 10px;
+  margin-top: 2px;
+}
+
+.project-team-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  background: linear-gradient(145deg, rgba(99, 102, 241, 0.25), rgba(59, 130, 246, 0.14));
+  border: 1px solid rgba(129, 140, 248, 0.22);
+  color: #c7d2fe;
+  font-size: 11px;
+  font-weight: 700;
+  transition: transform 220ms ease, box-shadow 220ms ease;
+}
+
+.project-team-member:hover .project-team-avatar {
+  transform: scale(1.12) rotate(-5deg);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+}
+
+.project-team-empty {
+  color: var(--app-muted, #94a3b8);
+  font-size: 12px;
+  padding: 4px 7px 10px;
+}
+
+@media (max-width: 960px) {
+  .people-page-root {
+    padding: 22px 20px 40px;
+  }
+
+  .people-stats-ribbon {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .members-grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr));
+  }
+}
+
+@keyframes project-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes member-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes member-card-sweep {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(110%);
+  }
+}
+
+@keyframes project-card-shimmer {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(110%);
+  }
+}
+
+@keyframes teams-panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes project-topline-sweep {
+  from {
+    left: -70%;
+  }
+  to {
+    left: 120%;
+  }
+}
+
+@keyframes project-icon-pop {
+  from {
+    transform: rotate(-18deg) scale(0.8);
+  }
+  to {
+    transform: rotate(-8deg) scale(1.1);
+  }
+}
+
+@keyframes project-status-ping {
+  0% {
+    box-shadow: 0 0 0 0 currentColor;
+  }
+  70%, 100% {
+    box-shadow: 0 0 0 5px transparent;
+  }
+}
+
+@keyframes project-stat-enter {
+  from {
+    opacity: 0.35;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes project-status-glow {
+  from, to {
+    box-shadow: 0 0 0 rgba(16, 185, 129, 0);
+  }
+  50% {
+    box-shadow: 0 0 13px rgba(16, 185, 129, 0.12);
+  }
+}
+
+@keyframes project-accent-float {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1.35);
+  }
+  50% {
+    transform: translate3d(-9px, 8px, 0) scale(1.35);
+  }
+}
+
+@keyframes project-member-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .teams-page-panel,
+  .team-card,
+  .member-card,
+  .team-card::before,
+  .team-card::after,
+  .member-card::after,
+  .project-card-accent,
+  .project-team-icon,
+  .project-team-status,
+  .project-team-status::before,
+  .project-team-stats > div,
+  .project-team-member {
+    animation: none;
+    opacity: 1;
+    transition: none;
+  }
+
+  .team-card:hover,
+  .project-team-icon,
+  .project-team-member,
+  .project-team-avatar,
+  .project-team-stats {
+    transform: none;
+  }
+
+  .member-card:hover,
+  .member-card .card-avatar,
+  .member-card .role-badge {
+    transform: none;
+  }
 }
 
 /* =========================================================
@@ -1167,8 +1647,27 @@
   }
 
   .people-stats-ribbon {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .stat-card {
+    min-width: 0;
+    padding: 12px;
+    gap: 9px;
+  }
+
+  .stat-icon-wrap {
+    width: 36px;
+    height: 36px;
+  }
+
+  .stat-value {
+    font-size: 18px;
+  }
+
+  .stat-label {
+    font-size: 10px;
   }
 
   .people-search-box {
@@ -1179,9 +1678,28 @@
   }
 
   .people-filter-select {
-    min-width: 0;
+    min-width: calc(50% - 6px);
     max-width: 100%;
     flex: 1;
+  }
+
+  .people-nav-strip {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .people-tabs {
+    width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+  }
+
+  .people-tab-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    padding: 10px 12px;
   }
 
   .members-grid,
@@ -1198,6 +1716,127 @@
   .members-table-wrap {
     max-width: 100%;
     overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .members-table {
+    min-width: 760px;
+  }
+
+  .invite-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+    padding: 13px;
+  }
+
+  .invite-left {
+    min-width: 0;
+    width: 100%;
+    align-items: flex-start;
+  }
+
+  .invite-email {
+    overflow-wrap: anywhere;
+  }
+
+  .invite-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .invite-banner {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .people-modal-backdrop {
+    align-items: flex-end;
+    padding: 10px;
+  }
+
+  .people-modal-card {
+    max-height: 92dvh;
+    overflow: hidden;
+    border-radius: 16px 16px 10px 10px;
+  }
+
+  .people-modal-body {
+    max-height: calc(92dvh - 130px);
+    overflow-y: auto;
+    padding: 16px;
+  }
+
+  .people-modal-header,
+  .people-modal-footer {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .form-row {
+    flex-direction: column;
+    gap: 12px;
+  }
+}
+
+@media (max-width: 420px) {
+  .people-page-root {
+    padding: 14px 11px 26px;
+  }
+
+  .people-title-group h1 {
+    font-size: 20px;
+    gap: 8px;
+  }
+
+  .people-subtitle {
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .people-btn {
+    padding: 8px 11px;
+  }
+
+  .stat-card {
+    padding: 10px 8px;
+    gap: 7px;
+  }
+
+  .stat-icon-wrap {
+    width: 32px;
+    height: 32px;
+  }
+
+  .stat-label {
+    line-height: 1.3;
+  }
+
+  .team-card,
+  .member-card {
+    padding: 14px;
+  }
+
+  .project-team-card-top {
+    margin-bottom: 13px;
+  }
+
+  .team-card-header {
+    flex-wrap: wrap;
+  }
+
+  .people-modal-backdrop {
+    padding: 6px;
+  }
+
+  .people-modal-card {
+    max-height: 95dvh;
+  }
+
+  .people-modal-body {
+    max-height: calc(95dvh - 120px);
   }
 }
 

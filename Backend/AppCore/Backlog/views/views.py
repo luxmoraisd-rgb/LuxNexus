@@ -41,9 +41,11 @@ from ...Auth.role_permissions import (
 from ...project_access import (
     accessible_project_ids,
     is_project_admin,
+    require_admin,
     require_project_access,
     task_project_id,
 )
+from ...Inbox.notifications import notify_project_activity, notify_project_comment
 from ..models import Board, Sprint, BoardView, BoardColumn, Task
 from ..serializers import (
     UserSerializer,
@@ -278,6 +280,15 @@ class SprintCreateView(RoleProtectedAPIView):
         serializer = SprintSerializer(data=data, context={"request": request})
         if serializer.is_valid():
             sprint = serializer.save()
+            if sprint.project_id:
+                notify_project_activity(
+                    sprint.project_id,
+                    request.user,
+                    f"Sprint created: {sprint.name}",
+                    f"{request.user.username} created sprint {sprint.name} "
+                    f"for project {sprint.project_id}.",
+                    database=get_database(),
+                )
             return Response(
                 SprintSerializer(sprint, context={"request": request}).data,
                 status=status.HTTP_201_CREATED,
@@ -319,6 +330,7 @@ class SprintDatesUpdateView(RoleProtectedAPIView):
     """
     @extend_schema(summary="Update sprint dates and duration", request=SprintDatesSerializer)
     def put(self, request, sprint_id):
+        require_admin(request.user)
         sprint = get_object_or_404(Sprint, pk=sprint_id)
         serializer = SprintDatesSerializer(data=request.data)
         if serializer.is_valid():
@@ -346,6 +358,7 @@ class SprintGoalsUpdateView(RoleProtectedAPIView):
     """
     @extend_schema(summary="Update sprint goals", request=SprintGoalSerializer)
     def put(self, request, sprint_id):
+        require_admin(request.user)
         sprint = get_object_or_404(Sprint, pk=sprint_id)
         serializer = SprintGoalSerializer(data=request.data)
         if serializer.is_valid():
@@ -399,6 +412,7 @@ class SprintDetailView(RoleProtectedAPIView):
         )
 
     def patch(self, request, sprint_id):
+        require_admin(request.user)
         sprint = get_object_or_404(Sprint, pk=sprint_id)
         data = request.data.copy()
         if "dates" in data and "duration_text" not in data:
@@ -1190,6 +1204,17 @@ class TaskCreateListView(RoleProtectedAPIView):
         serializer = TaskSerializer(data=data, context={"request": request})
         if serializer.is_valid():
             task = serializer.save()
+            project_id = task_project_id(task)
+            if project_id:
+                sprint_name = task.sprint.name if task.sprint else "Backlog"
+                notify_project_activity(
+                    project_id,
+                    request.user,
+                    f"Task created: {task.task_key}",
+                    f"{request.user.username} created task {task.task_key} "
+                    f"({task.title}) in {sprint_name}.",
+                    database=get_database(),
+                )
             return Response(
                 TaskSerializer(task, context={"request": request}).data,
                 status=status.HTTP_201_CREATED,
@@ -1367,10 +1392,20 @@ class TaskCommentView(RoleProtectedAPIView):
         }
         result = get_database().backlog_task_comments.insert_one(comment)
         comment["_id"] = result.inserted_id
-        task.comments_count = get_database().backlog_task_comments.count_documents(
+        database = get_database()
+        task.comments_count = database.backlog_task_comments.count_documents(
             {"task_id": str(task.id)}
         )
         task.save(update_fields=["comments_count", "updated_at"])
+        project_id = task_project_id(task)
+        if project_id:
+            notify_project_comment(
+                project_id,
+                request.user,
+                task.task_key or task.title,
+                text,
+                database=database,
+            )
         return Response(self._serialize(comment), status=status.HTTP_201_CREATED)
 
 

@@ -25,7 +25,6 @@ const appSearchOptions = [
   "Portfolios",
   "Goals",
   "Reporting",
-  "Resourcing",
   "People",
   "Docs & Knowledge",
 ];

@@ -7,6 +7,7 @@ import {
   Circle,
   FolderKanban,
   Layers3,
+  Pencil,
   Plus,
   RefreshCw,
   Trash2,
@@ -31,6 +32,9 @@ export default function ProjectDetails({ rolePermissions, currentUser }) {
   const [tab, setTab] = useState("overview");
   const [modal, setModal] = useState(null);
   const [toast, setToast] = useState("");
+  const [editingSprint, setEditingSprint] = useState(null);
+  const [showDeleteProjectConfirmation, setShowDeleteProjectConfirmation] = useState(false);
+  const [isDeletingProject, setIsDeletingProject] = useState(false);
 
   const [sprintName, setSprintName] = useState("");
   const [sprintGoal, setSprintGoal] = useState("");
@@ -43,14 +47,17 @@ export default function ProjectDetails({ rolePermissions, currentUser }) {
   const [taskStatus, setTaskStatus] = useState("Ready to start");
   const [taskType, setTaskType] = useState("Task");
   const [taskSP, setTaskSP] = useState(3);
-  const [taskDueDate, setTaskDueDate] = useState("");
 
   const effectiveRole = rolePermissions?.current_role || currentUser?.role || "user";
   const isElevated = effectiveRole === "admin" || effectiveRole === "team_lead";
   const canManageSprints = isElevated && rolePermissions?.manage_sprints !== false;
   const canDeleteSprints = effectiveRole === "admin" && canManageSprints;
+  const canEditSprints = effectiveRole === "admin" && canManageSprints;
   const canManageTasks = isElevated && rolePermissions?.manage_tasks !== false;
-  const canManageProject = effectiveRole === "admin" && rolePermissions?.manage_portfolios !== false;
+  const canManageProject =
+    (effectiveRole === "admin" || effectiveRole === "team_lead") &&
+    rolePermissions?.manage_portfolios !== false;
+  const canDeleteProject = effectiveRole === "admin" && canManageProject;
 
   const showToast = (message) => {
     setToast(message);
@@ -95,6 +102,25 @@ export default function ProjectDetails({ rolePermissions, currentUser }) {
 
   const completedTasks = tasks.filter((task) => task.status === "Done").length;
   const activeSprint = sprints.find((sprint) => sprint.status === "active");
+  const isActiveProject = String(project?.status || "").trim().toLowerCase() === "active";
+  const selectedTaskSprint = sprints.find(
+    (sprint) => String(sprint.id) === String(taskSprint)
+  );
+  const taskDueDate = String(
+    selectedTaskSprint?.end_date || selectedTaskSprint?.endDate || ""
+  ).slice(0, 10);
+  const closeSprintModal = () => {
+    setModal(null);
+    setEditingSprint(null);
+    setSprintName("");
+    setSprintGoal("");
+    setSprintStart("");
+    setSprintEnd("");
+  };
+  const openSprintCreator = () => {
+    closeSprintModal();
+    setModal("sprint");
+  };
   const createSprint = async (event) => {
     event.preventDefault();
     if (!sprintName.trim()) return;
@@ -108,14 +134,43 @@ export default function ProjectDetails({ rolePermissions, currentUser }) {
         project_id: projectId,
       });
       setSprints((current) => [...current, created]);
-      setModal(null);
-      setSprintName("");
-      setSprintGoal("");
-      setSprintStart("");
-      setSprintEnd("");
+      closeSprintModal();
       showToast("Sprint created successfully.");
     } catch (createError) {
       showToast(createError.response?.data?.detail || "Unable to create sprint.");
+    }
+  };
+
+  const openSprintEditor = (sprint) => {
+    setEditingSprint(sprint);
+    setSprintName(sprint.name || "");
+    setSprintGoal(sprint.goals || sprint.goal || "");
+    setSprintStart(String(sprint.start_date || sprint.startDate || "").slice(0, 10));
+    setSprintEnd(String(sprint.end_date || sprint.endDate || "").slice(0, 10));
+    setModal("sprint");
+  };
+
+  const updateSprint = async (event) => {
+    event.preventDefault();
+    if (!editingSprint || !canEditSprints || !sprintName.trim()) return;
+    const updates = {
+      name: sprintName.trim(),
+      goals: sprintGoal.trim(),
+      start_date: sprintStart || null,
+      end_date: sprintEnd || null,
+      duration_text: sprintStart && sprintEnd ? `${sprintStart} - ${sprintEnd}` : "",
+    };
+    try {
+      await sprintApi.update(editingSprint.id, updates);
+      setSprints((current) => current.map((sprint) =>
+        String(sprint.id) === String(editingSprint.id)
+          ? { ...sprint, ...updates, goal: updates.goals, dates: updates.duration_text }
+          : sprint
+      ));
+      closeSprintModal();
+      showToast("Sprint updated successfully.");
+    } catch (updateError) {
+      showToast(updateError.response?.data?.detail || "Unable to update sprint.");
     }
   };
 
@@ -154,7 +209,6 @@ export default function ProjectDetails({ rolePermissions, currentUser }) {
       setModal(null);
       setTaskTitle("");
       setTaskAssignee("");
-      setTaskDueDate("");
       showToast("Task created successfully.");
     } catch (createError) {
       showToast(createError.response?.data?.detail || "Unable to create task.");
@@ -162,14 +216,15 @@ export default function ProjectDetails({ rolePermissions, currentUser }) {
   };
 
   const deleteProjectRecord = async () => {
-    if (!project || !window.confirm(
-      `Permanently delete "${project.name}" and all of its sprints, tasks, comments, and attachments?`
-    )) return;
+    if (!canDeleteProject || !project || isDeletingProject) return;
+    setIsDeletingProject(true);
     try {
       await deleteProject(project.id);
       navigate("/work/projects");
     } catch (deleteError) {
       showToast(deleteError.response?.data?.detail || "Unable to delete project.");
+    } finally {
+      setIsDeletingProject(false);
     }
   };
 
@@ -199,17 +254,33 @@ export default function ProjectDetails({ rolePermissions, currentUser }) {
           <div>
             <div className="project-details-title-row">
               <h1>{project.name}</h1>
+              {isActiveProject && (
+                <span className="project-active-pulse" title="Active project" aria-label="Active project" />
+              )}
+              {canDeleteProject && (
+                <button
+                  type="button"
+                  className="project-details-delete"
+                  onClick={() => setShowDeleteProjectConfirmation(true)}
+                  title="Delete project"
+                  aria-label={`Delete project ${project.name}`}
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
               <span className="project-details-key">{project.key}</span>
               <span className="project-details-status">{project.status || "Active"}</span>
             </div>
             <p>{project.description || "No project description."}</p>
           </div>
         </div>
-        {canManageProject && (
-          <button type="button" className="project-details-delete" onClick={deleteProjectRecord}>
-            <Trash2 size={15} /> Delete
-          </button>
-        )}
+        <button
+          type="button"
+          className="project-details-back"
+          onClick={() => navigate(`/work/projects/${projectId}/eod`)}
+        >
+          <Calendar size={16} /> EOD reports
+        </button>
       </header>
 
       <nav className="project-details-tabs" aria-label="Project sections">
@@ -239,7 +310,7 @@ export default function ProjectDetails({ rolePermissions, currentUser }) {
         <div className="project-details-content">
           <div className="project-section-toolbar">
             <h2>Sprints</h2>
-            {canManageSprints && <button type="button" onClick={() => setModal("sprint")}><Plus size={15} /> Create Sprint</button>}
+            {canManageSprints && <button type="button" onClick={openSprintCreator}><Plus size={15} /> Create Sprint</button>}
           </div>
           {sprints.length ? (
             <div className="project-sprint-list">
@@ -252,6 +323,7 @@ export default function ProjectDetails({ rolePermissions, currentUser }) {
                   <div className="project-sprint-meta">
                     <span>{sprint.status || "future"}</span>
                     <span>{sprint.duration_text || sprint.dates || "Dates not set"}</span>
+                    {canEditSprints && <button type="button" className="project-sprint-edit" onClick={() => openSprintEditor(sprint)} title="Edit sprint" aria-label={`Edit ${sprint.name}`}><Pencil size={14} /></button>}
                     {canDeleteSprints && <button type="button" onClick={() => deleteSprint(sprint)} title="Delete sprint" aria-label={`Delete ${sprint.name}`}><Trash2 size={14} /></button>}
                   </div>
                 </article>
@@ -283,16 +355,16 @@ export default function ProjectDetails({ rolePermissions, currentUser }) {
       )}
 
       {modal === "sprint" && (
-        <div className="project-details-modal-backdrop" onClick={() => setModal(null)}>
-          <form className="project-details-modal" onSubmit={createSprint} onClick={(event) => event.stopPropagation()}>
-            <div className="project-details-modal-header"><h2>Create Sprint</h2><button type="button" onClick={() => setModal(null)}><X size={16} /></button></div>
+        <div className="project-details-modal-backdrop" onClick={closeSprintModal}>
+          <form className="project-details-modal" onSubmit={editingSprint ? updateSprint : createSprint} onClick={(event) => event.stopPropagation()}>
+            <div className="project-details-modal-header"><h2>{editingSprint ? "Edit Sprint" : "Create Sprint"}</h2><button type="button" onClick={closeSprintModal}><X size={16} /></button></div>
             <label>Sprint Name<input required value={sprintName} onChange={(event) => setSprintName(event.target.value)} /></label>
             <label>Sprint Goal<textarea value={sprintGoal} onChange={(event) => setSprintGoal(event.target.value)} /></label>
             <div className="project-details-modal-row">
               <label>Start Date<input type="date" value={sprintStart} onChange={(event) => setSprintStart(event.target.value)} /></label>
               <label>End Date<input type="date" min={sprintStart || undefined} value={sprintEnd} onChange={(event) => setSprintEnd(event.target.value)} /></label>
             </div>
-            <div className="project-details-modal-actions"><button type="button" onClick={() => setModal(null)}>Cancel</button><button type="submit">Create Sprint</button></div>
+            <div className="project-details-modal-actions"><button type="button" onClick={closeSprintModal}>Cancel</button><button type="submit">{editingSprint ? "Save Changes" : "Create Sprint"}</button></div>
           </form>
         </div>
       )}
@@ -306,14 +378,46 @@ export default function ProjectDetails({ rolePermissions, currentUser }) {
             <label>Assignee<select value={taskAssignee} onChange={(event) => setTaskAssignee(event.target.value)}><option value="">Unassigned</option>{assignees.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label>
             <div className="project-details-modal-row">
               <label>Status<select value={taskStatus} onChange={(event) => setTaskStatus(event.target.value)}><option>Ready to start</option><option>In Progress</option><option>In Review</option><option>Done</option></select></label>
-              <label>Type<select value={taskType} onChange={(event) => setTaskType(event.target.value)}><option>Task</option><option>Feature</option><option>Bug</option><option>Quality</option></select></label>
+              <label>Type<select value={taskType} onChange={(event) => setTaskType(event.target.value)}><option>Task</option><option>Feature</option><option>Bug</option><option>Quality</option><option>Frontend Developer</option><option>Backend Developer</option><option>QA</option></select></label>
             </div>
             <div className="project-details-modal-row">
               <label>Story Points<select value={taskSP} onChange={(event) => setTaskSP(Number(event.target.value))}>{STORY_POINTS.map((value) => <option key={value} value={value}>{value} SP</option>)}</select></label>
-              <label>Due Date<input type="date" value={taskDueDate} onChange={(event) => setTaskDueDate(event.target.value)} /></label>
+              <div className="project-details-sprint-due-date">
+                <span>Due Date (Sprint End Date)</span>
+                <strong>{taskDueDate || "Sprint end date not set"}</strong>
+              </div>
             </div>
             <div className="project-details-modal-actions"><button type="button" onClick={() => setModal(null)}>Cancel</button><button type="submit">Create Task</button></div>
           </form>
+        </div>
+      )}
+
+      {showDeleteProjectConfirmation && (
+        <div
+          className="project-details-modal-backdrop"
+          onClick={() => !isDeletingProject && setShowDeleteProjectConfirmation(false)}
+        >
+          <section
+            className="project-details-delete-confirmation"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="project-details-delete-title"
+            aria-describedby="project-details-delete-description"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="project-details-delete-confirmation-icon"><Trash2 size={20} /></div>
+            <h2 id="project-details-delete-title">Delete {project.name}?</h2>
+            <p id="project-details-delete-description">
+              This permanently deletes the project and its sprints, tasks, comments, and attachments.
+              This action cannot be undone.
+            </p>
+            <div className="project-details-modal-actions">
+              <button type="button" onClick={() => setShowDeleteProjectConfirmation(false)} disabled={isDeletingProject}>Cancel</button>
+              <button type="button" className="project-details-delete-confirm-button" onClick={deleteProjectRecord} disabled={isDeletingProject}>
+                {isDeletingProject ? "Deleting..." : "Delete Project"}
+              </button>
+            </div>
+          </section>
         </div>
       )}
 

@@ -818,26 +818,6 @@
   color: #0f172a;
 }
 
-[data-theme="light"] .task-card-checklist-section {
-  background: #f8fafc;
-  border-color: #e2e8f0;
-}
-
-[data-theme="light"] .checklist-item-row {
-  background: #ffffff;
-  border-color: #e2e8f0;
-}
-
-[data-theme="light"] .checklist-item-text {
-  color: #0f172a;
-}
-
-[data-theme="light"] .checklist-add-input {
-  background: #ffffff;
-  border-color: #cbd5e1;
-  color: #0f172a;
-}
-
 [data-theme="light"] .task-card-sidebar-panel {
   background: #f8fafc;
   border-color: #e2e8f0;

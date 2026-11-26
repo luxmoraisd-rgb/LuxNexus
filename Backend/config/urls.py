@@ -17,7 +17,6 @@ urlpatterns = [
     path("api/backlog/", include("AppCore.Backlog.urls.urls")),
     path("api/", include("AppCore.Goals.urls")),
     path("api/", include("AppCore.Reporting.urls")),
-    path("api/", include("AppCore.Resourcing.urls")),
     path("api/", include("AppCore.People.urls")),
     path("api/", include("AppCore.Portfolios.urls")),
     path("api/", include("AppCore.Knowledge.urls")),

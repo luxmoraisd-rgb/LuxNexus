@@ -4,7 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from AppCore.Auth.role_permissions import RoleModulePermission
+from AppCore.Auth.role_permissions import TaskViewSetRolePermission, RoleModulePermission
 from AppCore.Backlog.models.model import Sprint, Task
 from AppCore.Backlog.serializers.serializer import SprintSerializer, TaskSerializer
 
@@ -95,7 +95,7 @@ class SprintViewSet(viewsets.ModelViewSet):
 
 
 class TaskViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RoleModulePermission]
+    permission_classes = [IsAuthenticated, TaskViewSetRolePermission]
     queryset = Task.objects.all().select_related('sprint', 'owner', 'board').order_by('order', '-created_at')
     serializer_class = TaskSerializer
     filter_backends = [SearchFilter, OrderingFilter]
