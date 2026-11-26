@@ -1,11 +1,117 @@
 from types import SimpleNamespace
 from unittest import TestCase
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock, PropertyMock, call, patch
 
 from bson import ObjectId
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from .views.team_goals import TeamGoalsView
+from .goal_sync import sync_goals_from_projects
+
+
+class ProjectGoalSynchronizationTests(TestCase):
+    def test_goal_progress_tracks_live_backlog_task_state(self):
+        project_id = str(ObjectId())
+        sprint_id = ObjectId()
+        task_id = ObjectId()
+        project = {
+            "_id": ObjectId(project_id),
+            "name": "Project One",
+            "members": [{"name": "Team Member", "email": "member@example.com"}],
+        }
+        sprint = SimpleNamespace(
+            pk=sprint_id,
+            project_id=project_id,
+            name="Sprint One",
+            status="active",
+            end_date="2026-11-30",
+        )
+        active_sprint = SimpleNamespace(
+            pk=ObjectId(),
+            project_id=project_id,
+            name="Active Sprint One",
+            status="active",
+            end_date="2026-11-30",
+        )
+        task_owner = SimpleNamespace(
+            pk=ObjectId(),
+            username="member",
+            email="member@example.com",
+            first_name="Team",
+            last_name="Member",
+        )
+        task = SimpleNamespace(
+            pk=task_id,
+            project_id=project_id,
+            sprint_id=sprint_id,
+            title="Complete report export",
+            status="In Progress",
+            due_date="",
+            owner=task_owner,
+        )
+        active_task = SimpleNamespace(
+            pk=ObjectId(),
+            project_id=project_id,
+            sprint_id=active_sprint.pk,
+            title="Review project changes",
+            status="IN_PROGRESS",
+            due_date="",
+            owner="member@example.com",
+        )
+
+        projects = MagicMock()
+        projects.find.return_value = [project]
+        goals = MagicMock()
+        goals.find.return_value = []
+        database = MagicMock()
+        database.__getitem__.side_effect = {
+            "projects": projects,
+            "goals": goals,
+        }.__getitem__
+        database.users.find_one.return_value = {
+            "_id": ObjectId(),
+            "name": "Team Member",
+            "username": "member",
+            "email": "member@example.com",
+        }
+        backlog_task_query = MagicMock()
+        backlog_task_query.select_related.return_value = [task]
+        active_task_query = MagicMock()
+        active_task_query.select_related.return_value = [active_task]
+
+        with (
+            patch(
+                "AppCore.Backlog.models.Sprint.objects.filter",
+                return_value=[sprint],
+            ),
+            patch(
+                "AppCore.ActiveSprint.models.Sprint.objects.filter",
+                return_value=[active_sprint],
+            ),
+            patch(
+                "AppCore.Backlog.models.Task.objects.filter",
+                return_value=backlog_task_query,
+            ),
+            patch(
+                "AppCore.ActiveSprint.models.Task.objects.filter",
+                return_value=active_task_query,
+            ),
+        ):
+            sync_goals_from_projects(database)
+            task.status = "Done"
+            sync_goals_from_projects(database)
+
+        task_updates = [
+            call.args[1]["$set"]
+            for call in goals.update_one.call_args_list
+            if call.args[1]["$set"].get("source_type") == "task"
+        ]
+        self.assertEqual(len(task_updates), 4)
+        self.assertEqual(task_updates[0]["progress"], 50)
+        self.assertEqual(task_updates[1]["progress"], 50)
+        self.assertEqual(task_updates[2]["progress"], 100)
+        self.assertEqual(task_updates[2]["status"], "achieved")
+        self.assertEqual(task_updates[3]["progress"], 50)
 
 
 class TeamGoalsUpdateTests(TestCase):

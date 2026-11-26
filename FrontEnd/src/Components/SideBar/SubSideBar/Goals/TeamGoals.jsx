@@ -47,6 +47,7 @@ const formatGoalDate = (value) => {
 function TeamGoals({ onSelectTab, onNavigateGoal, currentUser, viewMode = "team" }) {
   const [teamData, setTeamData] = useState({ teams: [], metrics: {} });
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [selectedTeam, setSelectedTeam] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -65,11 +66,14 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser, viewMode = "team"
 
   const loadData = async () => {
     setLoading(true);
+    setLoadError("");
     try {
       const data = await goalsApi.getTeamGoals();
       setTeamData(data);
     } catch (err) {
       console.error("[TeamGoals] Failed to load team goals:", err);
+      setTeamData({ teams: [], metrics: {} });
+      setLoadError("Unable to load goals from the server. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -291,7 +295,7 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser, viewMode = "team"
           </div>
           <div className="team-kpi-info">
             <span className="team-kpi-label">{isMyGoals ? "Active Projects" : "Active Departments"}</span>
-            <strong className="team-kpi-val">{teams.length || 5}</strong>
+            <strong className="team-kpi-val">{teams.length}</strong>
             <span className="team-kpi-sub">Collaborating teams</span>
           </div>
         </div>
@@ -303,10 +307,10 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser, viewMode = "team"
           <div className="team-kpi-info">
             <span className="team-kpi-label">{isMyGoals ? "Completed My Goals" : "Completed Team Goals"}</span>
             <strong className="team-kpi-val">
-              {metrics.completedGoals || 2}/{metrics.totalGoals || 12}
+              {metrics.completedGoals ?? 0}/{metrics.totalGoals ?? 0}
             </strong>
             <span className="team-kpi-sub">
-              {metrics.overallCompletionPercent || 17}% completion rate
+              {metrics.overallCompletionPercent ?? 0}% completion rate
             </span>
           </div>
         </div>
@@ -316,9 +320,9 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser, viewMode = "team"
             <TrendingUp size={20} />
           </div>
           <div className="team-kpi-info">
-            <span className="team-kpi-label">Execution Velocity</span>
-            <strong className="team-kpi-val">{metrics.overallAverageProgress || 72}%</strong>
-            <span className="team-kpi-sub">Avg sprint progress</span>
+            <span className="team-kpi-label">Average Goal Progress</span>
+            <strong className="team-kpi-val">{metrics.overallAverageProgress ?? 0}%</strong>
+            <span className="team-kpi-sub">Across listed goals</span>
           </div>
         </div>
 
@@ -365,6 +369,18 @@ function TeamGoals({ onSelectTab, onNavigateGoal, currentUser, viewMode = "team"
         <div className="team-loading-state">
           <div className="team-spinner" />
           <span>Loading Team Goals...</span>
+        </div>
+      ) : loadError ? (
+        <div className="team-empty-state" role="alert">
+          <h3>Unable to load goals</h3>
+          <p>{loadError}</p>
+          <button
+            type="button"
+            className="add-team-goal-hero-btn"
+            onClick={loadData}
+          >
+            Retry
+          </button>
         </div>
       ) : filteredTeams.length === 0 ? (
         <div className="team-empty-state">

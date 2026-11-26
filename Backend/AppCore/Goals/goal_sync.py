@@ -6,7 +6,7 @@ def _text(value):
 
 
 def _status_for_task(status):
-    normalized = _text(status).lower()
+    normalized = _text(status).lower().replace("_", " ").replace("-", " ")
     if normalized == "done":
         return "achieved", 100
     if normalized == "in review":
@@ -104,8 +104,7 @@ def sync_goals_from_projects(db):
     """Create and refresh automatic project, sprint, and task goals."""
     goals = db["goals"]
     projects = list(db["projects"].find({}))
-    sprints = list(db["sprints"].find({}))
-    tasks = list(db["tasks"].find({}))
+    sprints, tasks = _live_project_work(projects)
     now = datetime.now(timezone.utc)
     live_auto_ids = set()
 
@@ -239,3 +238,81 @@ def _resolve_task_owner(db, owner_value):
         "username": _text(user.get("username")),
         "id": str(user.get("_id", "")),
     }
+
+
+def _owner_document(owner):
+    if owner is None or isinstance(owner, (dict, str)):
+        return owner
+    full_name = ""
+    get_full_name = getattr(owner, "get_full_name", None)
+    if callable(get_full_name):
+        full_name = _text(get_full_name())
+    username = _text(getattr(owner, "username", ""))
+    email = _text(getattr(owner, "email", ""))
+    return {
+        "id": _text(getattr(owner, "pk", "")),
+        "name": full_name or _text(getattr(owner, "name", "")) or username or email,
+        "username": username,
+        "email": email,
+    }
+
+
+def _sprint_document(sprint):
+    return {
+        "_id": _text(getattr(sprint, "pk", "")),
+        "project_id": _text(getattr(sprint, "project_id", "")),
+        "name": _text(getattr(sprint, "name", "")),
+        "status": _text(getattr(sprint, "status", "")),
+        "end_date": _text(getattr(sprint, "end_date", "")),
+    }
+
+
+def _task_document(task):
+    return {
+        "_id": _text(getattr(task, "pk", "")),
+        "project_id": _text(getattr(task, "project_id", "")),
+        "sprint_id": _text(getattr(task, "sprint_id", "")),
+        "title": _text(getattr(task, "title", "")),
+        "status": _text(getattr(task, "status", "")),
+        "due_date": _text(getattr(task, "due_date", "")),
+        "owner": _owner_document(getattr(task, "owner", None)),
+    }
+
+
+def _live_project_work(projects):
+    if not projects:
+        return [], []
+
+    from AppCore.ActiveSprint.models import Sprint as ActiveSprint
+    from AppCore.ActiveSprint.models import Task as ActiveTask
+    from AppCore.Backlog.models import Sprint as BacklogSprint
+    from AppCore.Backlog.models import Task as BacklogTask
+
+    project_ids = {
+        _text(project.get("_id") or project.get("id") or project.get("key"))
+        for project in projects
+    }
+    project_ids.discard("")
+
+    backlog_sprints = list(
+        BacklogSprint.objects.filter(project_id__in=project_ids)
+    )
+    active_sprints = list(
+        ActiveSprint.objects.filter(project_id__in=project_ids)
+    )
+    backlog_sprint_ids = [sprint.pk for sprint in backlog_sprints]
+    active_sprint_ids = [sprint.pk for sprint in active_sprints]
+
+    backlog_tasks = list(
+        BacklogTask.objects.filter(sprint_id__in=backlog_sprint_ids)
+        .select_related("sprint", "owner")
+    )
+    active_tasks = list(
+        ActiveTask.objects.filter(sprint_id__in=active_sprint_ids)
+        .select_related("sprint")
+    )
+
+    return (
+        [_sprint_document(sprint) for sprint in backlog_sprints + active_sprints],
+        [_task_document(task) for task in backlog_tasks + active_tasks],
+    )

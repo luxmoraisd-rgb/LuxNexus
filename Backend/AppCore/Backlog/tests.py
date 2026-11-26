@@ -490,6 +490,34 @@ class AgileBoardAPITests(TestCase):
         database.board_assets.delete_many.assert_called_once_with(
             {"task_id": {"$in": [str(project_task.id)]}}
         )
+        database.goals.delete_many.assert_called_once()
+        goal_cleanup_query = database.goals.delete_many.call_args.args[0]
+        self.assertTrue(goal_cleanup_query["auto_goal"])
+        self.assertIn(
+            {
+                "source_type": "project",
+                "source_id": {"$in": [project_id]},
+            },
+            goal_cleanup_query["$or"],
+        )
+        self.assertIn(
+            {
+                "source_type": "sprint",
+                "source_id": {
+                    "$in": [str(project_sprint.id), str(active_sprint.id)],
+                },
+            },
+            goal_cleanup_query["$or"],
+        )
+        self.assertIn(
+            {
+                "source_type": "task",
+                "source_id": {
+                    "$in": [str(project_task.id), str(active_task.id)],
+                },
+            },
+            goal_cleanup_query["$or"],
+        )
         gridfs_bucket.return_value.delete.assert_called_once_with(gridfs_id)
 
     def test_member_cannot_create_tasks_or_sprints_or_complete_sprints(self):

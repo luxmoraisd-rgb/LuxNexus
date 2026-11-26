@@ -63,10 +63,7 @@ class GoalViewSet(viewsets.ViewSet):
 
     def list(self, request):
         """List goals with optional filters, sorting and pagination."""
-        try:
-            sync_goals_from_projects(db)
-        except Exception:
-            pass
+        sync_goals_from_projects(db)
         filters = {}
 
         for field in ("status", "team", "accountable_team", "owner", "time_period", "timePeriod"):

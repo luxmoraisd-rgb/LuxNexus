@@ -92,6 +92,7 @@ def delete_project_data(database, project):
         | Q(project_id="", sprint_id__in=active_sprint_ids)
     )
     backlog_task_ids = [str(task_id) for task_id in backlog_tasks.values_list("id", flat=True)]
+    active_task_ids = [str(task_id) for task_id in active_tasks.values_list("id", flat=True)]
     if backlog_task_ids:
         assets = list(
             database.board_assets.find({"task_id": {"$in": backlog_task_ids}})
@@ -118,6 +119,21 @@ def delete_project_data(database, project):
         active_tasks.delete()
         backlog_sprints.delete()
         active_sprints.delete()
+
+    goal_sources = [
+        {"source_type": "project", "source_id": {"$in": list(project_ids)}},
+        {
+            "source_type": "sprint",
+            "source_id": {
+                "$in": [str(sprint_id) for sprint_id in backlog_sprint_ids + active_sprint_ids]
+            },
+        },
+        {
+            "source_type": "task",
+            "source_id": {"$in": backlog_task_ids + active_task_ids},
+        },
+    ]
+    database.goals.delete_many({"auto_goal": True, "$or": goal_sources})
 
     project_refs = list(project_ids)
     project_refs.extend(

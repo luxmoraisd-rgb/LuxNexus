@@ -26,10 +26,7 @@ class TeamGoalsView(APIView):
         return [AllowAny()]
 
     def get(self, request):
-        try:
-            sync_goals_from_projects(db)
-        except Exception:
-            pass
+        sync_goals_from_projects(db)
         cursor = list(self.goals_collection.find({}))
 
         # Group goals by team
